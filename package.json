@@ -1,0 +1,47 @@
+{
+  "name": "atp-template",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Plantilla base de ATP: panel + agente (orquestador + evaluator) + harness de evals + notificaciones por email. Clonar para cada cliente nuevo y customizar prompts/KB/brand/features.",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "dev": "next dev -p 3102",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "eval": "tsx scripts/evals/run.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.98.0",
+    "@supabase/ssr": "0.10.3",
+    "@supabase/supabase-js": "2.106.0",
+    "date-fns": "4.2.1",
+    "geist": "^1.7.1",
+    "lucide-react": "1.16.0",
+    "next": "15.5.18",
+    "nodemailer": "^7.0.0",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "react-hot-toast": "2.6.0",
+    "server-only": "^0.0.1",
+    "tsx": "^4.22.3",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.5",
+    "@types/node": "^22.10.0",
+    "@types/nodemailer": "^6.4.17",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "autoprefixer": "^10.4.21",
+    "eslint": "^9.18.0",
+    "eslint-config-next": "15.5.18",
+    "playwright": "^1.60.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "3.4.19",
+    "typescript": "^5.7.3"
+  }
+}

@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  color-scheme: light;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+html.dark {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  @apply bg-white text-neutral-900 antialiased dark:bg-neutral-950 dark:text-neutral-50;
+  font-feature-settings: "cv11", "ss01", "ss03";
+}
+
+/* Selección de texto con tono sobrio. */
+::selection {
+  background: rgba(229, 229, 229, 0.85);
+  color: rgb(23, 23, 23);
+}
+.dark ::selection {
+  background: rgba(64, 64, 64, 0.9);
+  color: rgb(245, 245, 245);
+}
+
+/* Scrollbar discreta para paneles con scroll. */
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(212, 212, 212, 0.7) transparent;
+}
+.dark .scroll-thin {
+  scrollbar-color: rgba(64, 64, 64, 0.9) transparent;
+}
+.scroll-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background-color: rgba(212, 212, 212, 0.7);
+  border-radius: 4px;
+}
+.dark .scroll-thin::-webkit-scrollbar-thumb {
+  background-color: rgba(64, 64, 64, 0.9);
+}
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Pulso de highlight cuando se hace scroll a un mensaje desde el panel de
+   comentarios. Dura 1.5s y se quita por JS. Tonalidad neutral, sin violet. */
+.highlight-message {
+  animation: messageHighlight 1.5s ease-out;
+}
+@keyframes messageHighlight {
+  0% {
+    background-color: rgba(163, 163, 163, 0.22);
+  }
+  60% {
+    background-color: rgba(163, 163, 163, 0.12);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
