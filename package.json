@@ -1,13 +1,13 @@
 {
-  "name": "atp-template",
+  "name": "atp-vanesaruas",
   "version": "0.1.0",
   "private": true,
-  "description": "Plantilla base de ATP: panel + agente (orquestador + evaluator) + harness de evals + notificaciones por email. Clonar para cada cliente nuevo y customizar prompts/KB/brand/features.",
+  "description": "Vanesa Rúas Formación Profesional — asistente IA en WhatsApp (via GoHighLevel) + validación de pagos + dashboards por evento (masterclass / Skin Intellectuals Congress). Basado en atp-template.",
   "engines": {
     "node": ">=20.9.0"
   },
   "scripts": {
-    "dev": "next dev -p 3102",
+    "dev": "next dev -p 3103",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
