@@ -254,16 +254,16 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
   //    el ultimo feedback del evaluator para que el admin entienda que
   //    seguia fallando.
   const category: NotificationCategory = "fuera_de_conocimiento";
+  // Reason: tecnico, va al log/agent_notifications (no a la notificacion humana).
   const reason = `Agente bloqueado: el evaluator rechazo ${iterationsRun} veces seguidas.`;
+  // Summary: lo lee la persona que toma la conversacion en el panel y en el
+  // email. Sin jerga interna ("evaluator", "iteraciones", "feedback"): solo
+  // que la IA no pudo responder y que requiere respuesta humana directa.
   const summary = [
     `Consulta del cliente: "${input.userMessage}"`,
     "",
-    `El agente intento responder ${iterationsRun} veces y el evaluator rechazo cada intento.`,
-    evaluatorFeedback
-      ? `Ultimo feedback del evaluator: ${evaluatorFeedback}`
-      : "Sin feedback registrado.",
-    "",
-    "Requiere respuesta directa de un asesor humano.",
+    "El agente no pudo responder esta consulta con la base de conocimiento " +
+      "actual y la conversación necesita una respuesta directa del equipo.",
   ].join("\n");
   const escalationIsNew = await recordNotification({
     traceId,

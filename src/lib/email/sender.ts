@@ -51,6 +51,68 @@ function humanizeCategory(c: string): string {
     .join(" ");
 }
 
+// Encabezado del email + asunto adaptado a la categoría. El operador que
+// lo lee tiene que entender de UN vistazo qué pasó sin jerga técnica ni
+// rótulos engañosos ("Nueva notificación" cuando en realidad es una
+// consulta que la IA no supo responder).
+//
+// - eyebrow: línea chiquita encima de la categoría, mono mayúsculas.
+// - subjectPrefix: lo que va antes del nombre de la categoría en el subject.
+// - summaryHeading: el label de la sección "qué pasó" en el cuerpo.
+//
+// Los clientes que tengan categorías propias (interes_compra,
+// arquitecto_desarrollador, etc.) las suman a esta tabla. Default seguro
+// para categorías desconocidas: "Conversación a revisar".
+const CATEGORY_PRESENTATION: Record<
+  string,
+  { eyebrow: string; subjectPrefix: string; summaryHeading: string }
+> = {
+  interes_compra: {
+    eyebrow: "Nuevo lead",
+    subjectPrefix: "Nuevo lead",
+    summaryHeading: "Resumen del agente",
+  },
+  visita_obra: {
+    eyebrow: "Pedido de visita",
+    subjectPrefix: "Pedido de visita",
+    summaryHeading: "Resumen del agente",
+  },
+  consulta_financiacion: {
+    eyebrow: "Consulta de financiación",
+    subjectPrefix: "Consulta de financiación",
+    summaryHeading: "Resumen del agente",
+  },
+  cliente_existente: {
+    eyebrow: "Cliente existente",
+    subjectPrefix: "Cliente existente",
+    summaryHeading: "Resumen del agente",
+  },
+  fuera_de_conocimiento: {
+    eyebrow: "Consulta para responder",
+    subjectPrefix: "Consulta para responder",
+    summaryHeading: "Resumen de la conversación",
+  },
+  escalado_manual: {
+    eyebrow: "Conversación a revisar",
+    subjectPrefix: "Conversación a revisar",
+    summaryHeading: "Resumen de la conversación",
+  },
+};
+
+function presentation(c: string): {
+  eyebrow: string;
+  subjectPrefix: string;
+  summaryHeading: string;
+} {
+  return (
+    CATEGORY_PRESENTATION[c] ?? {
+      eyebrow: "Conversación a revisar",
+      subjectPrefix: "Conversación a revisar",
+      summaryHeading: "Resumen de la conversación",
+    }
+  );
+}
+
 function buildConversationUrl(p: TeamNotificationPayload): string {
   const base = clientEnv.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
   // Por defecto el template solo tiene /conversations. Clientes con
@@ -63,6 +125,7 @@ function buildConversationUrl(p: TeamNotificationPayload): string {
 function buildHtml(p: TeamNotificationPayload): string {
   const url = buildConversationUrl(p);
   const category = humanizeCategory(p.category);
+  const pres = presentation(p.category);
   const summary = p.summary?.trim() ?? "Sin resumen.";
   const base = clientEnv.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
   const logoUrl = `${base}/brand-logo.png`;
@@ -82,7 +145,7 @@ function buildHtml(p: TeamNotificationPayload): string {
           <tr>
             <td align="center" style="padding:24px 24px 12px 24px;">
               <p style="margin:0;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#737373;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">
-                Nueva notificación
+                ${pres.eyebrow}
               </p>
               <h1 style="margin:8px 0 0 0;font-size:18px;font-weight:500;letter-spacing:-0.015em;color:#fafafa;">
                 ${category}
@@ -97,7 +160,7 @@ function buildHtml(p: TeamNotificationPayload): string {
           <tr>
             <td align="center" style="padding:18px 24px;font-size:13px;color:#d4d4d4;line-height:1.6;">
               <p style="margin:0 0 6px 0;">
-                <span style="color:#737373;font-size:11px;text-transform:uppercase;letter-spacing:0.06em;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">Resumen del agente</span><br/>
+                <span style="color:#737373;font-size:11px;text-transform:uppercase;letter-spacing:0.06em;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">${pres.summaryHeading}</span><br/>
                 <span style="color:#e5e5e5;">${summary.replace(/\n/g, "<br/>")}</span>
               </p>
             </td>
@@ -123,10 +186,11 @@ function buildHtml(p: TeamNotificationPayload): string {
 function buildText(p: TeamNotificationPayload): string {
   const url = buildConversationUrl(p);
   const category = humanizeCategory(p.category);
+  const pres = presentation(p.category);
   return [
-    `Nueva notificación — ${category}`,
+    `${pres.eyebrow} — ${category}`,
     "",
-    "Resumen del agente:",
+    `${pres.summaryHeading}:`,
     p.summary?.trim() ?? "Sin resumen.",
     "",
     `Ver conversación: ${url}`,
@@ -151,10 +215,11 @@ export async function sendTeamNotificationAlert(
   }
 
   try {
+    const pres = presentation(payload.category);
     await transporter.sendMail({
       from: env.GMAIL_USER,
       to,
-      subject: `Nueva notificación: ${humanizeCategory(payload.category)}`,
+      subject: `${pres.subjectPrefix}: ${humanizeCategory(payload.category)}`,
       text: buildText(payload),
       html: buildHtml(payload),
     });
