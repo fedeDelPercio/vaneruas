@@ -91,7 +91,7 @@ export function MessageBubble({
   // ícono con acento warn, fondo neutral (sin card amarilla).
   if (message.role === "system") {
     return (
-      <div className="flex justify-center py-3">
+      <div id={`message-${message.id}`} className="flex justify-center py-3">
         <div className="flex max-w-[92%] items-center gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-[11.5px] tracking-tight-er text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400">
           <Bell className="h-3 w-3 shrink-0 text-warn" strokeWidth={1.75} />
           <span>{message.content}</span>

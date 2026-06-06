@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { MessageSquare, Loader2, Menu, Pencil } from "lucide-react";
 import toast from "react-hot-toast";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -46,6 +47,19 @@ export function ConversationPanel({
   const [thinking, setThinking] = useState(false);
   const [loading, setLoading] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Deep link desde el tab Feedback: ?highlight=msgId hace scroll al mensaje
+  // comentado y le aplica un flash de fondo por 2.5s. Una sola vez por
+  // navegación; si el usuario vuelve atrás/adelante y cambia el param, se
+  // vuelve a disparar.
+  const searchParams = useSearchParams();
+  const highlightMsgId = searchParams.get("highlight");
+  const highlightedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    // Reset al cambiar de conversación o de target para permitir re-disparo.
+    highlightedRef.current = null;
+  }, [conversationId, highlightMsgId]);
 
   // Edit inline del display_name. Cancelacion via Escape o blur (escapeRef
   // marca que el blur viene de un cancel y no debe disparar save).
@@ -258,6 +272,34 @@ export function ConversationPanel({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, thinking]);
+
+  // Highlight effect: cuando entramos con ?highlight=msgId desde el tab
+  // Feedback, esperamos a que carguen los mensajes, scrolleamos al
+  // mensaje y le aplicamos un flash de fondo por 2.5s.
+  useEffect(() => {
+    if (!highlightMsgId || loading) return;
+    if (highlightedRef.current === highlightMsgId) return;
+    const found = messages.find((m) => m.id === highlightMsgId);
+    if (!found) return;
+    highlightedRef.current = highlightMsgId;
+
+    const t = setTimeout(() => {
+      const el = document.getElementById(`message-${highlightMsgId}`);
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      const prevBg = el.style.backgroundColor;
+      const prevTransition = el.style.transition;
+      el.style.transition = "background-color 0.5s ease-out";
+      el.style.backgroundColor = "rgba(245, 158, 11, 0.14)"; // warn-ish tint
+      setTimeout(() => {
+        el.style.backgroundColor = prevBg;
+        setTimeout(() => {
+          el.style.transition = prevTransition;
+        }, 600);
+      }, 2500);
+    }, 120);
+    return () => clearTimeout(t);
+  }, [highlightMsgId, loading, messages]);
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col bg-white dark:bg-neutral-950">

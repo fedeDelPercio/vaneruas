@@ -3,7 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { ChevronDown, MessagesSquare, Webhook, LogOut, MessageCircle } from "lucide-react";
+import {
+  ChevronDown,
+  MessagesSquare,
+  Webhook,
+  LogOut,
+  MessageCircle,
+  Inbox,
+} from "lucide-react";
 import { useProfile } from "./ProfileProvider";
 import { Avatar } from "./Avatar";
 import { ThemeToggle } from "./ThemeToggle";
@@ -15,6 +22,7 @@ import { BrandLogo } from "./BrandLogo";
 const TABS = [
   { href: "/conversations", label: "Testing", icon: MessagesSquare, devOnly: false },
   { href: "/wa", label: "WhatsApp", icon: MessageCircle, devOnly: true },
+  { href: "/feedback", label: "Feedback", icon: Inbox, devOnly: false },
   { href: "/webhooks", label: "Webhooks", icon: Webhook, devOnly: true },
 ];
 
