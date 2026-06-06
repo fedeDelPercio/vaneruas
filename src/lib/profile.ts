@@ -47,3 +47,51 @@ export function clearStoredProfile(): void {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(PROFILE_KEY);
 }
+
+// ===========================================================================
+// Access control por rol.
+//
+// Cada ruta del dashboard declara qué roles la pueden ver. La tabla es la
+// SSOT: la usan DashboardHeader (para filtrar tabs) y el layout (para
+// rebotar si el rol logueado entra por URL directa).
+//
+// Roles:
+//   - dev    -> todo (panel completo + Webhooks)
+//   - client -> testing + feedback (operación del cliente)
+//   - asesor -> WhatsApp (gestiona conversaciones reales)
+//
+// Cuando un cliente clone este template y sume módulos propios (ej. /leads
+// en Quintaglia), tiene que agregar las rutas correspondientes a esta tabla.
+// ===========================================================================
+
+const ROLE_ACCESS: Record<string, ProfileRole[]> = {
+  "/conversations": ["dev", "client"],
+  "/wa": ["dev", "asesor"],
+  "/feedback": ["dev", "client"],
+  "/webhooks": ["dev"],
+};
+
+/**
+ * Devuelve true si `role` puede entrar a una ruta cuyo path empieza con
+ * cualquiera de las keys de ROLE_ACCESS. Rutas no listadas se consideran
+ * abiertas.
+ */
+export function canAccess(role: ProfileRole, path: string): boolean {
+  for (const [prefix, allowed] of Object.entries(ROLE_ACCESS)) {
+    if (path.startsWith(prefix)) return allowed.includes(role);
+  }
+  return true;
+}
+
+/** Ruta a la que mandar al usuario sin destino válido. */
+export function defaultRouteForRole(role: ProfileRole): string {
+  if (role === "asesor") return "/wa";
+  return "/conversations";
+}
+
+/** Etiqueta humana del rol (para la UI). */
+export function roleLabel(role: ProfileRole): string {
+  if (role === "dev") return "Desarrollador";
+  if (role === "asesor") return "Asesor";
+  return "Cliente";
+}

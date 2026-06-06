@@ -6,6 +6,7 @@ import { UserPlus, Loader2, ChevronRight, X } from "lucide-react";
 import { useProfile } from "./ProfileProvider";
 import { Avatar } from "./Avatar";
 import type { Profile, ProfileRole } from "@/lib/supabase/types";
+import { roleLabel } from "@/lib/profile";
 
 // Pantalla "¿Quién sos?": se muestra cuando no hay perfil en localStorage.
 
@@ -119,7 +120,7 @@ export function ProfileGate() {
                         {p.name}
                       </p>
                       <p className="mt-0.5 font-mono text-[10.5px] uppercase tracking-wide text-neutral-500 dark:text-neutral-500">
-                        {p.role === "dev" ? "Desarrollador" : "Cliente"}
+                        {roleLabel(p.role as ProfileRole)}
                       </p>
                     </div>
                     <ChevronRight
@@ -182,18 +183,18 @@ export function ProfileGate() {
                   placeholder="Tu nombre"
                   className="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-[13px] outline-none transition focus:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-neutral-600"
                 />
-                <div className="grid grid-cols-2 gap-2">
-                  {(["client", "dev"] as ProfileRole[]).map((r) => (
+                <div className="grid grid-cols-3 gap-2">
+                  {(["client", "asesor", "dev"] as ProfileRole[]).map((r) => (
                     <button
                       key={r}
                       onClick={() => setRole(r)}
-                      className={`rounded-lg border px-3 py-2 text-[13px] transition ${
+                      className={`rounded-lg border px-2 py-2 text-[12.5px] transition ${
                         role === r
                           ? "border-neutral-900 bg-neutral-900 font-medium text-white dark:border-neutral-50 dark:bg-neutral-50 dark:text-neutral-950"
                           : "border-neutral-200 text-neutral-600 hover:border-neutral-300 hover:bg-neutral-50 dark:border-neutral-800 dark:text-neutral-300 dark:hover:border-neutral-700 dark:hover:bg-neutral-900"
                       }`}
                     >
-                      {r === "dev" ? "Desarrollador" : "Cliente"}
+                      {roleLabel(r)}
                     </button>
                   ))}
                 </div>

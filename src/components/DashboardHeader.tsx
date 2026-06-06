@@ -15,15 +15,23 @@ import { useProfile } from "./ProfileProvider";
 import { Avatar } from "./Avatar";
 import { ThemeToggle } from "./ThemeToggle";
 import { BrandLogo } from "./BrandLogo";
+import { roleLabel } from "@/lib/profile";
+import type { ProfileRole } from "@/lib/supabase/types";
 
 // Header del dashboard: tabs de navegación + tema + perfil activo.
-// El tab "Webhooks" y "WhatsApp" solo se muestran a perfiles con role 'dev'.
+// Cada tab declara qué roles pueden verla. Espejo de la tabla ROLE_ACCESS
+// en src/lib/profile.ts — las dos tienen que quedar alineadas.
 
-const TABS = [
-  { href: "/conversations", label: "Testing", icon: MessagesSquare, devOnly: false },
-  { href: "/wa", label: "WhatsApp", icon: MessageCircle, devOnly: true },
-  { href: "/feedback", label: "Feedback", icon: Inbox, devOnly: false },
-  { href: "/webhooks", label: "Webhooks", icon: Webhook, devOnly: true },
+const TABS: Array<{
+  href: string;
+  label: string;
+  icon: typeof MessagesSquare;
+  roles: ProfileRole[];
+}> = [
+  { href: "/conversations", label: "Testing", icon: MessagesSquare, roles: ["dev", "client"] },
+  { href: "/wa", label: "WhatsApp", icon: MessageCircle, roles: ["dev", "asesor"] },
+  { href: "/feedback", label: "Feedback", icon: Inbox, roles: ["dev", "client"] },
+  { href: "/webhooks", label: "Webhooks", icon: Webhook, roles: ["dev"] },
 ];
 
 export function DashboardHeader() {
@@ -44,7 +52,7 @@ export function DashboardHeader() {
           Agentic&nbsp;Panel
         </Link>
         <nav className="-mb-px flex items-center">
-          {TABS.filter((t) => !t.devOnly || profile.role === "dev").map((tab) => {
+          {TABS.filter((t) => t.roles.includes(profile.role)).map((tab) => {
             const active = pathname.startsWith(tab.href);
             const Icon = tab.icon;
             return (
@@ -95,7 +103,7 @@ export function DashboardHeader() {
                       {profile.name}
                     </p>
                     <p className="text-[11px] text-neutral-500 dark:text-neutral-500">
-                      {profile.role === "dev" ? "Desarrollador" : "Cliente"}
+                      {roleLabel(profile.role)}
                     </p>
                   </div>
                 </div>

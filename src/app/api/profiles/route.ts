@@ -18,7 +18,7 @@ export async function GET() {
 
 const createSchema = z.object({
   name: z.string().min(1).max(80),
-  role: z.enum(["dev", "client"]),
+  role: z.enum(["dev", "client", "asesor"]),
 });
 
 // POST /api/profiles — crea un perfil.
