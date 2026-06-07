@@ -3,6 +3,8 @@ import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { serverEnv } from "@/lib/env";
 import { runAgent } from "@/lib/agent/run";
 import { testProvider } from "@/lib/providers/test-provider";
+import { handlePaymentComprobante } from "@/lib/payments/register";
+import { isAllowedComprobanteType } from "@/lib/payments/storage";
 import type { HistoryMessage } from "@/lib/agent/types";
 import type { AgentJob } from "@/lib/supabase/types";
 
@@ -86,6 +88,36 @@ export async function POST(req: NextRequest) {
 /** Procesa un job: corre el agente y persiste la respuesta. */
 async function processJob(job: AgentJob): Promise<void> {
   const supabase = getSupabaseServerClient();
+
+  // Comprobante de pago: si el mensaje trae una imagen/PDF adjunto, corre el
+  // flujo de captura de pago (lee con vision, registra en payment_validations,
+  // avisa al equipo, confirma a la profesional) y termina. No pasa por el
+  // orquestador/KB. Se hace antes del freeze guard para capturar el pago
+  // aunque un asesor haya tomado la conversación.
+  const { data: attachMsg } = await supabase
+    .from("messages")
+    .select("content, attachment_path, attachment_type")
+    .eq("id", job.user_message_id)
+    .maybeSingle();
+
+  if (
+    attachMsg?.attachment_path &&
+    attachMsg.attachment_type &&
+    isAllowedComprobanteType(attachMsg.attachment_type)
+  ) {
+    await handlePaymentComprobante({
+      conversationId: job.conversation_id,
+      messageId: job.user_message_id,
+      attachmentPath: attachMsg.attachment_path,
+      attachmentType: attachMsg.attachment_type,
+      caption: attachMsg.content,
+    });
+    await supabase
+      .from("agent_jobs")
+      .update({ status: "completed", completed_at: new Date().toISOString() })
+      .eq("id", job.id);
+    return;
+  }
 
   // Freeze guard: el agente se calla SOLO si un asesor humano tomó el
   // control de la conversación (modo HUMAN). Una notificación al equipo por

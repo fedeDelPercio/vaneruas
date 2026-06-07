@@ -10,6 +10,7 @@ import {
   LogOut,
   MessageCircle,
   Inbox,
+  Receipt,
 } from "lucide-react";
 import { useProfile } from "./ProfileProvider";
 import { Avatar } from "./Avatar";
@@ -31,6 +32,7 @@ const TABS: Array<{
   { href: "/conversations", label: "Testing", icon: MessagesSquare, roles: ["dev", "client"] },
   { href: "/wa", label: "WhatsApp", icon: MessageCircle, roles: ["dev", "asesor"] },
   { href: "/feedback", label: "Feedback", icon: Inbox, roles: ["dev", "client"] },
+  { href: "/payments", label: "Pagos", icon: Receipt, roles: ["dev", "client", "asesor"] },
   { href: "/webhooks", label: "Webhooks", icon: Webhook, roles: ["dev"] },
 ];
 

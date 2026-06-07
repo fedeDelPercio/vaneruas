@@ -70,6 +70,9 @@ const serverSchema = z.object({
   ANTHROPIC_MODEL_ORCHESTRATOR: z.string().default("claude-sonnet-4-6"),
   ANTHROPIC_MODEL_SUBAGENT: z.string().default("claude-haiku-4-5"),
   ANTHROPIC_MODEL_EVALUATOR: z.string().default("claude-haiku-4-5"),
+  // Modelo para OCR de comprobantes (Claude vision). Sonnet tiene buena
+  // lectura de documentos; se puede sobre-escribir por env si hace falta.
+  ANTHROPIC_MODEL_VISION: z.string().default("claude-sonnet-4-6"),
   AGENT_MAX_ITERATIONS: z.coerce.number().int().positive().default(3),
   AGENT_TIMEOUT_MS: z.coerce.number().int().positive().default(60000),
   CRON_SECRET: z.string().min(1, "CRON_SECRET es obligatoria"),
@@ -104,6 +107,7 @@ export function serverEnv(): ServerEnv {
     ANTHROPIC_MODEL_ORCHESTRATOR: process.env.ANTHROPIC_MODEL_ORCHESTRATOR,
     ANTHROPIC_MODEL_SUBAGENT: process.env.ANTHROPIC_MODEL_SUBAGENT,
     ANTHROPIC_MODEL_EVALUATOR: process.env.ANTHROPIC_MODEL_EVALUATOR,
+    ANTHROPIC_MODEL_VISION: process.env.ANTHROPIC_MODEL_VISION,
     AGENT_MAX_ITERATIONS: process.env.AGENT_MAX_ITERATIONS,
     AGENT_TIMEOUT_MS: process.env.AGENT_TIMEOUT_MS,
     CRON_SECRET: process.env.CRON_SECRET,

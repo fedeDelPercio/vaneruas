@@ -41,6 +41,8 @@ export interface TeamNotificationPayload {
   conversationId: string;
   /** "test", "whatsapp", etc. Determina el path del deep link al panel. */
   conversationSource: string | null;
+  /** Id del comprobante (categoría validacion_pago): deep link a /payments. */
+  paymentId?: string | null;
 }
 
 /** Humaniza una categoría snake_case en algo legible para el email. */
@@ -97,6 +99,11 @@ const CATEGORY_PRESENTATION: Record<
     subjectPrefix: "Conversación a revisar",
     summaryHeading: "Resumen de la conversación",
   },
+  validacion_pago: {
+    eyebrow: "Comprobante de pago",
+    subjectPrefix: "Comprobante de pago",
+    summaryHeading: "Datos del comprobante",
+  },
 };
 
 function presentation(c: string): {
@@ -113,8 +120,13 @@ function presentation(c: string): {
   );
 }
 
-function buildConversationUrl(p: TeamNotificationPayload): string {
+function buildActionUrl(p: TeamNotificationPayload): string {
   const base = clientEnv.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+  // Comprobantes de pago: el equipo entra directo a /payments a aprobar o
+  // rechazar (con el id para resaltar el comprobante puntual).
+  if (p.category === "validacion_pago") {
+    return p.paymentId ? `${base}/payments?id=${p.paymentId}` : `${base}/payments`;
+  }
   // Por defecto el template solo tiene /conversations. Clientes con
   // WhatsApp (que monten src/app/(dashboard)/wa) deep-linkean a /wa si
   // la conversación es de ese canal.
@@ -122,8 +134,15 @@ function buildConversationUrl(p: TeamNotificationPayload): string {
   return `${base}${path}?id=${p.conversationId}`;
 }
 
+/** Texto del botón CTA según la categoría. */
+function ctaLabel(category: string): string {
+  return category === "validacion_pago"
+    ? "Aprobar o rechazar el pago"
+    : "Ver conversación";
+}
+
 function buildHtml(p: TeamNotificationPayload): string {
-  const url = buildConversationUrl(p);
+  const url = buildActionUrl(p);
   const category = humanizeCategory(p.category);
   const pres = presentation(p.category);
   const summary = p.summary?.trim() ?? "Sin resumen.";
@@ -168,7 +187,7 @@ function buildHtml(p: TeamNotificationPayload): string {
           <tr>
             <td align="center" style="padding:12px 24px 28px 24px;">
               <a href="${url}" style="display:inline-block;background:#fafafa;color:#0a0a0a;text-decoration:none;font-size:13px;font-weight:500;padding:10px 18px;border-radius:6px;">
-                Ver conversación
+                ${ctaLabel(p.category)}
               </a>
             </td>
           </tr>
@@ -184,7 +203,7 @@ function buildHtml(p: TeamNotificationPayload): string {
 }
 
 function buildText(p: TeamNotificationPayload): string {
-  const url = buildConversationUrl(p);
+  const url = buildActionUrl(p);
   const category = humanizeCategory(p.category);
   const pres = presentation(p.category);
   return [
@@ -193,7 +212,7 @@ function buildText(p: TeamNotificationPayload): string {
     `${pres.summaryHeading}:`,
     p.summary?.trim() ?? "Sin resumen.",
     "",
-    `Ver conversación: ${url}`,
+    `${ctaLabel(p.category)}: ${url}`,
   ].join("\n");
 }
 

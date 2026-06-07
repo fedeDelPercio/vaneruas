@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { ChevronRight, Bell } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { ChevronRight, Bell, FileText } from "lucide-react";
 import type { Message, CommentKind } from "@/lib/supabase/types";
 import type { ViewMode } from "@/lib/profile";
 import { MessageTrace } from "./MessageTrace";
@@ -60,6 +60,80 @@ function renderWithLinks(content: string, isUser: boolean): ReactNode {
     parts.push(content.slice(lastIndex));
   }
   return parts.length > 0 ? parts : content;
+}
+
+/**
+ * Adjunto de un mensaje (comprobante de pago). El bucket es privado, así que
+ * pedimos una signed URL de vida corta al endpoint y renderizamos la imagen
+ * (o un link si es PDF).
+ */
+function ComprobanteAttachment({
+  path,
+  type,
+}: {
+  path: string;
+  type: string | null;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/comprobantes/signed-url?path=${encodeURIComponent(path)}`,
+        );
+        const data = await res.json();
+        if (active && res.ok && data.url) setUrl(data.url as string);
+        else if (active) setFailed(true);
+      } catch {
+        if (active) setFailed(true);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [path]);
+
+  const isPdf = type === "application/pdf";
+
+  if (failed) {
+    return (
+      <div className="mb-2 flex items-center gap-1.5 text-[11.5px] text-neutral-400">
+        <FileText className="h-3.5 w-3.5" strokeWidth={1.75} />
+        Comprobante adjunto
+      </div>
+    );
+  }
+  if (!url) {
+    return (
+      <div className="mb-2 h-32 w-44 animate-pulse rounded-md bg-neutral-200 dark:bg-neutral-800" />
+    );
+  }
+  if (isPdf) {
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mb-2 flex items-center gap-1.5 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-[12px] text-neutral-700 transition hover:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800"
+      >
+        <FileText className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+        Ver comprobante (PDF)
+      </a>
+    );
+  }
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer" className="block">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={url}
+        alt="Comprobante de pago"
+        className="mb-2 max-h-64 w-auto rounded-md border border-neutral-200 object-contain dark:border-neutral-800"
+      />
+    </a>
+  );
 }
 
 export function MessageBubble({
@@ -151,7 +225,13 @@ export function MessageBubble({
               : "rounded-bl-sm border border-neutral-200 bg-white text-neutral-800 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
           }`}
         >
-          {renderWithLinks(message.content, isUser)}
+          {message.attachment_path && (
+            <ComprobanteAttachment
+              path={message.attachment_path}
+              type={message.attachment_type}
+            />
+          )}
+          {message.content.trim() && renderWithLinks(message.content, isUser)}
         </div>
 
         <div

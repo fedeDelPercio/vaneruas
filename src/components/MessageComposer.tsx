@@ -2,7 +2,11 @@
 
 import { useRef, useState } from "react";
 import toast from "react-hot-toast";
-import { ArrowUp, Loader2, Mic, Square } from "lucide-react";
+import { ArrowUp, Loader2, Mic, Paperclip, Square, X } from "lucide-react";
+
+// Tipos de comprobante aceptados (espejo de ALLOWED_COMPROBANTE_TYPES del server).
+const ACCEPTED_ATTACHMENT = "image/jpeg,image/png,image/webp,image/gif,application/pdf";
+const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 
 // Composer del panel. Manda el mensaje al webhook entrante (igual que haria
 // WhatsApp en fase 2). La respuesta del agente llega por Realtime.
@@ -16,19 +20,57 @@ export function MessageComposer({ conversationId }: { conversationId: string }) 
   const [sending, setSending] = useState(false);
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  function pickFile(selected: File | null) {
+    if (!selected) return;
+    if (!ACCEPTED_ATTACHMENT.split(",").includes(selected.type)) {
+      toast.error("Formato no soportado. Subí una imagen o un PDF.");
+      return;
+    }
+    if (selected.size > MAX_ATTACHMENT_BYTES) {
+      toast.error("El archivo es muy grande (máx 8 MB).");
+      return;
+    }
+    setFile(selected);
+  }
 
   async function send() {
     const content = text.trim();
-    if (!content || sending) return;
+    if ((!content && !file) || sending) return;
     setSending(true);
     try {
+      // Si hay un comprobante adjunto, primero lo subimos al bucket privado.
+      let attachmentPath: string | undefined;
+      let attachmentType: string | undefined;
+      if (file) {
+        const form = new FormData();
+        form.append("file", file);
+        form.append("conversationId", conversationId);
+        const up = await fetch("/api/comprobantes/upload", { method: "POST", body: form });
+        const upData = await up.json();
+        if (!up.ok) {
+          toast.error(upData.error ?? "No se pudo subir el comprobante");
+          return;
+        }
+        attachmentPath = upData.path;
+        attachmentType = upData.type;
+      }
+
       const res = await fetch("/api/webhooks/incoming", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ conversationId, content, source: "panel" }),
+        body: JSON.stringify({
+          conversationId,
+          content,
+          source: "panel",
+          attachmentPath,
+          attachmentType,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -36,6 +78,7 @@ export function MessageComposer({ conversationId }: { conversationId: string }) 
         return;
       }
       setText("");
+      setFile(null);
     } catch {
       toast.error("Error de red al enviar el mensaje");
     } finally {
@@ -111,11 +154,35 @@ export function MessageComposer({ conversationId }: { conversationId: string }) 
     }
   }
 
-  const canSend = !sending && !!text.trim();
-  const micDisabled = sending || transcribing;
+  const canSend = !sending && (!!text.trim() || !!file);
+  const micDisabled = sending || transcribing || !!file;
+  const attachDisabled = sending || recording || transcribing;
 
   return (
     <div className="border-t border-neutral-200 bg-white px-4 py-4 sm:px-8 sm:py-5 dark:border-neutral-800 dark:bg-neutral-950">
+      {file && (
+        <div className="mb-2 flex items-center gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-[11.5px] text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400">
+          <Paperclip className="h-3 w-3 shrink-0" strokeWidth={1.75} />
+          <span className="truncate">{file.name}</span>
+          <button
+            onClick={() => setFile(null)}
+            className="ml-auto shrink-0 rounded-sm p-0.5 transition hover:bg-neutral-200 dark:hover:bg-neutral-800"
+            aria-label="Quitar adjunto"
+          >
+            <X className="h-3 w-3" strokeWidth={1.75} />
+          </button>
+        </div>
+      )}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={ACCEPTED_ATTACHMENT}
+        className="hidden"
+        onChange={(e) => {
+          pickFile(e.target.files?.[0] ?? null);
+          e.target.value = "";
+        }}
+      />
       <div className="flex items-end gap-2 rounded-md border border-neutral-200 bg-white p-1.5 pl-3.5 transition focus-within:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:focus-within:border-neutral-600">
         <textarea
           value={text}
@@ -132,11 +199,22 @@ export function MessageComposer({ conversationId }: { conversationId: string }) 
               ? "Grabando…"
               : transcribing
                 ? "Transcribiendo…"
-                : "Escribí como si fueras el cliente"
+                : file
+                  ? "Agregá un mensaje (opcional)"
+                  : "Escribí como si fueras el cliente"
           }
           disabled={recording || transcribing}
           className="scroll-thin max-h-32 min-h-[36px] flex-1 resize-none self-center bg-transparent py-2 text-[13.5px] outline-none placeholder:text-neutral-400 disabled:opacity-60 dark:text-neutral-100 dark:placeholder:text-neutral-500"
         />
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={attachDisabled}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-neutral-200 bg-white text-neutral-600 transition hover:bg-neutral-50 hover:text-neutral-900 disabled:opacity-40 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+          aria-label="Adjuntar comprobante"
+          title="Adjuntar comprobante"
+        >
+          <Paperclip className="h-3.5 w-3.5" strokeWidth={1.75} />
+        </button>
         <button
           onClick={recording ? stopRecording : startRecording}
           disabled={micDisabled}

@@ -17,7 +17,8 @@ export type OutboundEvent =
   | "message.received"
   | "agent.responded"
   | "agent.escalated"
-  | "agent.failed";
+  | "agent.failed"
+  | "payment.received";
 
 const DELIVERY_TIMEOUT_MS = 5000;
 

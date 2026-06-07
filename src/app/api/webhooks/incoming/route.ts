@@ -14,12 +14,20 @@ export const dynamic = "force-dynamic";
 // un job y devuelve 200 OK al toque. El worker (/api/jobs/process) lo procesa.
 // ===========================================================================
 
-const incomingSchema = z.object({
-  conversationId: z.string().uuid(),
-  content: z.string().min(1).max(8000),
-  source: z.enum(["panel", "whatsapp"]).default("panel"),
-  externalId: z.string().nullable().optional(),
-});
+const incomingSchema = z
+  .object({
+    conversationId: z.string().uuid(),
+    // El texto puede ir vacío cuando el mensaje es solo una imagen (comprobante).
+    content: z.string().max(8000).optional().default(""),
+    source: z.enum(["panel", "whatsapp"]).default("panel"),
+    externalId: z.string().nullable().optional(),
+    // Adjunto (comprobante de pago): path en Storage + mime.
+    attachmentPath: z.string().min(1).optional(),
+    attachmentType: z.string().min(1).optional(),
+  })
+  .refine((d) => d.content.trim().length > 0 || !!d.attachmentPath, {
+    message: "Hace falta texto o un adjunto",
+  });
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
@@ -30,13 +38,19 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
-  const { conversationId, content } = parsed.data;
+  const { conversationId, content, attachmentPath, attachmentType } = parsed.data;
   const supabase = getSupabaseServerClient();
 
-  // 1. Persistir el mensaje del usuario.
+  // 1. Persistir el mensaje del usuario (con adjunto si vino un comprobante).
   const { data: message, error: msgErr } = await supabase
     .from("messages")
-    .insert({ conversation_id: conversationId, role: "user", content })
+    .insert({
+      conversation_id: conversationId,
+      role: "user",
+      content,
+      attachment_path: attachmentPath ?? null,
+      attachment_type: attachmentType ?? null,
+    })
     .select("id")
     .single();
 
