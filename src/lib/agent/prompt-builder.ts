@@ -107,6 +107,17 @@ function customerContextBlock(isExisting: boolean): string {
   ].join("\n");
 }
 
+// Algunos mensajes del cliente no tienen texto: por ejemplo cuando manda
+// solo la imagen de un comprobante de pago (content vacío). La API de Anthropic
+// rechaza mensajes de usuario con contenido vacío, así que los representamos con
+// un placeholder que además le da contexto al agente de lo que pasó.
+const EMPTY_USER_PLACEHOLDER =
+  "[El cliente envió un comprobante de pago, ya registrado para validación]";
+
+function userContent(raw: string): string {
+  return raw.trim() ? raw : EMPTY_USER_PLACEHOLDER;
+}
+
 /** Mapea el historial de la conversación a mensajes API-compatibles. */
 export function buildMessages(params: {
   userMessage: string;
@@ -117,9 +128,11 @@ export function buildMessages(params: {
 
   for (const m of params.history) {
     if (m.role === "user") {
-      messages.push({ role: "user", content: m.content });
+      messages.push({ role: "user", content: userContent(m.content) });
     } else if (m.role === "assistant") {
-      messages.push({ role: "assistant", content: m.content });
+      // Las burbujas del asistente nunca deberían venir vacías, pero si pasa
+      // (segmento en blanco) las saltamos para no romper la API.
+      if (m.content.trim()) messages.push({ role: "assistant", content: m.content });
     } else if (m.role === "human") {
       // Mensaje de un asesor humano (ya tomó la conversación). Lo serializamos
       // como user para mantener el orden temporal del chat.
@@ -133,7 +146,7 @@ export function buildMessages(params: {
   }
 
   // Mensaje actual del cliente, con el feedback del evaluator si corresponde.
-  const lines: string[] = [params.userMessage];
+  const lines: string[] = [userContent(params.userMessage)];
   if (params.evaluatorFeedback) {
     lines.push("");
     lines.push("=== Corrección requerida ===");
