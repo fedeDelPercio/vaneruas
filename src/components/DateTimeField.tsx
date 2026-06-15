@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Minus, Plus, Clock } from "lucide-react";
 import {
   format,
   startOfMonth,
@@ -39,6 +39,42 @@ function parseLocal(s: string | null | undefined): Date {
 }
 
 const WEEK_DAYS = ["L", "M", "M", "J", "V", "S", "D"];
+
+// Control de hora/minuto: botón −, número editable centrado, botón +. Targets
+// grandes (h-7) para que sea cómodo en vez de los spinners nativos diminutos.
+function TimeStepper({
+  value,
+  onDec,
+  onInc,
+  onSet,
+  ariaLabel,
+}: {
+  value: string;
+  onDec: () => void;
+  onInc: () => void;
+  onSet: (v: string) => void;
+  ariaLabel: string;
+}) {
+  const btn =
+    "flex h-7 w-7 items-center justify-center text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100";
+  return (
+    <div className="flex items-center overflow-hidden rounded-md border border-neutral-200 dark:border-neutral-800">
+      <button type="button" onClick={onDec} className={btn} aria-label={`${ariaLabel} menos`}>
+        <Minus className="h-3 w-3" strokeWidth={2} />
+      </button>
+      <input
+        inputMode="numeric"
+        value={value}
+        onChange={(e) => onSet(e.target.value.replace(/\D/g, ""))}
+        className="h-7 w-8 border-x border-neutral-200 bg-white text-center font-mono text-[12.5px] text-neutral-900 outline-none dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
+        aria-label={ariaLabel}
+      />
+      <button type="button" onClick={onInc} className={btn} aria-label={`${ariaLabel} más`}>
+        <Plus className="h-3 w-3" strokeWidth={2} />
+      </button>
+    </div>
+  );
+}
 
 export function DateTimeField({
   value,
@@ -93,6 +129,20 @@ export function DateTimeField({
   function setMinute(m: number) {
     const next = new Date(current);
     next.setMinutes(Math.max(0, Math.min(59, m)));
+    commit(next);
+  }
+
+  // Steppers con wrap: la hora da la vuelta (23 -> 0), los minutos saltan de
+  // a 5 (más cómodo para elegir horarios redondos tipo 15:00, 20:30).
+  function stepHour(delta: number) {
+    const next = new Date(current);
+    next.setHours((current.getHours() + delta + 24) % 24);
+    commit(next);
+  }
+
+  function stepMinute(delta: number) {
+    const next = new Date(current);
+    next.setMinutes((current.getMinutes() + delta + 60) % 60);
     commit(next);
   }
 
@@ -200,27 +250,24 @@ export function DateTimeField({
             })}
           </div>
 
-          {/* Hora */}
+          {/* Hora: steppers con −/+ (target grande) + edición directa. */}
           <div className="mt-3 flex items-center justify-between border-t border-neutral-100 pt-3 dark:border-neutral-800">
-            <div className="flex items-center gap-1 font-mono">
-              <input
-                type="number"
-                min={0}
-                max={23}
+            <div className="flex items-center gap-2">
+              <Clock className="h-3.5 w-3.5 text-neutral-400" strokeWidth={1.75} />
+              <TimeStepper
                 value={pad(current.getHours())}
-                onChange={(e) => setHour(parseInt(e.target.value || "0", 10))}
-                className="h-7 w-11 rounded-sm border border-neutral-200 bg-white px-1.5 text-center text-[12px] outline-none transition focus:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-neutral-600"
-                aria-label="Hora"
+                onDec={() => stepHour(-1)}
+                onInc={() => stepHour(1)}
+                onSet={(v) => setHour(parseInt(v || "0", 10))}
+                ariaLabel="Hora"
               />
-              <span className="text-[12px] text-neutral-400">:</span>
-              <input
-                type="number"
-                min={0}
-                max={59}
+              <span className="text-[13px] font-medium text-neutral-400">:</span>
+              <TimeStepper
                 value={pad(current.getMinutes())}
-                onChange={(e) => setMinute(parseInt(e.target.value || "0", 10))}
-                className="h-7 w-11 rounded-sm border border-neutral-200 bg-white px-1.5 text-center text-[12px] outline-none transition focus:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-neutral-600"
-                aria-label="Minuto"
+                onDec={() => stepMinute(-5)}
+                onInc={() => stepMinute(5)}
+                onSet={(v) => setMinute(parseInt(v || "0", 10))}
+                ariaLabel="Minuto"
               />
             </div>
             <button

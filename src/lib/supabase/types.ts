@@ -24,6 +24,63 @@ export type Database = {
         Update: { id?: string; name?: string; role?: string; client_slug?: string; created_at?: string };
         Relationships: [];
       };
+      events: {
+        Row: {
+          id: string;
+          title: string;
+          kind: string;
+          announce_at: string | null;
+          event_at: string | null;
+          event_end_at: string | null;
+          card_total: number | null;
+          card_installments: number | null;
+          transfer_price: number | null;
+          international_price: number | null;
+          details: string | null;
+          landing_url: string | null;
+          status: string;
+          client_slug: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          title: string;
+          kind: string;
+          announce_at?: string | null;
+          event_at?: string | null;
+          event_end_at?: string | null;
+          card_total?: number | null;
+          card_installments?: number | null;
+          transfer_price?: number | null;
+          international_price?: number | null;
+          details?: string | null;
+          landing_url?: string | null;
+          status?: string;
+          client_slug?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          title?: string;
+          kind?: string;
+          announce_at?: string | null;
+          event_at?: string | null;
+          event_end_at?: string | null;
+          card_total?: number | null;
+          card_installments?: number | null;
+          transfer_price?: number | null;
+          international_price?: number | null;
+          details?: string | null;
+          landing_url?: string | null;
+          status?: string;
+          client_slug?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       conversations: {
         Row: {
           id: string;
@@ -135,6 +192,7 @@ export type Database = {
           contact_email: string | null;
           event_slug: string | null;
           status: string;
+          awaiting_title: boolean;
           validated_by: string | null;
           validated_at: string | null;
           validation_note: string | null;
@@ -165,6 +223,7 @@ export type Database = {
           contact_email?: string | null;
           event_slug?: string | null;
           status?: string;
+          awaiting_title?: boolean;
           validated_by?: string | null;
           validated_at?: string | null;
           validation_note?: string | null;
@@ -195,12 +254,70 @@ export type Database = {
           contact_email?: string | null;
           event_slug?: string | null;
           status?: string;
+          awaiting_title?: boolean;
           validated_by?: string | null;
           validated_at?: string | null;
           validation_note?: string | null;
           client_slug?: string;
           created_at?: string;
           updated_at?: string;
+        };
+        Relationships: [];
+      };
+      professional_titles: {
+        Row: {
+          id: string;
+          conversation_id: string | null;
+          message_id: string | null;
+          file_path: string | null;
+          file_type: string | null;
+          holder_name: string | null;
+          title_name: string | null;
+          institution: string | null;
+          confidence: string | null;
+          extraction: Json | null;
+          is_valid: boolean;
+          validation_note: string | null;
+          reviewed_at: string | null;
+          reviewed_by: string | null;
+          client_slug: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          conversation_id?: string | null;
+          message_id?: string | null;
+          file_path?: string | null;
+          file_type?: string | null;
+          holder_name?: string | null;
+          title_name?: string | null;
+          institution?: string | null;
+          confidence?: string | null;
+          extraction?: Json | null;
+          is_valid?: boolean;
+          validation_note?: string | null;
+          reviewed_at?: string | null;
+          reviewed_by?: string | null;
+          client_slug?: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          conversation_id?: string | null;
+          message_id?: string | null;
+          file_path?: string | null;
+          file_type?: string | null;
+          holder_name?: string | null;
+          title_name?: string | null;
+          institution?: string | null;
+          confidence?: string | null;
+          extraction?: Json | null;
+          is_valid?: boolean;
+          validation_note?: string | null;
+          reviewed_at?: string | null;
+          reviewed_by?: string | null;
+          client_slug?: string;
+          created_at?: string;
         };
         Relationships: [];
       };
@@ -499,6 +616,8 @@ export type Database = {
           summary: string | null;
           client_slug: string;
           created_at: string;
+          resolved_at: string | null;
+          resolved_by: string | null;
         };
         Insert: {
           id?: string;
@@ -509,6 +628,8 @@ export type Database = {
           summary?: string | null;
           client_slug?: string;
           created_at?: string;
+          resolved_at?: string | null;
+          resolved_by?: string | null;
         };
         Update: {
           id?: string;
@@ -519,6 +640,8 @@ export type Database = {
           summary?: string | null;
           client_slug?: string;
           created_at?: string;
+          resolved_at?: string | null;
+          resolved_by?: string | null;
         };
         Relationships: [];
       };
