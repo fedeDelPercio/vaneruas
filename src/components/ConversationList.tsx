@@ -27,6 +27,7 @@ export function ConversationList({
   hideNewButton = false,
   emptyLabel,
   title,
+  renamed,
 }: {
   selectedId: string | null;
   onSelect: (id: string) => void;
@@ -43,6 +44,8 @@ export function ConversationList({
   emptyLabel?: string;
   /** Header de la columna. */
   title?: string;
+  /** Rename hecho desde el panel: se refleja al instante en la lista. */
+  renamed?: { id: string; name: string } | null;
 }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [previews, setPreviews] = useState<Record<string, Preview>>({});
@@ -83,6 +86,17 @@ export function ConversationList({
       setPreviews(map);
     }
   }, [sourceFilter]);
+
+  // Rename desde el panel: parchea el nombre en la lista al instante, sin
+  // depender de que llegue el evento realtime (que además puede tardar).
+  useEffect(() => {
+    if (!renamed) return;
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === renamed.id ? { ...c, display_name: renamed.name } : c,
+      ),
+    );
+  }, [renamed]);
 
   useEffect(() => {
     void refetch();

@@ -30,10 +30,14 @@ export function ConversationPanel({
   conversationId,
   onOpenComments,
   onOpenSidebar,
+  onRenamed,
 }: {
   conversationId: string;
   onOpenComments: (target: CommentTarget) => void;
   onOpenSidebar: () => void;
+  /** Avisa al padre que se renombró, para reflejarlo en la lista al instante
+   *  sin depender de realtime. */
+  onRenamed?: (id: string, name: string) => void;
 }) {
   const { profile } = useProfile();
   const [conversation, setConversation] = useState<Conversation | null>(null);
@@ -114,6 +118,7 @@ export function ConversationPanel({
         return;
       }
       setConversation((c) => (c ? { ...c, display_name: trimmed } : c));
+      onRenamed?.(conversationId, trimmed);
       setEditingName(false);
     } catch {
       toast.error("Error de red al renombrar");

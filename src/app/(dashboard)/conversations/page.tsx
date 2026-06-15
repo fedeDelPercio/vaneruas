@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Menu, MessagesSquare } from "lucide-react";
 import { useProfile } from "@/components/ProfileProvider";
 import { ConversationList } from "@/components/ConversationList";
@@ -16,6 +16,16 @@ export default function ConversationsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [commentTarget, setCommentTarget] = useState<CommentTarget | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Rename reflejado al instante en la lista (sin esperar realtime).
+  const [renamed, setRenamed] = useState<{ id: string; name: string } | null>(null);
+
+  // Si entramos con ?id=<conv> (ej. "Ver conversación" desde Pagos,
+  // Derivaciones o Feedback), abrimos esa conversación al montar. Cada
+  // navegación entre tabs remonta esta página, así que alcanza con leerlo acá.
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("id");
+    if (id) setSelectedId(id);
+  }, []);
 
   return (
     <div className="flex h-full">
@@ -25,6 +35,7 @@ export default function ConversationsPage() {
         selectedId={selectedId}
         sourceFilter="test"
         title="Testing"
+        renamed={renamed}
         onSelect={(id) => {
           setSelectedId(id);
           setCommentTarget(null);
@@ -44,6 +55,7 @@ export default function ConversationsPage() {
           conversationId={selectedId}
           onOpenComments={setCommentTarget}
           onOpenSidebar={() => setSidebarOpen(true)}
+          onRenamed={(id, name) => setRenamed({ id, name })}
         />
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-4 bg-white p-6 text-center dark:bg-neutral-950">
