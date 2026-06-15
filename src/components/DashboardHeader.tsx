@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ChevronDown,
   MessagesSquare,
@@ -17,8 +17,10 @@ import { useProfile } from "./ProfileProvider";
 import { Avatar } from "./Avatar";
 import { ThemeToggle } from "./ThemeToggle";
 import { BrandLogo } from "./BrandLogo";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { roleLabel } from "@/lib/profile";
 import type { ProfileRole } from "@/lib/supabase/types";
+import type { ModuleCounts } from "@/app/api/counts/route";
 
 // Header del dashboard: tabs de navegación + tema + perfil activo.
 // Cada tab declara qué roles pueden verla. Espejo de la tabla ROLE_ACCESS
@@ -32,7 +34,7 @@ const TABS: Array<{
 }> = [
   { href: "/conversations", label: "Testing", icon: MessagesSquare, roles: ["dev", "client"] },
   { href: "/feedback", label: "Feedback", icon: Inbox, roles: ["dev", "client"] },
-  { href: "/payments", label: "Pagos", icon: Receipt, roles: ["dev", "client", "asesor"] },
+  { href: "/payments", label: "Aprobaciones", icon: Receipt, roles: ["dev", "client", "asesor"] },
   { href: "/interventions", label: "Derivaciones", icon: Flag, roles: ["dev", "client", "asesor"] },
   { href: "/events", label: "Eventos", icon: CalendarDays, roles: ["dev", "client"] },
   { href: "/metrics", label: "Métricas", icon: BarChart3, roles: ["dev", "client", "asesor"] },
@@ -46,6 +48,46 @@ export function DashboardHeader() {
   const { profile, changeProfile } = useProfile();
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [counts, setCounts] = useState<ModuleCounts>({ payments: 0, interventions: 0 });
+
+  const loadCounts = useCallback(async () => {
+    try {
+      const r = await fetch("/api/counts", { cache: "no-store" });
+      if (!r.ok) return;
+      const j = (await r.json()) as ModuleCounts;
+      setCounts({ payments: j.payments ?? 0, interventions: j.interventions ?? 0 });
+    } catch {
+      // El badge es informativo: si falla el conteo, no rompemos el header.
+    }
+  }, []);
+
+  // Conteo inicial + refresco en vivo cuando cambian comprobantes o derivaciones.
+  useEffect(() => {
+    if (!profile) return;
+    void loadCounts();
+    const supabase = getSupabaseBrowserClient();
+    const channel = supabase
+      .channel("module-counts")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "payment_validations" },
+        () => void loadCounts(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "agent_notifications" },
+        () => void loadCounts(),
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [profile, loadCounts]);
+
+  const countByHref: Record<string, number> = {
+    "/payments": counts.payments,
+    "/interventions": counts.interventions,
+  };
 
   if (!profile) return null;
 
@@ -63,6 +105,7 @@ export function DashboardHeader() {
           {TABS.filter((t) => t.roles.includes(profile.role)).map((tab) => {
             const active = pathname.startsWith(tab.href);
             const Icon = tab.icon;
+            const count = countByHref[tab.href] ?? 0;
             return (
               <Link
                 key={tab.href}
@@ -75,6 +118,14 @@ export function DashboardHeader() {
               >
                 <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
                 <span className="hidden min-[380px]:inline">{tab.label}</span>
+                {count > 0 && (
+                  <span
+                    aria-label={`${count} pendientes`}
+                    className="inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-neutral-900 px-1 font-mono text-[10px] font-medium leading-none text-white dark:bg-neutral-50 dark:text-neutral-950"
+                  >
+                    {count > 99 ? "99+" : count}
+                  </span>
+                )}
                 {active && (
                   <span
                     aria-hidden
