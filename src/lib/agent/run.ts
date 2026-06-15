@@ -112,6 +112,11 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
   // agrega nada al prompt.
   const eventsBlock = await loadActiveEventsBlock();
 
+  // Pagos enviados en esta conversación: le pasamos los montos al orquestador
+  // para que pueda deducir a qué evento se refiere una consulta de detalle
+  // (matcheando el monto transferido con el precio de un evento vigente).
+  const paymentContext = await loadPaymentContext(input.conversationId);
+
   let totalInput = 0;
   let totalOutput = 0;
   let totalLatency = 0;
@@ -135,6 +140,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
         isExistingCustomer,
         priorEscalation,
         eventsBlock,
+        paymentContext,
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : "error desconocido";
@@ -306,6 +312,48 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
 }
 
 // --- helpers ---------------------------------------------------------------
+
+/**
+ * Arma una línea de contexto con los montos que el contacto transfirió en esta
+ * conversación, para que el orquestador pueda matchear el monto con el precio
+ * de un evento vigente y deducir a qué evento se refiere una consulta. Devuelve
+ * "" si no hay pagos (best-effort: nunca tumba la corrida).
+ */
+async function loadPaymentContext(conversationId: string): Promise<string> {
+  try {
+    const { data } = await getSupabaseServerClient()
+      .from("payment_validations")
+      .select("amount, currency, created_at")
+      .eq("conversation_id", conversationId)
+      .not("amount", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(5);
+    if (!data?.length) return "";
+
+    const montos = data
+      .map((p) => {
+        const cur = p.currency ?? "ARS";
+        const n =
+          p.amount === null
+            ? null
+            : new Intl.NumberFormat("es-AR", { minimumFractionDigits: 0 }).format(
+                Number(p.amount),
+              );
+        return n ? `${cur} ${n}` : null;
+      })
+      .filter(Boolean);
+    if (!montos.length) return "";
+
+    return (
+      `El contacto envió comprobante(s) de pago en esta conversación por: ${montos.join(", ")}. ` +
+      "Si pregunta por el detalle de un evento, usá el monto para deducir a cuál " +
+      "corresponde (comparalo con los precios de los eventos vigentes)."
+    );
+  } catch (err) {
+    console.error("[run] no se pudo cargar el contexto de pagos:", err);
+    return "";
+  }
+}
 
 /**
  * Registra una notificación al equipo de ventas. Devuelve `true` si insertó

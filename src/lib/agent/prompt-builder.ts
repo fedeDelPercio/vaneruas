@@ -40,6 +40,10 @@ export function buildSystemPrompt(params: {
   // dentro del bloque cacheable porque es estable entre conversaciones del
   // mismo cliente en una misma ventana de tiempo.
   eventsBlock?: string;
+  // Pagos que el contacto envió en ESTA conversación (montos), para que el
+  // agente pueda matchear el monto con el precio de un evento vigente y deducir
+  // a cuál corresponde la consulta. Cambia por conversación → va sin cache.
+  paymentContext?: string;
 }): TextBlockParam[] {
   const cacheableBlock = [
     params.orchestratorPrompt,
@@ -55,6 +59,7 @@ export function buildSystemPrompt(params: {
     `# Actividad del cliente\n\nEl cliente envió ${params.customerMessageCount} mensaje(s) en esta ` +
       `conversación (contando el actual). Usalo como contexto de cuán avanzada viene la charla.`,
     customerContextBlock(params.isExistingCustomer),
+    paymentContextBlock(params.paymentContext),
     escalationContextBlock(params.priorEscalation),
   ]
     .filter(Boolean)
@@ -93,23 +98,34 @@ function escalationContextBlock(priorEscalation: string | null): string {
   ].join("\n");
 }
 
-/** Bloque con info de si el contacto ya está registrado en el CRM. */
+/**
+ * Bloque con los pagos enviados en esta conversación. Le sirve al agente para
+ * deducir a qué evento se refiere una consulta de detalle (matcheando el monto
+ * transferido con el precio de un evento vigente). Vacío si no hubo pagos.
+ */
+function paymentContextBlock(paymentContext?: string): string {
+  if (!paymentContext?.trim()) return "";
+  return ["=== Pagos de esta conversación ===", paymentContext.trim()].join("\n");
+}
+
+/** Bloque con info de si el contacto ya es clienta (pagó o acreditó título). */
 function customerContextBlock(isExisting: boolean): string {
   if (isExisting) {
     return [
       "=== Estado del contacto ===",
-      "ATENCIÓN: el contacto YA ESTÁ REGISTRADO en nuestro CRM (Kommo).",
-      "Es un cliente existente, no un lead nuevo.",
-      "Disparador obligatorio: llamá a `notify_team` con",
-      "`category: \"cliente_existente\"` de inmediato, sin iniciar el flow",
-      "comercial de descubrimiento. En `summary` aclará que es un cliente",
-      "ya registrado que volvió a contactarse.",
+      "Esta persona YA ES CLIENTA (ya pagó o acreditó su título). Tratala con",
+      "calidez como alguien conocido y seguí ayudándola normalmente. NO la",
+      "derives al equipo solo por ser clienta: la atención es autogestionada.",
+      "Si comparte su correo tras validarse el pago, agradecele y confirmale",
+      "que queda registrado para el acceso. Derivá solo si surge un disparador",
+      "real (queja, pedido expreso de hablar con una persona, o consulta que la",
+      "base de conocimiento no cubre).",
     ].join("\n");
   }
   return [
     "=== Estado del contacto ===",
-    "El contacto NO está registrado en nuestro CRM. Tratalo como un lead",
-    "nuevo y seguí el flow comercial normal del orquestador.",
+    "El contacto todavía no es clienta. Atendela normalmente según el",
+    "procedimiento del orquestador.",
   ].join("\n");
 }
 

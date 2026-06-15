@@ -19,8 +19,10 @@ export const NOTIFY_TEAM_TOOL_SCHEMA: Tool = {
   description:
     "Notifica al equipo y entrega la conversación a un humano. Invocala " +
     "apenas se cumpla cualquiera de los disparadores definidos en tus " +
-    "instrucciones. Después de llamarla, despedite con UN solo mensaje " +
-    "breve y cordial y no respondas ninguna consulta más.",
+    "instrucciones. Después de llamarla, despedite con UN solo mensaje breve y " +
+    "cordial que SIEMPRE le avise a la persona que pasás su consulta al equipo y " +
+    "que le van a responder a la brevedad (no la dejes solo con una negativa) y " +
+    "no respondas ninguna consulta más.",
   input_schema: {
     type: "object",
     properties: {
@@ -28,8 +30,8 @@ export const NOTIFY_TEAM_TOOL_SCHEMA: Tool = {
         type: "string",
         description:
           "Categoría de la notificación en snake_case. Categorías válidas: " +
-          "'cliente_existente', 'fuera_de_conocimiento', 'escalado_manual'. " +
-          "La intención de compra NO deriva (la venta es autogestionada). " +
+          "'fuera_de_conocimiento', 'escalado_manual'. La intención de compra " +
+          "NO deriva (la venta es autogestionada) y ser clienta tampoco deriva. " +
           "Usá las categorías definidas en el prompt del orquestador.",
       },
       reason: {
