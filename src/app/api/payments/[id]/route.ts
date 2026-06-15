@@ -5,11 +5,12 @@ import { testProvider } from "@/lib/providers/test-provider";
 
 export const dynamic = "force-dynamic";
 
-// Confirmación que recibe la profesional cuando su pago queda aprobado.
-// Voz de Valentina (Vanesa Rúas Formación Profesional): cálida, con un emoji,
-// sin punto final.
+// Confirmación que recibe la profesional cuando su pago queda aprobado. Le
+// pedimos el correo para darle el acceso (lo vamos a usar para el alta en
+// Tiendup en un paso siguiente). Voz de Valentina (Vanesa Rúas Formación
+// Profesional): cálida, con un emoji, sin punto final.
 const PAYMENT_APPROVED_MESSAGE =
-  "Buenísimo, tu pago quedó verificado ✅ En breve te llega un correo con todo el detalle para tu acceso";
+  "Buenísimo, tu pago quedó verificado ✅ Para darte el acceso al curso necesito tu correo electrónico, me lo compartís?";
 
 // ===========================================================================
 // PATCH /api/payments/[id]

@@ -45,6 +45,14 @@ export interface TitleReview {
   createdAt: string;
 }
 
+/** Resumen para la cabecera del panel (las gestoras no ven Métricas). */
+export interface PaymentStats {
+  /** Comprobantes en estado pendiente (todos, no solo la pagina actual). */
+  pending: number;
+  /** Promedio de tiempo desde que entra el comprobante hasta que se valida (ms). */
+  avgValidationMs: number | null;
+}
+
 export interface PaymentItem {
   id: string;
   status: "pending" | "validated" | "rejected";
@@ -107,7 +115,7 @@ export async function GET(req: NextRequest) {
     new Set(rows.map((r) => r.conversation_id).filter(Boolean) as string[]),
   );
   const { data: convs } = convIds.length
-    ? await sb.from("conversations").select("id, display_name, source").in("id", convIds)
+    ? await sb.from("conversations").select("id, display_name, source, contact_email").in("id", convIds)
     : { data: [] };
   const convById = new Map((convs ?? []).map((c) => [c.id, c]));
 
@@ -205,7 +213,7 @@ export async function GET(req: NextRequest) {
   if (missingConvIds.length) {
     const { data: moreConvs } = await sb
       .from("conversations")
-      .select("id, display_name, source")
+      .select("id, display_name, source, contact_email")
       .in("id", missingConvIds);
     (moreConvs ?? []).forEach((c) => convById.set(c.id, c));
   }
@@ -255,7 +263,7 @@ export async function GET(req: NextRequest) {
       concept: r.concept,
       extractionConfidence: r.extraction_confidence,
       contactName: r.contact_name,
-      contactEmail: r.contact_email,
+      contactEmail: conv?.contact_email ?? r.contact_email,
       eventSlug: r.event_slug,
       comprobanteUrl: signedUrls[i] ?? null,
       comprobanteType: r.comprobante_type,
@@ -302,5 +310,28 @@ export async function GET(req: NextRequest) {
     titleReviews.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   }
 
-  return NextResponse.json({ items, titleReviews });
+  // Resumen para la cabecera: cantidad de pendientes y tiempo promedio de
+  // validación, sobre TODA la tabla del cliente (no solo el filtro/pagina).
+  const { data: statRows } = await sb
+    .from("payment_validations")
+    .select("status, created_at, validated_at");
+  let pending = 0;
+  let sumMs = 0;
+  let validatedCount = 0;
+  for (const r of statRows ?? []) {
+    if (r.status === "pending") pending++;
+    if (r.status === "validated" && r.validated_at && r.created_at) {
+      const ms = new Date(r.validated_at).getTime() - new Date(r.created_at).getTime();
+      if (ms >= 0) {
+        sumMs += ms;
+        validatedCount++;
+      }
+    }
+  }
+  const stats: PaymentStats = {
+    pending,
+    avgValidationMs: validatedCount ? Math.round(sumMs / validatedCount) : null,
+  };
+
+  return NextResponse.json({ items, titleReviews, stats });
 }

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { MessageSquare, Loader2, Menu, Pencil } from "lucide-react";
+import { MessageSquare, Loader2, Menu, Pencil, Mail } from "lucide-react";
 import toast from "react-hot-toast";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { CommentKind, Conversation, Message } from "@/lib/supabase/types";
@@ -363,6 +363,15 @@ export function ConversationPanel({
                 ? `WhatsApp · +${conversation.external_id ?? "?"}`
                 : "Conversación de prueba"}
             </p>
+            {conversation?.contact_email && (
+              <p
+                className="mt-0.5 flex items-center gap-1 text-[11px] text-neutral-500 dark:text-neutral-400"
+                title="Correo de la contacta (para el acceso al curso)"
+              >
+                <Mail className="h-3 w-3 shrink-0" strokeWidth={1.75} />
+                <span className="truncate">{conversation.contact_email}</span>
+              </p>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2">

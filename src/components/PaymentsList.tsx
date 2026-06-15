@@ -13,12 +13,14 @@ import {
   GraduationCap,
   ShieldAlert,
   MessageSquareQuote,
+  Mail,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useProfile } from "./ProfileProvider";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type {
   PaymentItem,
+  PaymentStats,
   TitleReview,
   TitleSubmission,
 } from "@/app/api/payments/route";
@@ -45,6 +47,20 @@ function fmtDateTime(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/** Formatea una duración en ms a algo legible y corto (ej. "2 h 15 min"). */
+function fmtDuration(ms: number | null): string {
+  if (ms === null) return "—";
+  const min = Math.round(ms / 60000);
+  if (min < 1) return "menos de 1 min";
+  if (min < 60) return `${min} min`;
+  const hours = Math.floor(min / 60);
+  const remMin = min % 60;
+  if (hours < 24) return remMin ? `${hours} h ${remMin} min` : `${hours} h`;
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return remHours ? `${days} d ${remHours} h` : `${days} d`;
 }
 
 function fmtAmount(amount: number | null, currency: string | null): string {
@@ -266,6 +282,7 @@ export function PaymentsList() {
   const [filter, setFilter] = useState<StatusFilter>("pending");
   const [items, setItems] = useState<PaymentItem[] | null>(null);
   const [titleReviews, setTitleReviews] = useState<TitleReview[]>([]);
+  const [stats, setStats] = useState<PaymentStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [busyTitleId, setBusyTitleId] = useState<string | null>(null);
@@ -285,6 +302,7 @@ export function PaymentsList() {
       setError(null);
       setItems(j.items as PaymentItem[]);
       setTitleReviews((j.titleReviews as TitleReview[]) ?? []);
+      setStats((j.stats as PaymentStats) ?? null);
     } catch {
       setError("Error de red");
     }
@@ -379,7 +397,7 @@ export function PaymentsList() {
     <div className="mx-auto max-w-3xl px-4 py-6 sm:px-8">
       <div className="flex items-center justify-between pb-3">
         <h1 className="text-[15px] font-medium tracking-tight-er text-neutral-900 dark:text-neutral-50">
-          Comprobantes de pago
+          Aprobaciones
         </h1>
         {items && (
           <span className="font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
@@ -387,6 +405,29 @@ export function PaymentsList() {
           </span>
         )}
       </div>
+
+      {/* Resumen para las gestoras (no ven Métricas): pendientes + tiempo
+          promedio de validación. */}
+      {stats && (
+        <div className="mb-4 grid grid-cols-2 gap-3">
+          <div className="rounded-md border border-neutral-200 bg-neutral-50/50 px-3.5 py-2.5 dark:border-neutral-800 dark:bg-neutral-900/40">
+            <p className="font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+              Pendientes
+            </p>
+            <p className="mt-0.5 font-mono text-[18px] tracking-tight-er text-neutral-900 dark:text-neutral-50">
+              {stats.pending}
+            </p>
+          </div>
+          <div className="rounded-md border border-neutral-200 bg-neutral-50/50 px-3.5 py-2.5 dark:border-neutral-800 dark:bg-neutral-900/40">
+            <p className="font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+              Tiempo prom. de validación
+            </p>
+            <p className="mt-0.5 font-mono text-[18px] tracking-tight-er text-neutral-900 dark:text-neutral-50">
+              {fmtDuration(stats.avgValidationMs)}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Filtros por estado */}
       <div className="mb-4 flex items-center gap-1">
@@ -523,6 +564,14 @@ export function PaymentsList() {
                       Recibido {fmtDateTime(p.createdAt)}
                       {p.extractionConfidence ? ` · lectura ${p.extractionConfidence}` : ""}
                     </p>
+
+                    {/* Correo de la contacta (para el acceso / alta en Tiendup) */}
+                    {p.contactEmail && (
+                      <p className="mt-1 flex items-center gap-1.5 text-[12px] text-neutral-600 dark:text-neutral-300">
+                        <Mail className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={1.75} />
+                        {p.contactEmail}
+                      </p>
+                    )}
 
                     {/* Estado resuelto */}
                     {!isPending && (

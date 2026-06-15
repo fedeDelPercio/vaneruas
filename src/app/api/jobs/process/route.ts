@@ -156,6 +156,12 @@ async function processJob(job: AgentJob): Promise<void> {
     throw new Error("No se encontró el mensaje del usuario");
   }
 
+  // Captura del correo: si el mensaje trae un email (típico tras validar el
+  // pago, cuando le pedimos el correo para el acceso), lo guardamos en la
+  // conversación. Por ahora vive en ATP; el paso siguiente es sincronizarlo
+  // con GHL. Best-effort: no corta el flujo del agente.
+  await captureContactEmail(job.conversation_id, userMsg.content);
+
   // Historial: últimos N mensajes previos de la conversación.
   const { data: msgs } = await supabase
     .from("messages")
@@ -246,6 +252,31 @@ async function processJob(job: AgentJob): Promise<void> {
       trace_id: result.traceId,
     })
     .eq("id", job.id);
+}
+
+// Email simple: suficiente para capturar el correo que comparte la contacta.
+const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
+
+/**
+ * Si el mensaje del usuario contiene un correo, lo guarda en
+ * conversations.contact_email (lo último que mande pisa lo anterior). Best-
+ * effort: cualquier error se loguea y no interrumpe el procesamiento del job.
+ */
+async function captureContactEmail(
+  conversationId: string,
+  content: string | null,
+): Promise<void> {
+  const match = content?.match(EMAIL_RE);
+  if (!match) return;
+  const email = match[0].toLowerCase();
+  try {
+    await getSupabaseServerClient()
+      .from("conversations")
+      .update({ contact_email: email })
+      .eq("id", conversationId);
+  } catch (err) {
+    console.error("[jobs] no se pudo guardar el correo de la contacta:", err);
+  }
 }
 
 /**
