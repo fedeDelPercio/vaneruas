@@ -6,9 +6,10 @@ import { testProvider } from "@/lib/providers/test-provider";
 export const dynamic = "force-dynamic";
 
 // Confirmación que recibe la profesional cuando su pago queda aprobado.
-// Microcopy de agente: sin emoji, sin em dash, sin punto final, sin ¿¡.
+// Voz de Valentina (Vanesa Rúas Formación Profesional): cálida, con un emoji,
+// sin punto final.
 const PAYMENT_APPROVED_MESSAGE =
-  "Tu pago fue verificado correctamente, a la brevedad te llega un correo con todo el detalle para tu acceso";
+  "Buenísimo, tu pago quedó verificado ✅ En breve te llega un correo con todo el detalle para tu acceso";
 
 // ===========================================================================
 // PATCH /api/payments/[id]
@@ -23,6 +24,9 @@ const patchSchema = z.object({
   status: z.enum(["validated", "rejected", "pending"]),
   note: z.string().max(2000).optional().nullable(),
   validatedBy: z.string().uuid().optional().nullable(),
+  // Forzar la aprobación de un comprobante retenido aunque la contacta no haya
+  // acreditado su título profesional (ej. el equipo decide habilitarlo igual).
+  force: z.boolean().optional(),
 });
 
 export async function PATCH(
@@ -38,18 +42,33 @@ export async function PATCH(
       { status: 400 },
     );
   }
-  const { status, note, validatedBy } = parsed.data;
+  const { status, note, validatedBy, force } = parsed.data;
   const sb = getSupabaseServerClient();
 
   // Estado previo: para confirmar por WhatsApp solo en la transición a
   // 'validated' (no reenviar si ya estaba aprobado).
   const { data: prev } = await sb
     .from("payment_validations")
-    .select("status, conversation_id")
+    .select("status, conversation_id, awaiting_title")
     .eq("id", id)
     .maybeSingle();
 
+  // Un comprobante retenido (esperando el título profesional) no se puede
+  // aprobar por la vía normal: o se valida el título (que lo libera) o el equipo
+  // FUERZA la aprobación explícitamente (force=true). Sin force, devolvemos 409.
+  const forcing = status === "validated" && prev?.awaiting_title && force === true;
+  if (status === "validated" && prev?.awaiting_title && !forcing) {
+    return NextResponse.json(
+      {
+        error:
+          "Este comprobante está esperando la validación del título profesional. Validá el título o forzá la aprobación.",
+      },
+      { status: 409 },
+    );
+  }
+
   // Si vuelve a 'pending' se limpia la validación; si se valida/rechaza se sella.
+  // Al forzar la aprobación, además se libera el retén (awaiting_title=false).
   const isResolved = status !== "pending";
   const { data, error } = await sb
     .from("payment_validations")
@@ -58,6 +77,7 @@ export async function PATCH(
       validation_note: note ?? null,
       validated_by: isResolved ? validatedBy ?? null : null,
       validated_at: isResolved ? new Date().toISOString() : null,
+      ...(forcing ? { awaiting_title: false } : {}),
       updated_at: new Date().toISOString(),
     })
     .eq("id", id)
@@ -74,6 +94,15 @@ export async function PATCH(
   // Al aprobar: avisar a la profesional por su canal (WhatsApp en prod, panel
   // en test). El mensaje se persiste en `messages` (system of record) y el
   // provider se encarga de la entrega externa.
+  // Al forzar la aprobación damos por acreditada a la contacta (no la volvemos a
+  // frenar en el gate de título en próximos comprobantes de esta conversación).
+  if (forcing && prev?.conversation_id) {
+    await sb
+      .from("conversations")
+      .update({ is_existing_customer: true, updated_at: new Date().toISOString() })
+      .eq("id", prev.conversation_id);
+  }
+
   if (
     status === "validated" &&
     prev?.status !== "validated" &&

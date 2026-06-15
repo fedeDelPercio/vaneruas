@@ -3,8 +3,8 @@ import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { serverEnv } from "@/lib/env";
 import { runAgent } from "@/lib/agent/run";
 import { testProvider } from "@/lib/providers/test-provider";
-import { handlePaymentComprobante } from "@/lib/payments/register";
 import { isAllowedComprobanteType } from "@/lib/payments/storage";
+import { handleAttachmentIntake } from "@/lib/titles/handle";
 import type { HistoryMessage } from "@/lib/agent/types";
 import type { AgentJob } from "@/lib/supabase/types";
 
@@ -105,7 +105,10 @@ async function processJob(job: AgentJob): Promise<void> {
     attachMsg.attachment_type &&
     isAllowedComprobanteType(attachMsg.attachment_type)
   ) {
-    await handlePaymentComprobante({
+    // Gate de título profesional: si la contacta no está registrada y no
+    // acreditó su título, se le pide antes de mandar el comprobante a aprobar.
+    // Registradas / con título validado → flujo de comprobante normal.
+    await handleAttachmentIntake({
       conversationId: job.conversation_id,
       messageId: job.user_message_id,
       attachmentPath: attachMsg.attachment_path,

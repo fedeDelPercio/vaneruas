@@ -15,6 +15,36 @@ export const dynamic = "force-dynamic";
 
 const MAX_ITEMS = 300;
 
+/** Un título profesional que la contacta mandó para acreditarse. */
+export interface TitleSubmission {
+  id: string;
+  url: string | null;
+  fileType: string | null;
+  holderName: string | null;
+  titleName: string | null;
+  institution: string | null;
+  /** Veredicto vigente: true si una IA o una persona lo dieron por válido. */
+  isValid: boolean;
+  /** Sello de revisión manual (null = todavía nadie del equipo lo miró). */
+  reviewedAt: string | null;
+  validationNote: string | null;
+  createdAt: string;
+}
+
+/**
+ * Caso de "título a validar" sin comprobante asociado pendiente: la contacta
+ * mandó algo para acreditarse que la IA no dio por bueno, y todavía no hay un
+ * comprobante retenido que lo agrupe. Se revisa desde el mismo panel.
+ */
+export interface TitleReview {
+  conversation: { id: string; displayName: string; source: string } | null;
+  submissions: TitleSubmission[];
+  /** Último mensaje de texto de la contacta (ej. una negativa a mandar el título). */
+  contactNote: string | null;
+  /** Fecha del envío más reciente, para ordenar junto a los comprobantes. */
+  createdAt: string;
+}
+
 export interface PaymentItem {
   id: string;
   status: "pending" | "validated" | "rejected";
@@ -36,6 +66,14 @@ export interface PaymentItem {
   eventSlug: string | null;
   comprobanteUrl: string | null;
   comprobanteType: string | null;
+  /** true si otro comprobante anterior comparte el mismo N° de operación. */
+  isDuplicate: boolean;
+  /** true si el comprobante está retenido esperando validar el título profesional. */
+  awaitingTitle: boolean;
+  /** Títulos que mandó la contacta en la misma conversación (cert primero). */
+  titles: TitleSubmission[];
+  /** Último mensaje de texto de la contacta (útil cuando hay un comprobante retenido). */
+  contactNote: string | null;
   conversation: { id: string; displayName: string; source: string } | null;
   validatedAt: string | null;
   validationNote: string | null;
@@ -82,12 +120,120 @@ export async function GET(req: NextRequest) {
     : { data: [] };
   const validatorById = new Map((validators ?? []).map((p) => [p.id, p]));
 
+  // Detección de duplicados: comprobantes que comparten N° de operación. Se
+  // evalúa sobre TODA la tabla del cliente (no solo el filtro de estado
+  // actual), así un pendiente que repite un pago ya validado se marca igual.
+  // La fila más antigua por N° de operación es la "original"; las posteriores
+  // se marcan como duplicado.
+  const { data: allOps } = await sb
+    .from("payment_validations")
+    .select("id, operation_number, created_at")
+    .not("operation_number", "is", null);
+  const norm = (op: string | null) => (op ?? "").trim().toUpperCase();
+  const earliestIdByOp = new Map<string, { id: string; createdAt: string }>();
+  const countByOp = new Map<string, number>();
+  for (const r of allOps ?? []) {
+    const op = norm(r.operation_number);
+    if (!op) continue;
+    countByOp.set(op, (countByOp.get(op) ?? 0) + 1);
+    const prev = earliestIdByOp.get(op);
+    if (!prev || r.created_at < prev.createdAt) {
+      earliestIdByOp.set(op, { id: r.id, createdAt: r.created_at });
+    }
+  }
+  const duplicateIds = new Set<string>();
+  for (const r of allOps ?? []) {
+    const op = norm(r.operation_number);
+    if (!op) continue;
+    if ((countByOp.get(op) ?? 0) > 1 && earliestIdByOp.get(op)?.id !== r.id) {
+      duplicateIds.add(r.id);
+    }
+  }
+
   // Signed URLs (en paralelo) para mostrar los comprobantes.
   const signedUrls = await Promise.all(
     rows.map((r) =>
       r.comprobante_path ? getComprobanteSignedUrl(r.comprobante_path) : Promise.resolve(null),
     ),
   );
+
+  // Títulos profesionales que mandaron estas contactas (para agrupar con su
+  // comprobante: el certificado primero, después el comprobante).
+  const wantTitlesFor =
+    status === "pending" || status === "all"
+      ? // En las vistas de revisión traemos también títulos de conversaciones que
+        // todavía no tienen comprobante (casos "solo título a validar").
+        undefined
+      : convIds;
+  let titleQuery = sb
+    .from("professional_titles")
+    .select("*")
+    .order("created_at", { ascending: true })
+    .limit(MAX_ITEMS);
+  if (wantTitlesFor) {
+    if (!wantTitlesFor.length) titleQuery = titleQuery.eq("id", "00000000-0000-0000-0000-000000000000");
+    else titleQuery = titleQuery.in("conversation_id", wantTitlesFor);
+  }
+  const { data: titleRows } = await titleQuery;
+  const titleSigned = await Promise.all(
+    (titleRows ?? []).map((t) =>
+      t.file_path ? getComprobanteSignedUrl(t.file_path) : Promise.resolve(null),
+    ),
+  );
+  const titlesByConv = new Map<string, TitleSubmission[]>();
+  (titleRows ?? []).forEach((t, i) => {
+    if (!t.conversation_id) return;
+    const sub: TitleSubmission = {
+      id: t.id,
+      url: titleSigned[i] ?? null,
+      fileType: t.file_type,
+      holderName: t.holder_name,
+      titleName: t.title_name,
+      institution: t.institution,
+      isValid: t.is_valid,
+      reviewedAt: t.reviewed_at,
+      validationNote: t.validation_note,
+      createdAt: t.created_at,
+    };
+    const arr = titlesByConv.get(t.conversation_id) ?? [];
+    arr.push(sub);
+    titlesByConv.set(t.conversation_id, arr);
+  });
+
+  // Resolver conversaciones de títulos que no tienen comprobante en la lista.
+  const missingConvIds = Array.from(titlesByConv.keys()).filter((id) => !convById.has(id));
+  if (missingConvIds.length) {
+    const { data: moreConvs } = await sb
+      .from("conversations")
+      .select("id, display_name, source")
+      .in("id", missingConvIds);
+    (moreConvs ?? []).forEach((c) => convById.set(c.id, c));
+  }
+
+  // Último mensaje de texto de la contacta por conversación (para mostrar
+  // contexto, ej. una negativa a mandar el título). Se calcula para las
+  // conversaciones con comprobante retenido o con título a revisar.
+  const noteConvIds = Array.from(
+    new Set([
+      ...rows.filter((r) => r.awaiting_title).map((r) => r.conversation_id),
+      ...titlesByConv.keys(),
+    ].filter(Boolean) as string[]),
+  );
+  const contactNoteByConv = new Map<string, string>();
+  if (noteConvIds.length) {
+    const { data: userMsgs } = await sb
+      .from("messages")
+      .select("conversation_id, content, created_at")
+      .in("conversation_id", noteConvIds)
+      .eq("role", "user")
+      .order("created_at", { ascending: false })
+      .limit(400);
+    for (const m of userMsgs ?? []) {
+      if (!m.conversation_id || contactNoteByConv.has(m.conversation_id)) continue;
+      const text = (m.content ?? "").trim();
+      if (text) contactNoteByConv.set(m.conversation_id, text);
+    }
+  }
 
   const items: PaymentItem[] = rows.map((r, i) => {
     const conv = r.conversation_id ? convById.get(r.conversation_id) : null;
@@ -113,6 +259,12 @@ export async function GET(req: NextRequest) {
       eventSlug: r.event_slug,
       comprobanteUrl: signedUrls[i] ?? null,
       comprobanteType: r.comprobante_type,
+      isDuplicate: duplicateIds.has(r.id),
+      awaitingTitle: r.awaiting_title ?? false,
+      titles: r.conversation_id ? titlesByConv.get(r.conversation_id) ?? [] : [],
+      contactNote: r.conversation_id
+        ? contactNoteByConv.get(r.conversation_id) ?? null
+        : null,
       conversation: conv
         ? { id: conv.id, displayName: conv.display_name ?? "(sin nombre)", source: conv.source }
         : null,
@@ -122,5 +274,33 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  return NextResponse.json({ items });
+  // Casos de "título a validar" sin comprobante que los agrupe: conversaciones
+  // con un título a revisar (no validado y sin revisión manual) que NO tienen un
+  // comprobante retenido en la lista actual (esos ya muestran el título en su
+  // card). Solo en las vistas de revisión (pendientes / todos).
+  const heldConvIds = new Set(
+    rows.filter((r) => r.awaiting_title).map((r) => r.conversation_id).filter(Boolean) as string[],
+  );
+  const titleReviews: TitleReview[] = [];
+  if (status === "pending" || status === "all") {
+    for (const [convId, submissions] of titlesByConv) {
+      if (heldConvIds.has(convId)) continue;
+      const pendientes = submissions.filter((s) => !s.isValid && !s.reviewedAt);
+      if (!pendientes.length) continue;
+      const conv = convById.get(convId);
+      const createdAt =
+        submissions.map((s) => s.createdAt).sort().slice(-1)[0] ?? "";
+      titleReviews.push({
+        conversation: conv
+          ? { id: conv.id, displayName: conv.display_name ?? "(sin nombre)", source: conv.source }
+          : null,
+        submissions,
+        contactNote: contactNoteByConv.get(convId) ?? null,
+        createdAt,
+      });
+    }
+    titleReviews.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  }
+
+  return NextResponse.json({ items, titleReviews });
 }
