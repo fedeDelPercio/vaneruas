@@ -360,6 +360,16 @@ El evaluator del agente bloquea estas violaciones; si vas a tocar reglas de
 formato en `orchestrator.md`, asegurate de que el criterio bloqueante en
 `evaluator.md` siga alineado.
 
+**Excepción de este cliente (Vanesa Rúas Formación Profesional).** Por decisión
+del cliente, la asistente (Valentina) **sí** usa emojis con moderación para
+sumar calidez, y **sí** se presenta y aclara como "la asistente con IA de
+Vanesa Rúas Formación Profesional" (no usar "Nueva Piel"). Por eso en esta
+branch: el filtro de emojis de `sanitize.ts` está
+desactivado (regla 3) y el criterio bloqueante `no_revela_ia` del
+`evaluator.md` está convertido en no bloqueante. El resto de las reglas
+duras (sin `**bold**`, sin punto final, sin `¿`/`¡`, sin em dash) siguen
+vigentes. No "corrijas" emojis ni la aclaración de IA como si fueran bugs.
+
 ## Anti-patrones (lo que NO mandamos a prod)
 
 - Fondos violet/indigo/blue gradients, "purple gradient on white" en general.

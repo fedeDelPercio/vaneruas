@@ -6,6 +6,7 @@ import { dispatchEvent } from "@/lib/webhooks/dispatcher";
 import { sendTeamNotificationAlert } from "@/lib/email/sender";
 import { runOrchestrator } from "./orchestrator";
 import { evaluateResponse } from "./evaluator";
+import { loadActiveEventsBlock } from "./events-kb";
 import { getTimeContext } from "./business-hours";
 import type {
   AgentRunInput,
@@ -105,6 +106,12 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
     .maybeSingle();
   const priorEscalation = priorNotif?.category ?? null;
 
+  // Catálogo de eventos en vivo (tabla `events`). Se lee una sola vez por
+  // corrida y se reusa en todas las iteraciones del evaluator, para no pegarle
+  // a la DB en cada reintento. Si no hay eventos comunicables, queda "" y no
+  // agrega nada al prompt.
+  const eventsBlock = await loadActiveEventsBlock();
+
   let totalInput = 0;
   let totalOutput = 0;
   let totalLatency = 0;
@@ -127,6 +134,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
         customerMessageCount,
         isExistingCustomer,
         priorEscalation,
+        eventsBlock,
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : "error desconocido";
@@ -224,6 +232,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
       userMessage: input.userMessage,
       assistantResponse: orch.responseText,
       history: input.history,
+      eventsBlock,
     });
 
     if (evaluation.pass) {

@@ -27,9 +27,9 @@ export const NOTIFY_TEAM_TOOL_SCHEMA: Tool = {
       category: {
         type: "string",
         description:
-          "Categoría de la notificación en snake_case. Ejemplos comunes: " +
-          "'interes_compra', 'visita_obra', 'consulta_financiacion', " +
+          "Categoría de la notificación en snake_case. Categorías válidas: " +
           "'cliente_existente', 'fuera_de_conocimiento', 'escalado_manual'. " +
+          "La intención de compra NO deriva (la venta es autogestionada). " +
           "Usá las categorías definidas en el prompt del orquestador.",
       },
       reason: {

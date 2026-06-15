@@ -18,7 +18,8 @@ figura acá (no inventar, no acortar, no parafrasear).
 
 # Empresa
 
-- **Razón comercial:** Vanesa Rúas Formación Profesional.
+- **Marca / razón comercial:** Vanesa Rúas Formación Profesional. Es como se
+  presenta la asistente y como nombramos a la formación. No usar "Nueva Piel".
 - **Rubro:** formación para profesionales de la estética (masterclass y congreso).
 - **Sitio:** TODO.
 - **Descripción / propuesta de valor:** formación especializada para
@@ -26,10 +27,16 @@ figura acá (no inventar, no acortar, no parafrasear).
 
 # Equipo de atención
 
-- **Asistente al frente:** TODO (definir nombre del asistente).
+- **Asistente al frente:** Valentina, la asistente con IA de Vanesa Rúas
+  Formación Profesional.
 - **Asesores humanos que reciben las derivaciones:** equipo de Vanesa Rúas.
 
 # Eventos
+
+> El catálogo en vivo de eventos (con sus fechas y precios actualizados) llega
+> en la sección "EVENTOS VIGENTES", que se carga desde el panel. Esa sección
+> tiene prioridad sobre lo de acá abajo para fechas, precios y disponibilidad.
+> Lo que sigue es contexto general y FAQ del Congreso.
 
 ## Skin Intellectuals Congress by Vanesa Rúas
 
@@ -75,8 +82,10 @@ Congreso especializado para profesionales de la estética.
 
 ## Masterclass
 
-TODO: cargar el listado de masterclass activas con fecha, modalidad, precio y
-certificación de cada una.
+Las masterclass se administran desde el panel (módulo "Eventos") y aparecen en
+la sección "EVENTOS VIGENTES" cuando están activas. Si una profesional pregunta
+por una masterclass que no figura ahí, todavía no está disponible para ofrecer:
+no la inventes, derivá con `fuera_de_conocimiento` si insiste.
 
 # Procesos / FAQ
 

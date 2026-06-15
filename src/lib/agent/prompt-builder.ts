@@ -35,18 +35,25 @@ export function buildSystemPrompt(params: {
   customerMessageCount: number;
   isExistingCustomer: boolean;
   priorEscalation: string | null;
+  // Catálogo de eventos en vivo (tabla `events`), inyectado en tiempo de
+  // request. Opcional: el harness de evals lo omite. Se concatena a la KB
+  // dentro del bloque cacheable porque es estable entre conversaciones del
+  // mismo cliente en una misma ventana de tiempo.
+  eventsBlock?: string;
 }): TextBlockParam[] {
   const cacheableBlock = [
     params.orchestratorPrompt,
     "# BASE DE CONOCIMIENTO",
     params.knowledgeBase,
-  ].join("\n\n");
+    params.eventsBlock?.trim() ? params.eventsBlock.trim() : null,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   const dynamicBlock = [
     timeContextBlock(params.timeContext),
     `# Actividad del cliente\n\nEl cliente envió ${params.customerMessageCount} mensaje(s) en esta ` +
-      `conversación (contando el actual). Usalo como guía para el disparador de interés ` +
-      `de compra.`,
+      `conversación (contando el actual). Usalo como contexto de cuán avanzada viene la charla.`,
     customerContextBlock(params.isExistingCustomer),
     escalationContextBlock(params.priorEscalation),
   ]
@@ -71,12 +78,11 @@ function escalationContextBlock(priorEscalation: string | null): string {
   return [
     "=== Estado de derivación ===",
     `Esta conversación YA fue derivada al equipo (categoría: ${priorEscalation}).`,
-    "El equipo ya fue notificado y el contacto de Santino ya fue prometido al",
-    "cliente en un mensaje anterior. Por lo tanto, en este turno:",
-    "- NO vuelvas a llamar `notify_team` por la MISMA razón (ej. otro",
-    "  interes_compra). Ya está hecho.",
-    "- NO repitas que Santino se va a contactar / que lo vamos a llamar. Ya",
-    "  se lo dijiste, repetirlo cansa.",
+    "El equipo ya fue notificado y ya le avisaste al cliente que lo van a",
+    "contactar en un mensaje anterior. Por lo tanto, en este turno:",
+    "- NO vuelvas a llamar `notify_team` por la MISMA razón. Ya está hecho.",
+    "- NO repitas que el equipo se va a contactar. Ya se lo dijiste, repetirlo",
+    "  cansa.",
     "- Si el cliente agradece o se despide ('gracias', 'genial', 'perfecto'),",
     "  cerrá cordial y humano SIN derivar ni mencionar la llamada otra vez",
     "  (ej. 'Gracias a vos, cualquier cosa quedamos en contacto').",

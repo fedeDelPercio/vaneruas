@@ -79,6 +79,7 @@ export async function runOrchestrator(params: {
   customerMessageCount: number;
   isExistingCustomer: boolean;
   priorEscalation: string | null;
+  eventsBlock: string;
 }): Promise<OrchestratorResult> {
   const env = serverEnv();
   const { ctx } = params;
@@ -102,6 +103,7 @@ export async function runOrchestrator(params: {
           customerMessageCount: params.customerMessageCount,
           isExistingCustomer: params.isExistingCustomer,
           priorEscalation: params.priorEscalation,
+          eventsBlock: params.eventsBlock,
         }),
         messages: buildMessages(params),
         tools,

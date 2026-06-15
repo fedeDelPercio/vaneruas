@@ -75,6 +75,13 @@ export async function evaluateResponse(params: {
   userMessage: string;
   assistantResponse: string;
   history: HistoryMessage[];
+  // Catálogo de eventos en vivo (tabla `events`). DEBE incluirse en la KB del
+  // evaluator: si no, cuando el orquestador responde con precios/fechas de un
+  // evento (que vienen de este bloque, no del .md estático), el evaluator lo
+  // lee como alucinación, lo rechaza, y la conversación termina derivada por
+  // fuera_de_conocimiento. El evaluator valida contra la MISMA fuente que usó
+  // el orquestador.
+  eventsBlock: string;
 }): Promise<EvaluationResult> {
   const env = serverEnv();
   const { ctx } = params;
@@ -98,7 +105,8 @@ export async function evaluateResponse(params: {
   ].join("\n");
   const kbPart =
     "=== BASE DE CONOCIMIENTO (única fuente válida para afirmaciones de producto) ===\n" +
-    loadPrompt("knowledge-base");
+    loadPrompt("knowledge-base") +
+    (params.eventsBlock.trim() ? `\n\n${params.eventsBlock.trim()}` : "");
   const closingPart = "\nDevolvé tu veredicto invocando la tool `evaluation_result`.";
 
   const userContent: TextBlockParam[] = [

@@ -48,8 +48,10 @@ export function sanitizeStyle(text: string): string {
   // 2. Em dash -> coma (la regla del repo: coma, punto o middot).
   out = out.replace(/\s*—\s*/g, ", ");
 
-  // 3. Emojis -> fuera.
-  out = out.replace(EMOJI_RE, "");
+  // 3. Emojis: PERMITIDOS en este cliente (Nueva Piel). Valentina los usa con
+  //    moderación para dar calidez (decisión del cliente). El regex EMOJI_RE
+  //    queda disponible por si se quiere volver a filtrarlos.
+  void EMOJI_RE;
 
   // 4. Signos de apertura -> fuera (solo se usan los de cierre ? !).
   out = out.replace(/[¿¡]/g, "");
