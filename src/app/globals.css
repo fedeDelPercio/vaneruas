@@ -10,6 +10,11 @@
   .btn-gold {
     @apply rounded-lg bg-gradient-to-br from-gold to-gold-start px-3.5 py-2 text-[13px] font-semibold text-black transition hover:opacity-90 hover:shadow-gold disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none;
   }
+  /* Badge de marca: pill, uppercase, chico. El color (border/bg/text) se suma
+     aparte en cada uso (gold / ok / warn / red / neutral). */
+  .badge-pill {
+    @apply inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide;
+  }
 }
 
 /* Focus dorado de marca para todos los campos del panel (evita editar cada

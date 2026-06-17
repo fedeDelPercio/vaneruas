@@ -37,7 +37,7 @@ export function ConfirmDeleteModal({
       onClick={loading ? undefined : onCancel}
     >
       <div
-        className="w-full max-w-sm rounded-lg border border-neutral-200 bg-white p-5 shadow-soft dark:border-neutral-800 dark:bg-neutral-900 dark:shadow-soft-dark"
+        className="w-full max-w-sm glass rounded-xl border border-neutral-200 p-5 shadow-soft dark:border-neutral-800 dark:shadow-soft-dark"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-2.5">

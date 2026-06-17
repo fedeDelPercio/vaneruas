@@ -179,7 +179,7 @@ export function InterventionsList() {
             return (
               <article
                 key={it.id}
-                className="rounded-md border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"
+                className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2">

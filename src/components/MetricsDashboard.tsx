@@ -332,7 +332,7 @@ function Stat({
   footer?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col rounded-md border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+    <div className="flex flex-col rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
       {/* min-h reserva 2 líneas: los números arrancan siempre a la misma
           altura aunque un label ocupe una o dos líneas. */}
       <p className="min-h-[28px] font-mono text-[10px] uppercase leading-[1.35] tracking-[0.07em] text-neutral-600 dark:text-neutral-300">
@@ -400,7 +400,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-md border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+    <section className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="text-[13px] font-medium text-neutral-900 dark:text-neutral-100">{title}</h2>
         {typeof aside === "string" ? (

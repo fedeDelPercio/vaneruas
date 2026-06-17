@@ -116,7 +116,7 @@ export function FeedbackList() {
       {items.map((item) => (
         <article
           key={item.id}
-          className="rounded-md border border-neutral-200 bg-white p-4 transition hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700"
+          className="rounded-xl border border-neutral-200 bg-white p-4 transition hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700"
         >
           {/* Header: autor + cuándo + kind */}
           <div className="flex items-center gap-2.5">
@@ -131,7 +131,7 @@ export function FeedbackList() {
               </p>
             </div>
             <span
-              className={`shrink-0 rounded-md border px-2 py-0.5 text-[11.5px] tracking-tight-er ${kindClasses(
+              className={`shrink-0 badge-pill ${kindClasses(
                 item.kind,
               )}`}
             >

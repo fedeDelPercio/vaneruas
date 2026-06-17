@@ -1,24 +1,48 @@
-# ATP — Panel design system
+# ATP — Panel design system (marca Vanesa Rúas)
 
-Cuando construyas o modifiques cualquier UI en este repo, seguí estas reglas. La
-estética es **refined minimal**: paleta neutra, jerarquía por tipografía y
-espacio, sin "AI slop". Si una pantalla ya existe pero no cumple esto, alinearla
-es parte del trabajo, no scope creep.
+La **fuente de verdad visual es `design-system.md`** (raíz del repo). Cuando
+construyas o modifiques UI, seguí ese documento; esta sección resume cómo se
+aplica al panel. Identidad: **fondo oscuro · texto blanco · acento dorado ·
+Poppins**, con una variante **light** donde el dorado pasa a sólido para tener
+contraste sobre blanco. Si una pantalla no cumple, alinearla es parte del
+trabajo, no scope creep.
+
+> Nota histórica: el panel nació "refined minimal neutro" (Geist, sin dorado) y
+> se recalibró al design-system de marca (Poppins + dorado). Las secciones de
+> abajo (Paleta / Tipografía / snippets) son de esa etapa neutra y quedan como
+> referencia parcial; ante conflicto, manda `design-system.md` + estos
+> principios.
 
 ## Principios
 
-- Dark mode es el modo por defecto. Soportar light también, ambos se prueban.
-- Paleta neutra. **No usamos** violeta, índigo, azul saturado, rosa fuerte,
-  teal, ni gradientes vistosos. El color queda para tres usos: acentos
-  semánticos (ok/warn/destructivo) como texto o ícono, puntitos de estado,
-  y nada más. Jamás como fondo de bloque.
-- Tipografía afilada: Geist Sans para UI, Geist Mono para contadores, códigos,
-  timestamps. Tracking apretado (`tracking-tight-er`, -0.015em) en títulos y
-  números.
-- Movimiento contenido. Solo `transition` sutil en hover/focus. No bounce, no
-  efectos decorativos, no shimmer.
-- Componentes chicos, padding ajustado. Evitar contenedores "card" pesados
-  alrededor de bloques de texto.
+- Soportamos **light y dark** (dark por defecto), ambos se prueban. El doc de
+  marca es dark-only; acá mantenemos ambos y adaptamos el dorado.
+- **Poppins** en toda la jerarquía. `Geist Mono` solo para datos tabulares
+  (N° de operación, timestamps, contadores).
+- El **dorado** es el acento de marca: gradiente sobre oscuro
+  (`.text-gold-gradient`, `from-gold to-gold-start`), sólido legible en light
+  (`#d97706` / token `text-gold`). Con criterio: cifras/títulos clave, tab
+  activa, botón primario, badges destacados, series de charts. **No** como
+  relleno de bloques grandes ni en texto largo; el glow solo sobre blanco.
+- Acentos semánticos: `ok` (verde — éxito/activo), `warn` (ámbar), `red`
+  (destructivo). Como texto, dot o ícono.
+- Movimiento contenido: `transition` sutil + `hover:shadow-gold` puntual. Sin
+  bounce ni shimmer.
+
+## Primitivos de marca (clases en `globals.css`)
+
+- Botón primario: **`btn-gold`** (gradiente dorado, texto negro).
+- Badge: **`badge-pill`** (pill + uppercase) + color (gold / ok / warn / red /
+  neutral) aparte.
+- Texto premium: **`text-gold-gradient`**. Glow: `glow-gold`. Glass (modales /
+  popovers): `glass`.
+- Focus de inputs/textarea/select: dorado global (definido en `globals.css`).
+
+## Border radius (marca)
+
+- `rounded-xl` (12px) — cards, superficies grandes, modales.
+- `rounded-lg` (8px) — botones, inputs, list items.
+- `rounded-full` — badges (pill), avatares, dots.
 
 ## Paleta
 

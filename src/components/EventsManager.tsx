@@ -201,7 +201,7 @@ export function EventsManager() {
               return (
                 <article
                   key={ev.id}
-                  className="rounded-md border border-neutral-200 bg-white p-4 transition hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700"
+                  className="rounded-xl border border-neutral-200 bg-white p-4 transition hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
