@@ -166,7 +166,7 @@ export function EventsManager() {
         </div>
         <button
           onClick={openNew}
-          className="flex shrink-0 items-center gap-1.5 rounded-md bg-neutral-900 px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-neutral-800 dark:bg-neutral-50 dark:text-neutral-950 dark:hover:bg-neutral-200"
+          className="btn-gold flex shrink-0 items-center gap-1.5"
         >
           <Plus className="h-3.5 w-3.5" strokeWidth={2} />
           Nuevo evento

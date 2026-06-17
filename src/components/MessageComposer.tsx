@@ -237,7 +237,7 @@ export function MessageComposer({ conversationId }: { conversationId: string }) 
         <button
           onClick={send}
           disabled={!canSend}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-neutral-900 text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-30 dark:bg-neutral-50 dark:text-neutral-950 dark:hover:bg-neutral-200"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-gold to-gold-start text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-30"
           aria-label="Enviar"
         >
           {sending ? (

@@ -107,7 +107,7 @@ export function WebhookForm({ onCreated }: { onCreated: () => void }) {
       <button
         onClick={submit}
         disabled={saving}
-        className="mt-4 flex items-center gap-1.5 rounded-md bg-neutral-900 px-3 py-2 text-[13px] font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-neutral-50 dark:text-neutral-950 dark:hover:bg-neutral-200"
+        className="btn-gold mt-4 flex items-center gap-1.5"
       >
         {saving ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />

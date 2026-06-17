@@ -116,12 +116,15 @@ export function DashboardHeader() {
                     : "text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
                 }`}
               >
-                <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+                <Icon
+                  className={`h-3.5 w-3.5 shrink-0 ${active ? "text-gold" : ""}`}
+                  strokeWidth={1.75}
+                />
                 <span className="hidden min-[380px]:inline">{tab.label}</span>
                 {count > 0 && (
                   <span
                     aria-label={`${count} pendientes`}
-                    className="inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-neutral-900 px-1 font-mono text-[10px] font-medium leading-none text-white dark:bg-neutral-50 dark:text-neutral-950"
+                    className="inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-gold px-1 font-mono text-[10px] font-semibold leading-none text-black"
                   >
                     {count > 99 ? "99+" : count}
                   </span>
@@ -129,7 +132,7 @@ export function DashboardHeader() {
                 {active && (
                   <span
                     aria-hidden
-                    className="absolute inset-x-3 -bottom-px h-px bg-neutral-900 dark:bg-neutral-50"
+                    className="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-gradient-to-r from-gold to-gold-start"
                   />
                 )}
               </Link>

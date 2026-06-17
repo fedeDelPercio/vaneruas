@@ -2,6 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ===========================================================================
+   Primitivos de marca (design-system.md)
+   =========================================================================== */
+@layer components {
+  /* Botón primario: gradiente dorado, texto negro (igual en light y dark). */
+  .btn-gold {
+    @apply rounded-lg bg-gradient-to-br from-gold to-gold-start px-3.5 py-2 text-[13px] font-semibold text-black transition hover:opacity-90 hover:shadow-gold disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none;
+  }
+}
+
+/* Focus dorado de marca para todos los campos del panel (evita editar cada
+   input/textarea suelto). Anula el focus neutro de Tailwind. */
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: rgba(249, 169, 0, 0.6) !important;
+  box-shadow: 0 0 0 3px rgba(249, 169, 0, 0.12);
+}
+
 html {
   color-scheme: light;
   -webkit-font-smoothing: antialiased;
@@ -21,14 +40,51 @@ body {
   font-feature-settings: "cv11", "ss01", "ss03";
 }
 
-/* Selección de texto con tono sobrio. */
+/* Selección de texto con un dejo dorado de marca. */
 ::selection {
-  background: rgba(229, 229, 229, 0.85);
+  background: rgba(249, 169, 0, 0.22);
   color: rgb(23, 23, 23);
 }
 .dark ::selection {
-  background: rgba(64, 64, 64, 0.9);
-  color: rgb(245, 245, 245);
+  background: rgba(249, 169, 0, 0.3);
+  color: rgb(255, 255, 255);
+}
+
+/* ===========================================================================
+   Utilidades de marca Vanesa Rúas (design-system.md)
+   - .text-gold: en dark, gradiente dorado clipeado al texto (uso premium, 1-4
+     palabras); en light, dorado sólido oscuro para que tenga contraste sobre
+     fondo claro (el gradiente sobre blanco no se lee).
+   - .glow-gold: glow dorado para bordes/cards destacadas (usar con criterio).
+   - .glass: glassmorphism para modales/popovers flotantes.
+   =========================================================================== */
+/* Texto premium con gradiente dorado (dark) / sólido legible (light). OJO: no
+   pisa la utilidad `text-gold` de Tailwind (color sólido), que se usa para
+   íconos, dots y bordes. */
+.text-gold-gradient {
+  color: #b45309; /* light: dorado oscuro legible */
+}
+.dark .text-gold-gradient {
+  background: linear-gradient(180deg, #ffff7f 0%, #f9a900 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+.glow-gold {
+  box-shadow:
+    0 0 20px rgba(249, 169, 0, 0.35),
+    0 0 40px rgba(249, 169, 0, 0.12);
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.dark .glass {
+  background: rgba(26, 26, 26, 0.6);
 }
 
 /* Scrollbar discreta para paneles con scroll. */

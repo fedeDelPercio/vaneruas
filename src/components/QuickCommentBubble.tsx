@@ -200,7 +200,7 @@ export function QuickCommentBubble({
         <button
           onClick={() => void sendComment()}
           disabled={sending || !text.trim()}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-neutral-900 text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-30 dark:bg-neutral-50 dark:text-neutral-950 dark:hover:bg-neutral-200"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-gold to-gold-start text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-30"
           aria-label="Enviar comentario"
         >
           {sending ? (

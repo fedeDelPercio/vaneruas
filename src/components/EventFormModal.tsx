@@ -400,7 +400,7 @@ export function EventFormModal({
           <button
             onClick={save}
             disabled={saving}
-            className="flex items-center gap-1.5 rounded-md bg-neutral-900 px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-neutral-50 dark:text-neutral-950 dark:hover:bg-neutral-200"
+            className="flex items-center gap-1.5 btn-gold"
           >
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />}
             {editing ? "Guardar" : "Crear"}

@@ -201,7 +201,7 @@ export function ProfileGate() {
                 <button
                   onClick={createProfile}
                   disabled={creating}
-                  className="flex w-full items-center justify-center gap-2 rounded-md bg-neutral-900 px-3 py-2.5 text-[13px] font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-neutral-50 dark:text-neutral-950 dark:hover:bg-neutral-200"
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-br from-gold to-gold-start px-3 py-2.5 text-[13px] font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {creating ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
