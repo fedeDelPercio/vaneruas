@@ -179,7 +179,7 @@ export function InterventionsList() {
             return (
               <article
                 key={it.id}
-                className="rounded-md border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"
+                className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2">
@@ -236,7 +236,7 @@ export function InterventionsList() {
                     <button
                       onClick={() => void setResolved(it.id, true)}
                       disabled={busy}
-                      className="flex items-center gap-1.5 rounded-md bg-neutral-900 px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-neutral-50 dark:text-neutral-950 dark:hover:bg-neutral-200"
+                      className="flex items-center gap-1.5 btn-gold"
                     >
                       {busy ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />

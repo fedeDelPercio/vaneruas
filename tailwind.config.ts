@@ -12,35 +12,43 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        // Geist Sans y Geist Mono se inyectan vía next/font en <html>
-        // (ver src/app/layout.tsx) como CSS variables y se usan acá.
-        sans: ["var(--font-geist-sans)", ...defaultTheme.fontFamily.sans],
+        // Poppins (marca Vanesa Rúas) como sans; Geist Mono solo para datos
+        // tabulares. Se inyectan vía next/font en <html> (ver layout.tsx).
+        sans: ["var(--font-poppins)", ...defaultTheme.fontFamily.sans],
         mono: ["var(--font-geist-mono)", ...defaultTheme.fontFamily.mono],
       },
       colors: {
-        // Acentos semánticos del panel. Sobrios, sin fondos saturados.
-        // Pensados para usarse principalmente como color de texto o como
-        // dot/indicator, no como fondo de bloques grandes.
+        // Dorado: el acento premium de la marca. `gold` como sólido (bordes,
+        // texto en light, dots); el gradiente vive en utilidades de globals.css.
+        gold: {
+          DEFAULT: "#f9a900",
+          start: "#ffff7f",
+          end: "#f9a900",
+          fg: "#b45309", // dorado oscuro legible sobre fondo claro
+        },
+        // Acentos semánticos (alineados al design-system: success/warning/error/info).
         ok: {
-          DEFAULT: "#10b981",
-          fg: "#047857",
-          bg: "rgba(16, 185, 129, 0.08)",
+          DEFAULT: "#22c55e",
+          fg: "#15803d",
+          bg: "rgba(34, 197, 94, 0.12)",
         },
         warn: {
           DEFAULT: "#f59e0b",
           fg: "#b45309",
-          bg: "rgba(245, 158, 11, 0.08)",
+          bg: "rgba(245, 158, 11, 0.12)",
         },
       },
       letterSpacing: {
-        // Tracking apretado para títulos y números (refined look).
+        // Tracking apretado para títulos y números.
         "tight-er": "-0.015em",
       },
       boxShadow: {
-        // Sombra suave para popovers/dropdowns. Sin glow.
         soft: "0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06)",
         "soft-dark":
-          "0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.4)",
+          "0 1px 3px rgba(0, 0, 0, 0.5), 0 20px 60px rgba(0, 0, 0, 0.6)",
+        // Glow dorado de marca (para bordes/cards destacadas, hover de CTA).
+        gold: "0 0 20px rgba(249, 169, 0, 0.35), 0 0 40px rgba(249, 169, 0, 0.12)",
+        "gold-sm": "0 0 0 3px rgba(249, 169, 0, 0.12)",
       },
     },
   },

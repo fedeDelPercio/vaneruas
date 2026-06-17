@@ -183,7 +183,7 @@ export function EventFormModal({
       onClick={saving ? undefined : onClose}
     >
       <div
-        className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-lg border border-neutral-200 bg-white p-5 shadow-soft dark:border-neutral-800 dark:bg-neutral-900 dark:shadow-soft-dark"
+        className="max-h-[90vh] w-full max-w-md overflow-y-auto glass rounded-xl border border-neutral-200 p-5 shadow-soft dark:border-neutral-800 dark:shadow-soft-dark"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between">
@@ -400,7 +400,7 @@ export function EventFormModal({
           <button
             onClick={save}
             disabled={saving}
-            className="flex items-center gap-1.5 rounded-md bg-neutral-900 px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-neutral-50 dark:text-neutral-950 dark:hover:bg-neutral-200"
+            className="flex items-center gap-1.5 btn-gold"
           >
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />}
             {editing ? "Guardar" : "Crear"}
@@ -416,7 +416,7 @@ export function EventFormModal({
           onClick={() => setKbZoom(false)}
         >
           <div
-            className="flex h-full max-h-[88vh] w-full max-w-3xl flex-col rounded-lg border border-neutral-200 bg-white p-5 shadow-soft dark:border-neutral-800 dark:bg-neutral-900 dark:shadow-soft-dark"
+            className="flex h-full max-h-[88vh] w-full max-w-3xl flex-col glass rounded-xl border border-neutral-200 p-5 shadow-soft dark:border-neutral-800 dark:shadow-soft-dark"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">

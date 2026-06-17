@@ -163,7 +163,7 @@ function Thumb({
 function VerdictPill({ sub }: { sub: TitleSubmission }) {
   if (sub.isValid) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-md border border-ok/30 bg-ok/[0.06] px-2 py-0.5 text-[11.5px] tracking-tight-er text-ok">
+      <span className="inline-flex items-center gap-1 badge-pill border-ok/30 bg-ok/[0.06] text-ok">
         <Check className="h-3 w-3" strokeWidth={2} />
         Título válido
       </span>
@@ -171,13 +171,13 @@ function VerdictPill({ sub }: { sub: TitleSubmission }) {
   }
   if (sub.reviewedAt) {
     return (
-      <span className="inline-flex items-center rounded-md border border-neutral-200 bg-neutral-50 px-2 py-0.5 text-[11.5px] tracking-tight-er text-neutral-500 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400">
+      <span className="inline-flex items-center badge-pill border-neutral-200 bg-neutral-50 text-neutral-500 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400">
         Revisado
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-md border border-neutral-200 bg-neutral-50 px-2 py-0.5 text-[11.5px] tracking-tight-er text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400">
+    <span className="inline-flex items-center gap-1 badge-pill border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400">
       <ShieldAlert className="h-3 w-3 text-warn" strokeWidth={1.75} />
       Sin validar por IA
     </span>
@@ -230,7 +230,7 @@ function TitleSubmissionRow({
             <button
               onClick={onApprove}
               disabled={busy}
-              className="flex items-center gap-1.5 rounded-md bg-neutral-900 px-3 py-1.5 text-[12px] font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-neutral-50 dark:text-neutral-950 dark:hover:bg-neutral-200"
+              className="flex items-center gap-1.5 rounded-lg bg-gradient-to-br from-gold to-gold-start px-3 py-1.5 text-[12px] font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {busy ? (
                 <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2} />
@@ -470,7 +470,7 @@ export function PaymentsList() {
             return (
               <article
                 key={p.id}
-                className="rounded-md border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"
+                className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"
               >
                 {/* Acreditación del título primero (cuando la contacta lo mandó o
                     dijo algo al respecto), después el comprobante: así el equipo
@@ -525,7 +525,7 @@ export function PaymentsList() {
                       <div className="flex shrink-0 items-center gap-1.5">
                         {p.awaitingTitle && (
                           <span
-                            className="flex items-center gap-1 rounded-md border border-neutral-200 bg-neutral-50 px-2 py-0.5 text-[11.5px] tracking-tight-er text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400"
+                            className="flex items-center gap-1 badge-pill border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400"
                             title="Retenido hasta validar el título profesional de la contacta"
                           >
                             <GraduationCap className="h-3 w-3 text-warn" strokeWidth={1.75} />
@@ -534,7 +534,7 @@ export function PaymentsList() {
                         )}
                         {p.isDuplicate && (
                           <span
-                            className="flex items-center gap-1 rounded-md border border-neutral-200 bg-neutral-50 px-2 py-0.5 text-[11.5px] tracking-tight-er text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400"
+                            className="flex items-center gap-1 badge-pill border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400"
                             title="Otro comprobante anterior tiene el mismo N° de operación"
                           >
                             <AlertTriangle className="h-3 w-3 text-warn" strokeWidth={1.75} />
@@ -542,7 +542,7 @@ export function PaymentsList() {
                           </span>
                         )}
                         <span
-                          className={`rounded-md border px-2 py-0.5 text-[11.5px] tracking-tight-er ${badge.cls}`}
+                          className={`badge-pill ${badge.cls}`}
                         >
                           {badge.label}
                         </span>
@@ -634,7 +634,7 @@ export function PaymentsList() {
                               void setStatus(p.id, "validated", { force: true });
                             }}
                             disabled={busy}
-                            className="flex items-center gap-1.5 rounded-md bg-neutral-900 px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-neutral-50 dark:text-neutral-950 dark:hover:bg-neutral-200"
+                            className="flex items-center gap-1.5 btn-gold"
                           >
                             {busy ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
@@ -681,7 +681,7 @@ export function PaymentsList() {
                       <button
                         onClick={() => void setStatus(p.id, "validated")}
                         disabled={busy}
-                        className="flex items-center gap-1.5 rounded-md bg-neutral-900 px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-neutral-50 dark:text-neutral-950 dark:hover:bg-neutral-200"
+                        className="flex items-center gap-1.5 btn-gold"
                       >
                         {busy ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
@@ -724,13 +724,13 @@ export function PaymentsList() {
               {titleReviews.map((tr) => (
                 <article
                   key={tr.conversation?.id ?? tr.submissions[0]?.id}
-                  className="rounded-md border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"
+                  className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"
                 >
                   <div className="flex items-start justify-between gap-2 pb-3">
                     <p className="truncate text-[15px] font-medium tracking-tight-er text-neutral-900 dark:text-neutral-50">
                       {tr.conversation?.displayName ?? "Contacta sin nombre"}
                     </p>
-                    <span className="flex shrink-0 items-center gap-1 rounded-md border border-neutral-200 bg-neutral-50 px-2 py-0.5 text-[11.5px] tracking-tight-er text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400">
+                    <span className="flex shrink-0 items-center gap-1 badge-pill border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400">
                       <GraduationCap className="h-3 w-3 text-warn" strokeWidth={1.75} />
                       Sin comprobante
                     </span>

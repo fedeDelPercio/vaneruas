@@ -1,7 +1,17 @@
 import type { Metadata, Viewport } from "next";
-import { GeistSans } from "geist/font/sans";
+import { Poppins } from "next/font/google";
 import { GeistMono } from "geist/font/mono";
 import { Toaster } from "react-hot-toast";
+
+// Fuente de marca Vanesa Rúas: Poppins en toda la jerarquía (ver design-system).
+// Se mantiene un mono solo para datos tabulares (códigos, N° de operación,
+// timestamps), donde la legibilidad monoespaciada ayuda en un panel de gestión.
+const poppins = Poppins({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-poppins",
+  display: "swap",
+});
 import { SplashScreen } from "@/components/SplashScreen";
 import "./globals.css";
 
@@ -40,7 +50,7 @@ export default function RootLayout({
     // <html> antes de la hidratación; ese desajuste es intencional.
     <html
       lang="es"
-      className={`${GeistSans.variable} ${GeistMono.variable}`}
+      className={`${poppins.variable} ${GeistMono.variable}`}
       suppressHydrationWarning
     >
       <head>
@@ -54,10 +64,10 @@ export default function RootLayout({
           toastOptions={{
             style: {
               fontSize: "13px",
-              borderRadius: "10px",
-              background: "rgb(23 23 23)",
-              color: "rgb(245 245 245)",
-              border: "1px solid rgb(38 38 38)",
+              borderRadius: "12px",
+              background: "#1a1a1a",
+              color: "#ffffff",
+              border: "1px solid #2a2a2a",
             },
           }}
         />

@@ -5,12 +5,12 @@ import { useIsDark } from "./useIsDark";
 
 // Donut del estado de los comprobantes: el número del centro es el % de
 // comprobantes confirmados (validados) sobre el total recibido. Dos porciones:
-// validados (verde) y el resto (neutro). El desglose pendientes/rechazados vive
-// en el embudo, acá solo importa el % confirmado.
+// validados (dorado de marca) y el resto (neutro). El desglose
+// pendientes/rechazados vive en el embudo, acá solo importa el % confirmado.
 
 const PAL = {
-  light: { ok: "#059669", rest: "#d4d4d4", bg: "#ffffff" },
-  dark: { ok: "#34d399", rest: "#404040", bg: "#171717" },
+  light: { ok: "#d97706", rest: "#d4d4d4", bg: "#ffffff" },
+  dark: { ok: "#f9a900", rest: "#404040", bg: "#171717" },
 };
 
 export function PaymentDonut({
