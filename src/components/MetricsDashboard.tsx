@@ -430,7 +430,7 @@ function FunnelRow({
   const pct = total ? (count / total) * 100 : 0;
   const dotCls =
     dot === "ok"
-      ? "bg-ok"
+      ? "bg-gold"
       : dot === "red"
         ? "bg-red-600 dark:bg-red-500"
         : "bg-neutral-400 dark:bg-neutral-500";

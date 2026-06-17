@@ -21,9 +21,11 @@ import { useIsDark } from "./useIsDark";
 type DailyPoint = { date: string; mensajes: number; comprobantes: number };
 
 // Colores resueltos por tema (recharts necesita strings, no clases tailwind).
+// Acento de marca: la serie de comprobantes va en dorado (más oscuro en light
+// para que se lea sobre blanco); mensajes en neutro para distinguir ambas.
 const PALETTE = {
-  light: { msg: "#171717", comp: "#059669", grid: "#e5e5e5", axis: "#a3a3a3" },
-  dark: { msg: "#fafafa", comp: "#34d399", grid: "#262626", axis: "#737373" },
+  light: { msg: "#171717", comp: "#d97706", grid: "#e5e5e5", axis: "#a3a3a3" },
+  dark: { msg: "#fafafa", comp: "#f9a900", grid: "#262626", axis: "#737373" },
 };
 
 function fmtDay(iso: string): string {
