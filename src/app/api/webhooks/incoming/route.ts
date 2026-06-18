@@ -100,11 +100,22 @@ export async function POST(req: NextRequest) {
   //    enseguida (paso 6) pero Vercel mantiene viva la funcion hasta que el
   //    fetch al worker se complete. Sin `after`, la instancia serverless
   //    moria antes de que el fetch outbound llegara, dejando jobs en pending
-  //    hasta el proximo cron (diario por plan Hobby).
+  //    hasta el proximo cron (red de seguridad cada minuto).
+  const workerHeaders: Record<string, string> = {
+    "x-cron-secret": serverEnv().CRON_SECRET,
+  };
+  // En Vercel el dominio asignado (*.vercel.app) esta protegido por Vercel
+  // Authentication, asi que este fetch interno se rebota con un 401 sin el
+  // secreto de bypass. VERCEL_AUTOMATION_BYPASS_SECRET lo inyecta Vercel solo
+  // cuando esta activado "Protection Bypass for Automation" en el proyecto.
+  if (process.env.VERCEL_AUTOMATION_BYPASS_SECRET) {
+    workerHeaders["x-vercel-protection-bypass"] =
+      process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+  }
   after(
     fetch(`${req.nextUrl.origin}/api/jobs/process`, {
       method: "POST",
-      headers: { "x-cron-secret": serverEnv().CRON_SECRET },
+      headers: workerHeaders,
     }).catch(() => {
       // El cron lo levanta igual; no es critico si este disparo falla.
     }),
