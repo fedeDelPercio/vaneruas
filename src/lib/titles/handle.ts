@@ -39,7 +39,12 @@ interface IntakeArgs {
   caption?: string | null;
 }
 
-export async function handleAttachmentIntake(args: IntakeArgs): Promise<void> {
+// Devuelve `handled`: true si el flujo de comprobante/título resolvió el
+// mensaje; false si NO es un tema de pago (imagen "otro" con texto que indica
+// otra intención) y debe seguir por el agente normal (que se presenta y deriva).
+export async function handleAttachmentIntake(
+  args: IntakeArgs,
+): Promise<{ handled: boolean }> {
   const supabase = getSupabaseServerClient();
 
   // ¿Registrada como contacto? Primero el flag local (ATP); si no, consultamos
@@ -83,7 +88,7 @@ export async function handleAttachmentIntake(args: IntakeArgs): Promise<void> {
   // Camino feliz: registrada o título ya validado → comprobante normal.
   if (registered || hasValidTitle) {
     await handlePaymentComprobante(args);
-    return;
+    return { handled: true };
   }
 
   // No registrada y sin título: clasificar el adjunto.
@@ -101,32 +106,47 @@ export async function handleAttachmentIntake(args: IntakeArgs): Promise<void> {
 
   if (kind === "titulo") {
     await handleTitleSubmission(args, cls);
-  } else if (kind === "comprobante") {
-    await handlePaymentComprobante(args, { awaitingTitle: true });
-  } else {
-    // "otro": no la pudimos reconocer. Igual la dejamos registrada como título a
-    // revisar (la IA pudo equivocarse: un título borroso o atípico cae acá), así
-    // una persona del equipo la mira desde el panel de Pagos y decide.
-    await supabase.from("professional_titles").insert({
-      conversation_id: args.conversationId,
-      message_id: args.messageId,
-      file_path: args.attachmentPath,
-      file_type: args.attachmentType,
-      holder_name: cls?.holder_name ?? null,
-      title_name: cls?.title_name ?? null,
-      institution: cls?.institution ?? null,
-      confidence: cls?.confidence ?? null,
-      extraction: (cls as unknown as Json) ?? null,
-      is_valid: false,
-      validation_note:
-        cls?.note ?? "La IA no reconoció la imagen como título, revisar a mano",
-    });
-    await insertAssistant(
-      args.conversationId,
-      "No pude reconocer esa imagen, me mandás el comprobante de pago o tu título o certificado de alumno del rubro según lo que necesites resolver?",
-    );
-    await touchConversation(args.conversationId);
+    return { handled: true };
   }
+  if (kind === "comprobante") {
+    await handlePaymentComprobante(args, { awaitingTitle: true });
+    return { handled: true };
+  }
+
+  // "otro": la imagen no es comprobante ni título.
+  const caption = (args.caption ?? "").trim();
+  const hasMeaningfulText = caption.length > 0 && !caption.startsWith("[");
+  if (hasMeaningfulText) {
+    // El texto indica otra intención (ej. "perdí mis archivos, mándenme los
+    // PDFs", una gestión administrativa, un caso raro). No es un tema de pago:
+    // que lo maneje el agente normal, que se presenta si la conversación es
+    // nueva y deriva a una persona si corresponde.
+    return { handled: false };
+  }
+
+  // Sin texto que aclare: imagen suelta no reconocida. Puede ser un título
+  // borroso, así que la dejamos registrada para que el equipo la mire y le
+  // pedimos que aclare qué necesita.
+  await supabase.from("professional_titles").insert({
+    conversation_id: args.conversationId,
+    message_id: args.messageId,
+    file_path: args.attachmentPath,
+    file_type: args.attachmentType,
+    holder_name: cls?.holder_name ?? null,
+    title_name: cls?.title_name ?? null,
+    institution: cls?.institution ?? null,
+    confidence: cls?.confidence ?? null,
+    extraction: (cls as unknown as Json) ?? null,
+    is_valid: false,
+    validation_note:
+      cls?.note ?? "La IA no reconoció la imagen como título, revisar a mano",
+  });
+  await insertAssistant(
+    args.conversationId,
+    "No pude reconocer esa imagen, me mandás el comprobante de pago o tu título o certificado de alumno del rubro según lo que necesites resolver?",
+  );
+  await touchConversation(args.conversationId);
+  return { handled: true };
 }
 
 async function handleTitleSubmission(

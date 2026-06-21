@@ -105,6 +105,10 @@ async function processJob(job: AgentJob): Promise<void> {
     .eq("id", job.user_message_id)
     .maybeSingle();
 
+  // Si la imagen "otro" trae texto de otra intención, el intake NO la maneja y
+  // cae al flujo normal del agente (que se presenta y deriva). Lo recordamos
+  // para forzar el turno sobre ESE mensaje (sin debounce sobre adjuntos).
+  let attachmentFellThrough = false;
   if (
     attachMsg?.attachment_path &&
     attachMsg.attachment_type &&
@@ -113,18 +117,21 @@ async function processJob(job: AgentJob): Promise<void> {
     // Gate de título profesional: si la contacta no está registrada y no
     // acreditó su título, se le pide antes de mandar el comprobante a aprobar.
     // Registradas / con título validado → flujo de comprobante normal.
-    await handleAttachmentIntake({
+    const { handled } = await handleAttachmentIntake({
       conversationId: job.conversation_id,
       messageId: job.user_message_id,
       attachmentPath: attachMsg.attachment_path,
       attachmentType: attachMsg.attachment_type,
       caption: attachMsg.content,
     });
-    await supabase
-      .from("agent_jobs")
-      .update({ status: "completed", completed_at: new Date().toISOString() })
-      .eq("id", job.id);
-    return;
+    if (handled) {
+      await supabase
+        .from("agent_jobs")
+        .update({ status: "completed", completed_at: new Date().toISOString() })
+        .eq("id", job.id);
+      return;
+    }
+    attachmentFellThrough = true;
   }
 
   // Freeze guard: el agente se calla SOLO si un asesor humano tomó el
@@ -173,7 +180,7 @@ async function processJob(job: AgentJob): Promise<void> {
   let anchorMessageId: string;
   let turnMessageIds: Set<string>;
 
-  if (isWhatsApp && debounceSeconds > 0) {
+  if (isWhatsApp && debounceSeconds > 0 && !attachmentFellThrough) {
     const decision = resolveWhatsAppTurn(allMsgs, debounceSeconds, Date.now());
     if (decision.action === "skip") {
       // Turno ya respondido o solo adjuntos: no-op.
