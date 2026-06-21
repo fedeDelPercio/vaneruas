@@ -60,8 +60,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Falta contact_id" }, { status: 400 });
   }
 
-  // Presencia del tag de pausa = la maneja un humano.
-  const mode = parseTags(parsed.data.tags).includes(PAUSE_TAG) ? "HUMAN" : "AI";
+  // Presencia del tag de pausa = la maneja un humano. Match por substring para
+  // tolerar que el tag tenga emoji o espacios alrededor (ej. "🙋 humano").
+  const mode = parseTags(parsed.data.tags).some((t) => t.includes(PAUSE_TAG))
+    ? "HUMAN"
+    : "AI";
 
   const supabase = getSupabaseServerClient();
   const { data, error } = await supabase
