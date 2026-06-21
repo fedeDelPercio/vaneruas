@@ -116,7 +116,10 @@ export async function POST(req: NextRequest) {
   let attachmentPath: string | null = null;
   let attachmentType: string | null = null;
 
-  if (!webhookText && locationId) {
+  // Consultamos SIEMPRE la API de GHL por el adjunto (no solo cuando no hay
+  // texto): un comprobante puede venir con caption, en cuyo caso el webhook
+  // trae el texto pero igual hay un archivo adjunto que hay que procesar.
+  if (locationId) {
     const latest = await ghlFetchLatestInbound(data.contact_id, locationId);
     const url = latest?.attachments[0];
     if (url) {
@@ -128,10 +131,11 @@ export async function POST(req: NextRequest) {
           conversationId,
         });
         attachmentType = file.contentType;
-        content = (latest?.body ?? "").trim();
-      } else {
-        // Otro tipo (ej. audio): lo dejamos visible. La transcripción de audios
-        // es una mejora siguiente.
+        // El caption (si vino) queda como texto del mensaje; si no, el body de GHL.
+        content = webhookText || (latest?.body ?? "").trim();
+      } else if (file && !webhookText) {
+        // Otro tipo sin texto (ej. audio): lo dejamos visible. Transcripción de
+        // audios = mejora siguiente.
         content = (latest?.body ?? "").trim() || "[Archivo adjunto recibido]";
       }
     }
