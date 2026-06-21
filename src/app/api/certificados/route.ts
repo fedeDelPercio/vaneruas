@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 
 const MAX_ITEMS = 300;
 
-export const CERTIFICADO_CATEGORY = "reclamo_certificado";
+const CERTIFICADO_CATEGORY = "reclamo_certificado";
 
 export interface CertificadoItem {
   id: string;

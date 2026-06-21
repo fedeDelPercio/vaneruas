@@ -92,6 +92,11 @@ const serverSchema = z.object({
   // WhatsApp (fail-closed). Vacía/sin setear -> no se manda a nadie. "*" ->
   // todos (producción). "id1,id2" -> solo esos. Guardrail de testing.
   GHL_SEND_ALLOWLIST: z.string().optional(),
+  // Transcripción de audios de WhatsApp (OpenAI Whisper). Opcional: si la key
+  // no está, los audios caen al placeholder y el agente pide que lo escriban
+  // (no se rompe nada). El modelo se puede sobre-escribir por env.
+  OPENAI_API_KEY: z.string().min(1).optional(),
+  OPENAI_TRANSCRIBE_MODEL: z.string().default("gpt-4o-transcribe"),
   // Email notifications via Gmail SMTP + App Password. Las tres son
   // opcionales: si alguna falta, el sender hace skip silencioso y la app
   // sigue funcionando (no bloquea el flow del agente).
@@ -128,6 +133,8 @@ export function serverEnv(): ServerEnv {
     GHL_WEBHOOK_SECRET: process.env.GHL_WEBHOOK_SECRET,
     GHL_API_KEY: process.env.GHL_API_KEY,
     GHL_SEND_ALLOWLIST: process.env.GHL_SEND_ALLOWLIST,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    OPENAI_TRANSCRIBE_MODEL: process.env.OPENAI_TRANSCRIBE_MODEL,
     GMAIL_USER: process.env.GMAIL_USER,
     GMAIL_APP_PASSWORD: process.env.GMAIL_APP_PASSWORD,
     EMAIL_NOTIFY_TO: process.env.EMAIL_NOTIFY_TO,

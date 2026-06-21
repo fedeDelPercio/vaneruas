@@ -4,6 +4,7 @@ import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { serverEnv } from "@/lib/env";
 import { ghlFetchLatestInbound, downloadUrl } from "@/lib/providers/ghl";
 import { uploadComprobante, isAllowedComprobanteType } from "@/lib/payments/storage";
+import { transcribeAudio, isAudioType } from "@/lib/audio/transcribe";
 
 export const dynamic = "force-dynamic";
 
@@ -133,9 +134,21 @@ export async function POST(req: NextRequest) {
         attachmentType = file.contentType;
         // El caption (si vino) queda como texto del mensaje; si no, el body de GHL.
         content = webhookText || (latest?.body ?? "").trim();
+      } else if (file && isAudioType(file.contentType)) {
+        // Nota de voz: la transcribimos para que el agente entienda qué dijo.
+        // Si la transcripción falla (sin key, error, etc.), dejamos un
+        // placeholder explícito de audio: el agente está instruido para pedir
+        // que lo escriban, NO para asumir que es un comprobante.
+        const transcript = await transcribeAudio({
+          bytes: file.bytes,
+          contentType: file.contentType,
+        });
+        content =
+          transcript ||
+          webhookText ||
+          "[Mensaje de audio que no se pudo transcribir]";
       } else if (file && !webhookText) {
-        // Otro tipo sin texto (ej. audio): lo dejamos visible. Transcripción de
-        // audios = mejora siguiente.
+        // Otro tipo de adjunto sin texto: lo dejamos visible como placeholder.
         content = (latest?.body ?? "").trim() || "[Archivo adjunto recibido]";
       }
     }
