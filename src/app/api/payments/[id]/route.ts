@@ -10,11 +10,12 @@ export const dynamic = "force-dynamic";
 // Tiendup en un paso siguiente). Voz de Valentina (Vanesa Rúas Formación
 // Profesional): cálida, con un emoji, sin punto final.
 const PAYMENT_APPROVED_ASK_EMAIL =
-  "Buenísimo, tu pago quedó verificado ✅ Para darte el acceso al curso necesito tu correo electrónico, me lo compartís?";
+  "Buenísimo, tu pago quedó verificado ✅ Para enviarte el acceso necesito tu correo electrónico, me lo compartís?";
 // Cuando ya tenemos el correo (clienta registrada en GHL o lo compartió antes),
-// no se lo volvemos a pedir: solo confirmamos.
+// no se lo volvemos a pedir: solo confirmamos. El envío del acceso todavía no es
+// automático, así que se promete "en breve", no como algo ya enviado.
 const PAYMENT_APPROVED_HAS_EMAIL =
-  "Buenísimo, tu pago quedó verificado ✅ Ya te enviamos el acceso al curso a tu correo, cualquier cosa quedamos en contacto 🙌";
+  "Buenísimo, tu pago quedó verificado ✅ En breve te enviamos el acceso a tu correo, cualquier cosa quedamos en contacto 🙌";
 
 // ===========================================================================
 // PATCH /api/payments/[id]
