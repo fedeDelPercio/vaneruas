@@ -142,6 +142,7 @@ export type Database = {
           delivered_at: string | null;
           attachment_path: string | null;
           attachment_type: string | null;
+          attachment_source_url: string | null;
           external_id: string | null;
           client_slug: string;
           created_at: string;
@@ -155,6 +156,7 @@ export type Database = {
           delivered_at?: string | null;
           attachment_path?: string | null;
           attachment_type?: string | null;
+          attachment_source_url?: string | null;
           external_id?: string | null;
           client_slug?: string;
           created_at?: string;
@@ -168,6 +170,7 @@ export type Database = {
           delivered_at?: string | null;
           attachment_path?: string | null;
           attachment_type?: string | null;
+          attachment_source_url?: string | null;
           external_id?: string | null;
           client_slug?: string;
           created_at?: string;

@@ -81,74 +81,57 @@ export interface GhlInboundMessage {
   /** URLs de los adjuntos (imágenes, PDF, audio). */
   attachments: string[];
   messageType: string | null;
+  /** ISO date del mensaje en GHL (para acotar a los recientes). */
+  dateAdded: string | null;
 }
 
 /**
- * Recupera de la API de GHL el mensaje ENTRANTE relevante del contacto y sus
- * adjuntos (el webhook del workflow "Customer Replied" no trae las URLs). Usa
- * el PIT.
- *
- * `expectedBody` = el texto que vino en el webhook (el mensaje que lo disparó).
- * Buscamos ESE mensaje por su body y devolvemos SU adjunto. Esto es clave: NO
- * alcanza con "el último entrante", porque si la persona manda el comprobante y
- * justo después otro mensaje (ej. "asi va?"), el último pasa a ser ese segundo
- * mensaje (sin adjunto) y se perdería la imagen. Match por body lo evita.
- * Para mensajes sin texto (imagen/audio sin caption) caemos al inbound más
- * reciente que tenga adjunto.
+ * Trae los mensajes ENTRANTES recientes del contacto vía la API de GHL (el
+ * webhook del workflow "Customer Replied" no incluye las URLs de los adjuntos).
+ * Devuelve la lista (más nuevo primero) para que el inbound: (a) matchee el
+ * mensaje que disparó el webhook por su texto y (b) procese TODOS los adjuntos
+ * recientes (varios comprobantes llegan como mensajes separados), deduplicando
+ * por URL. Usa el PIT. Devuelve [] ante cualquier error.
  */
-export async function ghlFetchLatestInbound(
+export async function ghlFetchRecentInbound(
   contactId: string,
   locationId: string,
-  expectedBody?: string,
-): Promise<GhlInboundMessage | null> {
-  if (!process.env.GHL_API_KEY) return null;
+  limit = 10,
+): Promise<GhlInboundMessage[]> {
+  if (!process.env.GHL_API_KEY) return [];
   try {
     const sUrl = `${GHL_BASE}/conversations/search?locationId=${encodeURIComponent(
       locationId,
     )}&contactId=${encodeURIComponent(contactId)}`;
     const sRes = await fetch(sUrl, { headers: ghlHeaders(), signal: AbortSignal.timeout(SEND_TIMEOUT_MS) });
-    if (!sRes.ok) return null;
+    if (!sRes.ok) return [];
     const sData = (await sRes.json()) as { conversations?: { id: string }[] };
     const conversationId = sData.conversations?.[0]?.id;
-    if (!conversationId) return null;
+    if (!conversationId) return [];
 
-    const mRes = await fetch(`${GHL_BASE}/conversations/${conversationId}/messages?limit=10`, {
+    const mRes = await fetch(`${GHL_BASE}/conversations/${conversationId}/messages?limit=${limit}`, {
       headers: ghlHeaders(),
       signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     });
-    if (!mRes.ok) return null;
+    if (!mRes.ok) return [];
     const mData = (await mRes.json()) as {
       messages?: { messages?: GhlRawMessage[] } | GhlRawMessage[];
     };
     const list = Array.isArray(mData.messages)
       ? mData.messages
       : mData.messages?.messages ?? [];
-    const inbound = list.filter((m) => (m.direction ?? "").toLowerCase() === "inbound");
-    if (!inbound.length) return null;
-
-    const toResult = (m: GhlRawMessage): GhlInboundMessage => ({
-      body: m.body ?? "",
-      attachments: Array.isArray(m.attachments)
-        ? m.attachments.filter((a): a is string => typeof a === "string")
-        : [],
-      messageType: m.messageType ?? null,
-    });
-
-    // 1. El mensaje que disparó el webhook (match por texto): su adjunto es el
-    //    que hay que capturar, aunque haya un mensaje posterior más nuevo.
-    const wanted = (expectedBody ?? "").trim();
-    if (wanted) {
-      const match = inbound.find((m) => (m.body ?? "").trim() === wanted);
-      if (match) return toResult(match);
-    }
-    // 2. Sin texto (imagen/audio sin caption) o sin match: el inbound más
-    //    reciente que tenga adjunto.
-    const withAttachment = inbound.find(
-      (m) => Array.isArray(m.attachments) && m.attachments.length > 0,
-    );
-    return toResult(withAttachment ?? inbound[0]!);
+    return list
+      .filter((m) => (m.direction ?? "").toLowerCase() === "inbound")
+      .map((m) => ({
+        body: m.body ?? "",
+        attachments: Array.isArray(m.attachments)
+          ? m.attachments.filter((a): a is string => typeof a === "string")
+          : [],
+        messageType: m.messageType ?? null,
+        dateAdded: m.dateAdded ?? null,
+      }));
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -157,6 +140,7 @@ interface GhlRawMessage {
   body?: string;
   attachments?: unknown[];
   messageType?: string;
+  dateAdded?: string;
 }
 
 export interface GhlContact {

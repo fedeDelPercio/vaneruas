@@ -2,7 +2,8 @@ import { after, NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { serverEnv } from "@/lib/env";
-import { ghlFetchLatestInbound, downloadUrl } from "@/lib/providers/ghl";
+import { ghlFetchRecentInbound, downloadUrl } from "@/lib/providers/ghl";
+import { freshAttachmentCaptions, planInbound } from "@/lib/providers/ghl-inbound";
 import { uploadComprobante, isAllowedComprobanteType } from "@/lib/payments/storage";
 import { transcribeAudio, isAudioType } from "@/lib/audio/transcribe";
 
@@ -111,111 +112,169 @@ export async function POST(req: NextRequest) {
     conversationId = created.id;
   }
 
-  // 2. Resolver contenido + adjunto. El webhook del workflow NO trae la URL del
-  //    adjunto, así que cuando el mensaje llega sin texto (imagen/PDF/audio),
-  //    consultamos la API de GHL (PIT) para recuperar la URL, la bajamos y, si
-  //    es un comprobante (imagen/PDF), la subimos a storage para que el worker
-  //    corra el flujo de validación de pago (handleAttachmentIntake).
-  let content = webhookText;
-  let attachmentPath: string | null = null;
-  let attachmentType: string | null = null;
+  // 2. Resolver texto + adjuntos. El webhook NO trae las URLs de los adjuntos:
+  //    las traemos de la API de GHL. Procesamos TODOS los adjuntos recientes que
+  //    todavía no procesamos (varios comprobantes llegan como mensajes
+  //    separados), deduplicando por URL de origen. Cada adjunto se guarda como
+  //    su propio mensaje (con su caption) para que el worker lo valide aparte.
+  interface InboundItem {
+    content: string;
+    attachmentPath: string | null;
+    attachmentType: string | null;
+    sourceUrl: string | null;
+    isComprobante: boolean;
+  }
+  const items: InboundItem[] = [];
 
-  // Consultamos SIEMPRE la API de GHL por el adjunto (no solo cuando no hay
-  // texto): un comprobante puede venir con caption, en cuyo caso el webhook
-  // trae el texto pero igual hay un archivo adjunto que hay que procesar.
   if (locationId) {
-    const latest = await ghlFetchLatestInbound(data.contact_id, locationId, webhookText);
-    const url = latest?.attachments[0];
-    if (url) {
-      const file = await downloadUrl(url);
-      if (file && isAllowedComprobanteType(file.contentType)) {
-        attachmentPath = await uploadComprobante({
+    const recent = await ghlFetchRecentInbound(data.contact_id, locationId);
+    const captions = freshAttachmentCaptions(recent, Date.now());
+    const candidateUrls = [...captions.keys()];
+
+    // Dedup: descartamos las URLs que ya procesamos en esta conversación.
+    let processed = new Set<string>();
+    if (candidateUrls.length) {
+      const { data: ex } = await supabase
+        .from("messages")
+        .select("attachment_source_url")
+        .eq("conversation_id", conversationId)
+        .in("attachment_source_url", candidateUrls);
+      processed = new Set(
+        (ex ?? [])
+          .map((r) => r.attachment_source_url)
+          .filter((u): u is string => Boolean(u)),
+      );
+    }
+
+    const plan = planInbound(captions, processed, webhookText);
+
+    // Un item por adjunto nuevo, clasificado al vuelo.
+    for (const att of plan.attachments) {
+      const file = await downloadUrl(att.url);
+      if (!file) continue;
+      if (isAllowedComprobanteType(file.contentType)) {
+        const path = await uploadComprobante({
           bytes: file.bytes,
           contentType: file.contentType,
           conversationId,
         });
-        attachmentType = file.contentType;
-        // El caption (si vino) queda como texto del mensaje; si no, el body de GHL.
-        content = webhookText || (latest?.body ?? "").trim();
-      } else if (file && isAudioType(file.contentType)) {
-        // Nota de voz: la transcribimos para que el agente entienda qué dijo.
-        // Si la transcripción falla (sin key, error, etc.), dejamos un
-        // placeholder explícito de audio: el agente está instruido para pedir
-        // que lo escriban, NO para asumir que es un comprobante.
+        items.push({
+          content: att.caption,
+          attachmentPath: path,
+          attachmentType: file.contentType,
+          sourceUrl: att.url,
+          isComprobante: true,
+        });
+      } else if (isAudioType(file.contentType)) {
+        // Nota de voz: la transcribimos. Si falla, placeholder explícito (el
+        // agente pide que lo escriban, no asume comprobante).
         const transcript = await transcribeAudio({
           bytes: file.bytes,
           contentType: file.contentType,
         });
-        content =
-          transcript ||
-          webhookText ||
-          "[Mensaje de audio que no se pudo transcribir]";
-      } else if (file && !webhookText) {
-        // Otro tipo de adjunto sin texto: lo dejamos visible como placeholder.
-        content = (latest?.body ?? "").trim() || "[Archivo adjunto recibido]";
+        items.push({
+          content:
+            transcript || att.caption || "[Mensaje de audio que no se pudo transcribir]",
+          attachmentPath: null,
+          attachmentType: null,
+          sourceUrl: att.url,
+          isComprobante: false,
+        });
+      } else {
+        items.push({
+          content: att.caption || "[Archivo adjunto recibido]",
+          attachmentPath: null,
+          attachmentType: null,
+          sourceUrl: att.url,
+          isComprobante: false,
+        });
       }
     }
+
+    // Texto del webhook como mensaje aparte (si no es el caption de un adjunto).
+    if (plan.textItem) {
+      items.push({
+        content: plan.textItem,
+        attachmentPath: null,
+        attachmentType: null,
+        sourceUrl: null,
+        isComprobante: false,
+      });
+    }
+  } else if (webhookText) {
+    // Sin locationId no podemos consultar GHL: solo el texto del webhook.
+    items.push({
+      content: webhookText,
+      attachmentPath: null,
+      attachmentType: null,
+      sourceUrl: null,
+      isComprobante: false,
+    });
   }
 
-  if (!content && !attachmentPath) {
+  if (items.length === 0) {
     return NextResponse.json({ skipped: "sin contenido" }, { status: 200 });
   }
 
-  // 3. Guardar el mensaje del usuario (con adjunto si es comprobante).
-  const { data: message, error: msgErr } = await supabase
-    .from("messages")
-    .insert({
-      conversation_id: conversationId,
-      role: "user",
-      content,
-      attachment_path: attachmentPath,
-      attachment_type: attachmentType,
-    })
-    .select("id")
-    .single();
-  if (msgErr || !message) {
-    return NextResponse.json(
-      { error: msgErr?.message ?? "No se pudo guardar el mensaje" },
-      { status: 500 },
-    );
-  }
-
-  // 4. Encolar el job para que el worker corra el agente.
-  //    Debounce: los mensajes de texto/audio esperan una ventana de silencio
-  //    (`process_after` en el futuro) y se consolidan en el worker. Los
-  //    comprobantes (con adjunto) se procesan de inmediato, sin acumular.
+  // 3. Guardar cada item como mensaje + job. Comprobantes: job inmediato.
+  //    Texto/audio: debounce (ventana de silencio, se consolidan en el worker).
   const debounceSeconds = serverEnv().MESSAGE_DEBOUNCE_SECONDS;
-  const isImmediate = Boolean(attachmentPath) || debounceSeconds <= 0;
-  const processAfter = isImmediate
-    ? new Date().toISOString()
-    : new Date(Date.now() + debounceSeconds * 1000).toISOString();
+  let anyImmediate = false;
+  const createdMessageIds: string[] = [];
 
-  const { data: job, error: jobErr } = await supabase
-    .from("agent_jobs")
-    .insert({
+  for (const item of items) {
+    if (!item.content && !item.attachmentPath) continue;
+    const { data: message, error: msgErr } = await supabase
+      .from("messages")
+      .insert({
+        conversation_id: conversationId,
+        role: "user",
+        content: item.content,
+        attachment_path: item.attachmentPath,
+        attachment_type: item.attachmentType,
+        attachment_source_url: item.sourceUrl,
+      })
+      .select("id")
+      .single();
+    if (msgErr || !message) {
+      return NextResponse.json(
+        { error: msgErr?.message ?? "No se pudo guardar el mensaje" },
+        { status: 500 },
+      );
+    }
+    createdMessageIds.push(message.id);
+
+    const isImmediate = item.isComprobante || debounceSeconds <= 0;
+    if (isImmediate) anyImmediate = true;
+    const processAfter = isImmediate
+      ? new Date().toISOString()
+      : new Date(Date.now() + debounceSeconds * 1000).toISOString();
+
+    const { error: jobErr } = await supabase.from("agent_jobs").insert({
       conversation_id: conversationId,
       user_message_id: message.id,
       status: "pending",
       process_after: processAfter,
-    })
-    .select("id")
-    .single();
-  if (jobErr || !job) {
-    return NextResponse.json(
-      { error: jobErr?.message ?? "No se pudo encolar el job" },
-      { status: 500 },
-    );
+    });
+    if (jobErr) {
+      return NextResponse.json(
+        { error: jobErr.message ?? "No se pudo encolar el job" },
+        { status: 500 },
+      );
+    }
   }
 
-  // 5. Reordenar la conversación (más reciente primero en el panel).
+  if (createdMessageIds.length === 0) {
+    return NextResponse.json({ skipped: "sin contenido" }, { status: 200 });
+  }
+
+  // 4. Reordenar la conversación (más reciente primero en el panel).
   await supabase
     .from("conversations")
     .update({ updated_at: new Date().toISOString() })
     .eq("id", conversationId);
 
-  // 6. Auto-trigger del worker (mismo patrón que el webhook del panel). En
-  //    Vercel el dominio asignado está protegido: este fetch interno lleva el
-  //    header de bypass cuando "Protection Bypass for Automation" está activo.
+  // 5. Auto-trigger del worker. Lleva el header de bypass de Vercel si está.
   const workerHeaders: Record<string, string> = {
     "x-cron-secret": serverEnv().CRON_SECRET,
   };
@@ -231,14 +290,11 @@ export async function POST(req: NextRequest) {
       // El cron lo levanta igual; no es crítico si este disparo falla.
     });
 
-  if (isImmediate) {
+  // Inmediato si hubo comprobante (no se acumula); si todo fue texto/audio,
+  // esperamos la ventana de debounce y recién ahí disparamos.
+  if (anyImmediate || debounceSeconds <= 0) {
     after(triggerWorker());
   } else {
-    // Debounce: esperamos la ventana (+2s de margen) y recién ahí disparamos el
-    // worker, así el `process_after` del job ya venció. Si dentro de la ventana
-    // llega otro mensaje, su propio disparo (más tardío) será el que procese el
-    // turno consolidado; los disparos previos encuentran el job re-diferido por
-    // el worker y no hacen nada. El cron de cada minuto es el respaldo.
     after(
       (async () => {
         await new Promise((r) => setTimeout(r, (debounceSeconds + 2) * 1000));
@@ -248,7 +304,7 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json(
-    { conversationId, messageId: message.id, jobId: job.id },
+    { conversationId, messages: createdMessageIds.length },
     { status: 200 },
   );
 }
