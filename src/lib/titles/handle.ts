@@ -85,13 +85,12 @@ export async function handleAttachmentIntake(
     hasValidTitle = Boolean(titles?.length);
   }
 
-  // Camino feliz: registrada o título ya validado → comprobante normal.
-  if (registered || hasValidTitle) {
-    await handlePaymentComprobante(args);
-    return { handled: true };
-  }
-
-  // No registrada y sin título: clasificar el adjunto.
+  // Clasificar SIEMPRE el adjunto con vision antes de tratarlo como pago.
+  // Necesitamos saber si la imagen es un comprobante, un título u otra cosa:
+  // sin este check, un título mandado por una clienta registrada se registraba
+  // como "comprobante de pago" (bug real: alguien manda el diploma y la IA lo
+  // toma como comprobante). El extractor de comprobantes corre después; acá
+  // solo decidimos el enrutamiento.
   let cls: AttachmentClassification | null = null;
   try {
     const bytes = await downloadComprobante(args.attachmentPath);
@@ -100,16 +99,27 @@ export async function handleAttachmentIntake(
     console.error("[titles] no se pudo clasificar el adjunto:", err);
   }
 
-  // Si la clasificación falla, lo tratamos como comprobante retenido (seguro:
-  // no aprobamos nada sin título).
+  // Fallback si la clasificación falla: si la contacta ya está habilitada
+  // (registrada o con título), lo tratamos como comprobante normal; si no,
+  // como comprobante retenido (seguro: no aprobamos nada sin título).
   const kind = cls?.kind ?? "comprobante";
 
+  // Título / certificado: lo enruta el flujo de título (lo valida y registra).
+  // Para no registradas funciona además como gate; para registradas solo lo
+  // reconoce y responde, sin confundirlo con un comprobante.
   if (kind === "titulo") {
     await handleTitleSubmission(args, cls);
     return { handled: true };
   }
+
+  // Comprobante de pago: camino de pago. Retenido solo si todavía falta
+  // acreditar el título (no registrada y sin título válido).
   if (kind === "comprobante") {
-    await handlePaymentComprobante(args, { awaitingTitle: true });
+    if (registered || hasValidTitle) {
+      await handlePaymentComprobante(args);
+    } else {
+      await handlePaymentComprobante(args, { awaitingTitle: true });
+    }
     return { handled: true };
   }
 
