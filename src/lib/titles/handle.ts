@@ -221,11 +221,27 @@ export async function markConversationTitleValidated(
     content: opts.systemNote,
   });
 
+  // ¿Ya tenemos un comprobante de esta conversación? Puede venir por dos vías:
+  //  - retenido y recién liberado por la validación del título (released > 0),
+  //  - o procesado aparte (camino normal) cuando manda título + comprobante
+  //    JUNTOS y el título se valida primero (su llamada de vision es más rápida).
+  // En cualquiera de los dos casos NO le pedimos el comprobante (ya lo tenemos).
+  // Si todavía no hay ninguno, el mensaje queda flexible: no asumimos si ya pagó.
+  let hasComprobante = released > 0;
+  if (!hasComprobante) {
+    const { data: pv } = await supabase
+      .from("payment_validations")
+      .select("id")
+      .eq("conversation_id", conversationId)
+      .limit(1);
+    hasComprobante = Boolean(pv?.length);
+  }
+
   await insertAssistant(
     conversationId,
-    released > 0
-      ? "Listo, validé tu título ✨ Ya pasé tu comprobante para que el equipo apruebe la inscripción, en breve te confirman 🙌"
-      : "Listo, validé tu título ✨ Cuando hagas el pago, mandame el comprobante y te confirmo la inscripción 🙌",
+    hasComprobante
+      ? "Listo, validé tu título ✨ Ya tengo tu comprobante, el equipo revisa la inscripción y te confirma a la brevedad 🙌"
+      : "Listo, validé tu título ✨ Si ya hiciste el pago, con el comprobante confirmamos tu inscripción 🙌",
   );
   await touchConversation(conversationId);
   return released;
