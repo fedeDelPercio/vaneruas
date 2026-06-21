@@ -37,12 +37,12 @@ const SCHEMA = {
       type: "string",
       enum: ["comprobante", "titulo", "otro"],
       description:
-        "Clasificá la imagen: 'comprobante' si es un comprobante de transferencia o pago bancario; 'titulo' si es un título, diploma o certificado de estudios profesional; 'otro' para cualquier otra cosa (selfie, foto suelta, captura no relacionada).",
+        "Clasificá la imagen: 'comprobante' si es un comprobante de transferencia o pago bancario; 'titulo' si es un título, diploma, certificado de estudios profesional o una constancia/certificado de alumno regular (en curso) de una formación del rubro; 'otro' para cualquier otra cosa (selfie, foto suelta, captura no relacionada).",
     },
     title_is_valid: {
       type: "boolean",
       description:
-        "Solo para kind='titulo': true si parece un título/diploma/certificado profesional GENUINO de cosmetología, cosmiatría, dermatocosmiatría, estética o un área afín de la piel/belleza, emitido por una institución o curso. false si no se puede confirmar que sea un certificado real. Para kind distinto de 'titulo', devolvé false.",
+        "Solo para kind='titulo': true si parece un título/diploma/certificado profesional GENUINO, O una constancia/certificado de alumno regular EN CURSO, de cosmetología, cosmiatría, dermatocosmiatría, estética o un área afín de la piel/belleza, emitido por una institución o curso. Aceptá tanto a profesionales recibidas como a estudiantes que están cursando una formación del rubro. false si no se puede confirmar que sea un certificado real. Para kind distinto de 'titulo', devolvé false.",
     },
     holder_name: {
       type: ["string", "null"],
@@ -84,8 +84,11 @@ const SYSTEM_PROMPT = [
   "Si es un título, validá que sea un certificado GENUINO de cosmetología,",
   "cosmiatría, dermatocosmiatría, estética o un área afín. Sé razonable: aceptá",
   "diplomas y certificados de cursos del rubro, aunque sean de distintas",
-  "instituciones. Rechazá (title_is_valid=false) si es una foto cualquiera, un",
-  "documento no relacionado, o algo ilegible que no puedas confirmar como título.",
+  "instituciones. Aceptá también las CONSTANCIAS o CERTIFICADOS de alumno",
+  "regular / en curso de una formación del rubro: vale tanto la profesional ya",
+  "recibida como la estudiante que está cursando. Rechazá (title_is_valid=false)",
+  "si es una foto cualquiera, un documento no relacionado, o algo ilegible que",
+  "no puedas confirmar como título o constancia de estudios del rubro.",
   "No inventes datos: lo que no leas con seguridad va en null.",
 ].join(" ");
 

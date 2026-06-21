@@ -123,7 +123,7 @@ export async function handleAttachmentIntake(args: IntakeArgs): Promise<void> {
     });
     await insertAssistant(
       args.conversationId,
-      "No pude reconocer esa imagen, me mandás el comprobante de pago o tu título de cosmetóloga según lo que necesites resolver?",
+      "No pude reconocer esa imagen, me mandás el comprobante de pago o tu título o certificado de alumno del rubro según lo que necesites resolver?",
     );
     await touchConversation(args.conversationId);
   }
@@ -154,7 +154,7 @@ async function handleTitleSubmission(
   if (!valid) {
     await insertAssistant(
       args.conversationId,
-      "Mmm, no pude validar ese archivo como título profesional, me lo reenviás bien claro y completo? Tiene que verse el título de cosmetología o afín con tu nombre 🙏🏼",
+      "Mmm, no pude validar ese archivo, me lo reenviás bien claro y completo? Tiene que verse tu título o certificado de alumno en curso del rubro, con tu nombre 🙏🏼",
     );
     await touchConversation(args.conversationId);
     return;

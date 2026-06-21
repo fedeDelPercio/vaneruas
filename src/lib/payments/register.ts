@@ -120,7 +120,7 @@ export async function handlePaymentComprobante(
       content: "Comprobante recibido, esperando validación del título profesional",
     });
     const titleAskMsg =
-      "Genial, recibí tu comprobante 🙌 Para confirmar tu inscripción necesito validar que seas profesional del rubro, me compartís una foto o PDF de tu título de cosmetóloga o afín? Apenas lo valide, mando tu pago a aprobar ✨";
+      "Genial, recibí tu comprobante 🙌 Para confirmar tu inscripción necesito validar que seas profesional del rubro, me compartís una foto o PDF de tu título o certificado de alumno en curso como profesional de la estetica? Apenas lo valide, mando tu pago a aprobar ✨";
     const { data: titleAsk } = await supabase
       .from("messages")
       .insert({ conversation_id: args.conversationId, role: "assistant", content: titleAskMsg })
