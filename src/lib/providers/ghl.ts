@@ -143,6 +143,34 @@ interface GhlRawMessage {
   dateAdded?: string;
 }
 
+/**
+ * Resuelve el id de conversación de GHL de un contacto (vía la Conversations
+ * API). Lo usa el panel para armar el deep-link al thread EXACTO en GHL: la
+ * URL de conversaciones de GHL se identifica por este conversationId, no por el
+ * contactId. Usa el PIT. Devuelve null ante cualquier error o si no hay
+ * conversación.
+ */
+export async function ghlFindConversationId(
+  contactId: string,
+  locationId: string,
+): Promise<string | null> {
+  if (!process.env.GHL_API_KEY) return null;
+  try {
+    const sUrl = `${GHL_BASE}/conversations/search?locationId=${encodeURIComponent(
+      locationId,
+    )}&contactId=${encodeURIComponent(contactId)}`;
+    const sRes = await fetch(sUrl, {
+      headers: ghlHeaders(),
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+    });
+    if (!sRes.ok) return null;
+    const sData = (await sRes.json()) as { conversations?: { id: string }[] };
+    return sData.conversations?.[0]?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export interface GhlContact {
   email: string | null;
   firstName: string | null;
