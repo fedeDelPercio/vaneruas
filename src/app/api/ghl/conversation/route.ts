@@ -34,7 +34,11 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const inboxUrl = `${GHL_APP_BASE}/${locationId}/conversations/conversations`;
+  // La bandeja de conversaciones de GHL necesita estos query params para
+  // renderizar el thread dentro de la vista correcta (sin ellos abre la bandeja
+  // pero no selecciona/muestra la conversación).
+  const INBOX_QS = "?category=team-inbox&tab=all";
+  const inboxUrl = `${GHL_APP_BASE}/${locationId}/conversations/conversations${INBOX_QS}`;
   if (!convId) return NextResponse.redirect(inboxUrl);
 
   const sb = getSupabaseServerClient();
@@ -51,7 +55,7 @@ export async function GET(req: NextRequest) {
 
   const ghlConvId = await ghlFindConversationId(contactId, locationId);
   const target = ghlConvId
-    ? `${GHL_APP_BASE}/${locationId}/conversations/conversations/${ghlConvId}`
+    ? `${GHL_APP_BASE}/${locationId}/conversations/conversations/${ghlConvId}${INBOX_QS}`
     : `${GHL_APP_BASE}/${locationId}/contacts/detail/${contactId}`;
   return NextResponse.redirect(target);
 }
