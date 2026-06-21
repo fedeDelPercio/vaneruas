@@ -67,3 +67,85 @@ export async function ghlSendWhatsApp(
   const data = (await res.json().catch(() => null)) as { messageId?: string } | null;
   return data?.messageId ?? null;
 }
+
+function ghlHeaders(): Record<string, string> {
+  return {
+    Authorization: `Bearer ${process.env.GHL_API_KEY ?? ""}`,
+    Version: GHL_VERSION,
+    Accept: "application/json",
+  };
+}
+
+export interface GhlInboundMessage {
+  body: string;
+  /** URLs de los adjuntos (imágenes, PDF, audio). */
+  attachments: string[];
+  messageType: string | null;
+}
+
+/**
+ * Trae el último mensaje ENTRANTE del contacto vía la API de GHL. El webhook
+ * del workflow "Customer Replied" no incluye la URL de los adjuntos; esto la
+ * recupera (search de conversación -> mensajes -> último inbound). Usa el PIT.
+ */
+export async function ghlFetchLatestInbound(
+  contactId: string,
+  locationId: string,
+): Promise<GhlInboundMessage | null> {
+  if (!process.env.GHL_API_KEY) return null;
+  try {
+    const sUrl = `${GHL_BASE}/conversations/search?locationId=${encodeURIComponent(
+      locationId,
+    )}&contactId=${encodeURIComponent(contactId)}`;
+    const sRes = await fetch(sUrl, { headers: ghlHeaders(), signal: AbortSignal.timeout(SEND_TIMEOUT_MS) });
+    if (!sRes.ok) return null;
+    const sData = (await sRes.json()) as { conversations?: { id: string }[] };
+    const conversationId = sData.conversations?.[0]?.id;
+    if (!conversationId) return null;
+
+    const mRes = await fetch(`${GHL_BASE}/conversations/${conversationId}/messages?limit=5`, {
+      headers: ghlHeaders(),
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+    });
+    if (!mRes.ok) return null;
+    const mData = (await mRes.json()) as {
+      messages?: { messages?: GhlRawMessage[] } | GhlRawMessage[];
+    };
+    const list = Array.isArray(mData.messages)
+      ? mData.messages
+      : mData.messages?.messages ?? [];
+    const latest = list.find((m) => (m.direction ?? "").toLowerCase() === "inbound");
+    if (!latest) return null;
+    return {
+      body: latest.body ?? "",
+      attachments: Array.isArray(latest.attachments)
+        ? latest.attachments.filter((a): a is string => typeof a === "string")
+        : [],
+      messageType: latest.messageType ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+interface GhlRawMessage {
+  direction?: string;
+  body?: string;
+  attachments?: unknown[];
+  messageType?: string;
+}
+
+/** Baja un archivo de una URL (las URLs de adjuntos de GHL son públicas). */
+export async function downloadUrl(
+  url: string,
+): Promise<{ bytes: Buffer; contentType: string } | null> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) return null;
+    const contentType = res.headers.get("content-type")?.split(";")[0]?.trim() ?? "application/octet-stream";
+    const bytes = Buffer.from(await res.arrayBuffer());
+    return { bytes, contentType };
+  } catch {
+    return null;
+  }
+}

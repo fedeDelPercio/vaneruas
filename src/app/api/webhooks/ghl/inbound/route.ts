@@ -2,6 +2,8 @@ import { after, NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { serverEnv } from "@/lib/env";
+import { ghlFetchLatestInbound, downloadUrl } from "@/lib/providers/ghl";
+import { uploadComprobante, isAllowedComprobanteType } from "@/lib/payments/storage";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +36,7 @@ const ghlSchema = z
     phone: z.string().nullish(),
     message: z.object({ body: z.string().nullish() }).nullish(),
     customData: z.object({ message: z.string().nullish() }).nullish(),
+    location: z.object({ id: z.string().nullish() }).nullish(),
   })
   .passthrough();
 
@@ -69,18 +72,12 @@ export async function POST(req: NextRequest) {
   const data = parsed.data;
 
   // Texto del mensaje: estándar primero, fallback al custom data.
-  const content = (data.message?.body ?? data.customData?.message ?? "").trim();
-  if (!content) {
-    // Sin texto no hay nada que procese el agente. Nota: el webhook del
-    // workflow "Customer Replied" NO trae la URL de los adjuntos (imagen/PDF/
-    // audio llegan con body vacío y attachments vacío). Los adjuntos se van a
-    // manejar con el webhook InboundMessage de la app de GHL.
-    return NextResponse.json({ skipped: "sin contenido de texto" }, { status: 200 });
-  }
+  const webhookText = (data.message?.body ?? data.customData?.message ?? "").trim();
+  const locationId = data.location?.id ?? "";
 
   const supabase = getSupabaseServerClient();
 
-  // 1. Buscar la conversación existente por el id de contacto de GHL. RLS la
+  // 1. Buscar / crear la conversación por el id de contacto de GHL. RLS la
   //    acota al cliente activo, así que external_id no colisiona entre clientes.
   const { data: existing } = await supabase
     .from("conversations")
@@ -90,8 +87,6 @@ export async function POST(req: NextRequest) {
     .maybeSingle();
 
   let conversationId = existing?.id ?? null;
-
-  // 2. Si no existe, crearla. El client_slug lo pone el JWT scoped (RLS).
   if (!conversationId) {
     const { data: created, error: convErr } = await supabase
       .from("conversations")
@@ -112,10 +107,50 @@ export async function POST(req: NextRequest) {
     conversationId = created.id;
   }
 
-  // 3. Guardar el mensaje del usuario.
+  // 2. Resolver contenido + adjunto. El webhook del workflow NO trae la URL del
+  //    adjunto, así que cuando el mensaje llega sin texto (imagen/PDF/audio),
+  //    consultamos la API de GHL (PIT) para recuperar la URL, la bajamos y, si
+  //    es un comprobante (imagen/PDF), la subimos a storage para que el worker
+  //    corra el flujo de validación de pago (handleAttachmentIntake).
+  let content = webhookText;
+  let attachmentPath: string | null = null;
+  let attachmentType: string | null = null;
+
+  if (!webhookText && locationId) {
+    const latest = await ghlFetchLatestInbound(data.contact_id, locationId);
+    const url = latest?.attachments[0];
+    if (url) {
+      const file = await downloadUrl(url);
+      if (file && isAllowedComprobanteType(file.contentType)) {
+        attachmentPath = await uploadComprobante({
+          bytes: file.bytes,
+          contentType: file.contentType,
+          conversationId,
+        });
+        attachmentType = file.contentType;
+        content = (latest?.body ?? "").trim();
+      } else {
+        // Otro tipo (ej. audio): lo dejamos visible. La transcripción de audios
+        // es una mejora siguiente.
+        content = (latest?.body ?? "").trim() || "[Archivo adjunto recibido]";
+      }
+    }
+  }
+
+  if (!content && !attachmentPath) {
+    return NextResponse.json({ skipped: "sin contenido" }, { status: 200 });
+  }
+
+  // 3. Guardar el mensaje del usuario (con adjunto si es comprobante).
   const { data: message, error: msgErr } = await supabase
     .from("messages")
-    .insert({ conversation_id: conversationId, role: "user", content })
+    .insert({
+      conversation_id: conversationId,
+      role: "user",
+      content,
+      attachment_path: attachmentPath,
+      attachment_type: attachmentType,
+    })
     .select("id")
     .single();
   if (msgErr || !message) {
