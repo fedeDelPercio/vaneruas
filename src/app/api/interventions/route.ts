@@ -46,7 +46,8 @@ export async function GET(req: NextRequest) {
     .from("agent_notifications")
     .select("*")
     .not("category", "in", `(${EXCLUDED_CATEGORIES.join(",")})`)
-    .order("created_at", { ascending: false })
+    // Más antiguo primero: se prioriza a quien fue derivado antes (cola de trabajo).
+    .order("created_at", { ascending: true })
     .limit(MAX_ITEMS);
 
   if (status === "pending") query = query.is("resolved_at", null);

@@ -38,7 +38,8 @@ export async function GET(req: NextRequest) {
     .from("agent_notifications")
     .select("*")
     .eq("category", CERTIFICADO_CATEGORY)
-    .order("created_at", { ascending: false })
+    // Más antiguo primero: se prioriza a quien reclamó antes (cola de trabajo).
+    .order("created_at", { ascending: true })
     .limit(MAX_ITEMS);
 
   if (status === "pending") query = query.is("resolved_at", null);

@@ -95,7 +95,8 @@ export async function GET(req: NextRequest) {
   let query = sb
     .from("payment_validations")
     .select("*")
-    .order("created_at", { ascending: false })
+    // Más antiguo primero: el equipo prioriza a quien envió antes (cola de trabajo).
+    .order("created_at", { ascending: true })
     .limit(MAX_ITEMS);
 
   if (status === "pending" || status === "validated" || status === "rejected") {
