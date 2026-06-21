@@ -43,6 +43,28 @@ function handoffFallbackNotice(followUpTiming: string): string {
   );
 }
 
+// Garantía determinística (requisito CRÍTICO del producto): cuando se deriva al
+// equipo, el mensaje a la persona SIEMPRE tiene que avisarle que se notifica al
+// equipo y que le van a responder. El prompt ya lo pide, pero el modelo puede
+// olvidarlo: si el texto del agente no da ese aviso, lo agregamos como una
+// burbuja aparte. Nunca puede faltar.
+const TEAM_HANDOFF_ASSURANCE =
+  "Ya le paso tu consulta al equipo y te responden a la brevedad 🙌";
+
+function ensureTeamHandoffAssurance(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return TEAM_HANDOFF_ASSURANCE;
+  // Heurística: el aviso siempre nombra al "equipo" y algo de que responden /
+  // contactan / le pasan la consulta. Si falta alguno, lo agregamos.
+  const mentionsTeam = /\bequipo\b/i.test(trimmed);
+  const mentionsHandoff =
+    /(respond|brevedad|contact|conect|te paso|le paso|paso tu|paso la|aviso|avis|deriv|ayud)/i.test(
+      trimmed,
+    );
+  if (mentionsTeam && mentionsHandoff) return trimmed;
+  return `${trimmed}\n---\n${TEAM_HANDOFF_ASSURANCE}`;
+}
+
 export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
   const supabase = getSupabaseServerClient();
   const maxIterations = serverEnv().AGENT_MAX_ITERATIONS;
@@ -225,8 +247,9 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
       const handoffText = orch.responseText?.trim() ?? "";
       return {
         traceId,
-        assistantMessage:
-          handoffText || handoffFallbackNotice(timeContext.followUpTiming),
+        assistantMessage: handoffText
+          ? ensureTeamHandoffAssurance(handoffText)
+          : handoffFallbackNotice(timeContext.followUpTiming),
         status: "escalated",
         escalationReason: category,
         escalationIsNew,
