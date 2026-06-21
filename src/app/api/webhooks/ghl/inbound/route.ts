@@ -72,7 +72,12 @@ export async function POST(req: NextRequest) {
   const content = (data.message?.body ?? data.customData?.message ?? "").trim();
   if (!content) {
     // Sin texto no hay nada que procese el agente (ej: evento de sistema).
-    return NextResponse.json({ skipped: "sin contenido de texto" }, { status: 200 });
+    // DEBUG TEMPORAL: devolvemos el payload recibido para inspeccionar cómo
+    // llegan los adjuntos (imagen/PDF/audio) desde GHL. Revertir tras capturar.
+    return NextResponse.json(
+      { skipped: "sin contenido de texto", _debug_received: body },
+      { status: 200 },
+    );
   }
 
   const supabase = getSupabaseServerClient();
