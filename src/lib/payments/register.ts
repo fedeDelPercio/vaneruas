@@ -3,6 +3,7 @@ import "server-only";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { sendTeamNotificationAlert } from "@/lib/email/sender";
 import { dispatchEvent } from "@/lib/webhooks/dispatcher";
+import { deliverAssistantToWhatsApp } from "@/lib/whatsapp-delivery";
 import type { Json } from "@/lib/supabase/types";
 import { downloadComprobante } from "./storage";
 import { extractPaymentData, type PaymentExtraction } from "./extract";
@@ -111,11 +112,17 @@ export async function handlePaymentComprobante(
       role: "system",
       content: "Comprobante recibido, esperando validación del título profesional",
     });
-    await supabase.from("messages").insert({
-      conversation_id: args.conversationId,
-      role: "assistant",
-      content:
-        "Genial, recibí tu comprobante 🙌 Para confirmar tu inscripción necesito validar que seas profesional del rubro, me compartís una foto o PDF de tu título de cosmetóloga o afín? Apenas lo valide, mando tu pago a aprobar ✨",
+    const titleAskMsg =
+      "Genial, recibí tu comprobante 🙌 Para confirmar tu inscripción necesito validar que seas profesional del rubro, me compartís una foto o PDF de tu título de cosmetóloga o afín? Apenas lo valide, mando tu pago a aprobar ✨";
+    const { data: titleAsk } = await supabase
+      .from("messages")
+      .insert({ conversation_id: args.conversationId, role: "assistant", content: titleAskMsg })
+      .select("id")
+      .single();
+    await deliverAssistantToWhatsApp({
+      conversationId: args.conversationId,
+      messageId: titleAsk?.id,
+      content: titleAskMsg,
     });
     await touchConversation(args.conversationId);
     return;
@@ -138,11 +145,17 @@ export async function handlePaymentComprobante(
   });
 
   // 5. Confirmación a la profesional.
-  await supabase.from("messages").insert({
-    conversation_id: args.conversationId,
-    role: "assistant",
-    content:
-      "Genial, gracias por compartir el comprobante 🙌 El equipo lo revisa y te confirma la inscripción a la brevedad",
+  const receivedMsg =
+    "Genial, gracias por compartir el comprobante 🙌 El equipo lo revisa y te confirma la inscripción a la brevedad";
+  const { data: received } = await supabase
+    .from("messages")
+    .insert({ conversation_id: args.conversationId, role: "assistant", content: receivedMsg })
+    .select("id")
+    .single();
+  await deliverAssistantToWhatsApp({
+    conversationId: args.conversationId,
+    messageId: received?.id,
+    content: receivedMsg,
   });
 
   // 6. Reordenar la conversación.

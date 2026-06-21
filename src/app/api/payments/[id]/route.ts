@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
-import { testProvider } from "@/lib/providers/test-provider";
+import { deliverAssistantToWhatsApp } from "@/lib/whatsapp-delivery";
 
 export const dynamic = "force-dynamic";
 
@@ -110,16 +110,25 @@ export async function PATCH(
     prev?.conversation_id
   ) {
     try {
-      await sb.from("messages").insert({
-        conversation_id: prev.conversation_id,
-        role: "assistant",
-        content: PAYMENT_APPROVED_MESSAGE,
-      });
+      const { data: inserted } = await sb
+        .from("messages")
+        .insert({
+          conversation_id: prev.conversation_id,
+          role: "assistant",
+          content: PAYMENT_APPROVED_MESSAGE,
+        })
+        .select("id")
+        .single();
       await sb
         .from("conversations")
         .update({ updated_at: new Date().toISOString() })
         .eq("id", prev.conversation_id);
-      await testProvider.sendMessage(prev.conversation_id, PAYMENT_APPROVED_MESSAGE);
+      // Entrega real al WhatsApp del contacto (vía GHL) si corresponde.
+      await deliverAssistantToWhatsApp({
+        conversationId: prev.conversation_id,
+        messageId: inserted?.id,
+        content: PAYMENT_APPROVED_MESSAGE,
+      });
     } catch (err) {
       console.error("[payments] no se pudo enviar la confirmación al cliente:", err);
     }

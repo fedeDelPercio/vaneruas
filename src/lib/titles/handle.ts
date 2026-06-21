@@ -8,6 +8,7 @@ import {
   releaseAwaitingComprobantes,
 } from "@/lib/payments/register";
 import { classifyAttachment, type AttachmentClassification } from "./classify";
+import { deliverAssistantToWhatsApp } from "@/lib/whatsapp-delivery";
 
 // ===========================================================================
 // Gate de validación de título profesional.
@@ -182,11 +183,13 @@ export async function markConversationTitleValidated(
 }
 
 async function insertAssistant(conversationId: string, content: string): Promise<void> {
-  await getSupabaseServerClient().from("messages").insert({
-    conversation_id: conversationId,
-    role: "assistant",
-    content,
-  });
+  const { data } = await getSupabaseServerClient()
+    .from("messages")
+    .insert({ conversation_id: conversationId, role: "assistant", content })
+    .select("id")
+    .single();
+  // Entrega real al WhatsApp del contacto (vía GHL) si corresponde.
+  await deliverAssistantToWhatsApp({ conversationId, messageId: data?.id, content });
 }
 
 async function touchConversation(conversationId: string): Promise<void> {
