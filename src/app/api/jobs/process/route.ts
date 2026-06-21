@@ -5,6 +5,7 @@ import { runAgent } from "@/lib/agent/run";
 import { ghlSendAllowed, ghlSendWhatsApp } from "@/lib/providers/ghl";
 import { isAllowedComprobanteType } from "@/lib/payments/storage";
 import { handleAttachmentIntake } from "@/lib/titles/handle";
+import { resolveWhatsAppTurn } from "@/lib/agent/debounce";
 import type { HistoryMessage } from "@/lib/agent/types";
 import type { AgentJob } from "@/lib/supabase/types";
 
@@ -150,39 +151,67 @@ async function processJob(job: AgentJob): Promise<void> {
     return;
   }
 
-  // Mensaje del usuario que originó el job.
-  const { data: userMsg, error: userErr } = await supabase
-    .from("messages")
-    .select("content")
-    .eq("id", job.user_message_id)
-    .single();
-  if (userErr || !userMsg) {
-    throw new Error("No se encontró el mensaje del usuario");
-  }
-
-  // Captura del correo: si el mensaje trae un email (típico tras validar el
-  // pago, cuando le pedimos el correo para el acceso), lo guardamos en la
-  // conversación. Por ahora vive en ATP; el paso siguiente es sincronizarlo
-  // con GHL. Best-effort: no corta el flujo del agente.
-  await captureContactEmail(job.conversation_id, userMsg.content);
-
-  // Historial: últimos N mensajes previos de la conversación.
+  // Todos los mensajes de la conversación (para historial y, en WhatsApp, para
+  // consolidar el turno de mensajes acumulados por el debounce).
   const { data: msgs } = await supabase
     .from("messages")
-    .select("id, role, content, created_at")
+    .select("id, role, content, created_at, attachment_path")
     .eq("conversation_id", job.conversation_id)
     .order("created_at", { ascending: true });
+  const allMsgs = msgs ?? [];
 
-  const history: HistoryMessage[] = (msgs ?? [])
-    .filter((m) => m.id !== job.user_message_id)
+  // Resolver el "turno" a responder:
+  //  - WhatsApp: acumulación de mensajes. Esperamos un período de silencio
+  //    (debounce) y consolidamos los mensajes seguidos en una sola respuesta.
+  //    Si la ventana todavía no pasó, re-diferimos el job y salimos sin
+  //    responder (lo procesa un disparo posterior, cuando haya silencio).
+  //  - Panel Testing (source != whatsapp): turno = el mensaje que originó el job.
+  const isWhatsApp = convState?.source === "whatsapp";
+  const debounceSeconds = serverEnv().MESSAGE_DEBOUNCE_SECONDS;
+
+  let turnUserMessage: string;
+  let anchorMessageId: string;
+  let turnMessageIds: Set<string>;
+
+  if (isWhatsApp && debounceSeconds > 0) {
+    const decision = resolveWhatsAppTurn(allMsgs, debounceSeconds, Date.now());
+    if (decision.action === "skip") {
+      // Turno ya respondido o solo adjuntos: no-op.
+      await markJobCompleted(job.id);
+      return;
+    }
+    if (decision.action === "defer") {
+      // Todavía acumulando: re-diferimos el job y salimos sin responder.
+      await deferJob(job, decision.processAfter);
+      return;
+    }
+    turnUserMessage = decision.userMessage;
+    anchorMessageId = decision.anchorMessageId;
+    turnMessageIds = new Set(decision.turnMessageIds);
+  } else {
+    const originMsg = allMsgs.find((m) => m.id === job.user_message_id);
+    if (!originMsg) throw new Error("No se encontró el mensaje del usuario");
+    turnUserMessage = originMsg.content ?? "";
+    anchorMessageId = job.user_message_id;
+    turnMessageIds = new Set([job.user_message_id]);
+  }
+
+  // Captura del correo: si el turno trae un email (típico tras validar el pago,
+  // cuando le pedimos el correo para el acceso), lo guardamos en la conversación.
+  // Best-effort: no corta el flujo del agente.
+  await captureContactEmail(job.conversation_id, turnUserMessage);
+
+  // Historial: mensajes previos al turno actual, últimos N.
+  const history: HistoryMessage[] = allMsgs
+    .filter((m) => !turnMessageIds.has(m.id))
     .slice(-HISTORY_LIMIT)
     .map((m) => ({ role: m.role as HistoryMessage["role"], content: m.content }));
 
   // Correr el agente.
   const result = await runAgent({
     conversationId: job.conversation_id,
-    userMessageId: job.user_message_id,
-    userMessage: userMsg.content,
+    userMessageId: anchorMessageId,
+    userMessage: turnUserMessage,
     history,
   });
 
@@ -293,6 +322,32 @@ async function captureContactEmail(
   } catch (err) {
     console.error("[jobs] no se pudo guardar el correo de la contacta:", err);
   }
+}
+
+/** Marca un job como terminado sin respuesta (turno ya respondido / vacío). */
+async function markJobCompleted(jobId: string): Promise<void> {
+  await getSupabaseServerClient()
+    .from("agent_jobs")
+    .update({ status: "completed", completed_at: new Date().toISOString() })
+    .eq("id", jobId);
+}
+
+/**
+ * Re-difiere un job: el turno todavía está acumulando mensajes (llegó uno
+ * dentro de la ventana de debounce). Vuelve a 'pending' con un nuevo
+ * `process_after` y devuelve el intento (no fue un fallo, no debe contar para
+ * el límite de reintentos).
+ */
+async function deferJob(job: AgentJob, processAfter: string): Promise<void> {
+  await getSupabaseServerClient()
+    .from("agent_jobs")
+    .update({
+      status: "pending",
+      process_after: processAfter,
+      attempts: Math.max(0, job.attempts - 1),
+      started_at: null,
+    })
+    .eq("id", job.id);
 }
 
 /**

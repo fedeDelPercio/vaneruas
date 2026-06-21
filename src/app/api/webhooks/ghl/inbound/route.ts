@@ -7,6 +7,9 @@ import { uploadComprobante, isAllowedComprobanteType } from "@/lib/payments/stor
 import { transcribeAudio, isAudioType } from "@/lib/audio/transcribe";
 
 export const dynamic = "force-dynamic";
+// El debounce mantiene viva la función durante la ventana de silencio (espera
+// + buffer) antes de disparar el worker. Cubre hasta ~85s de ventana.
+export const maxDuration = 90;
 
 // ===========================================================================
 // POST /api/webhooks/ghl/inbound
@@ -178,12 +181,22 @@ export async function POST(req: NextRequest) {
   }
 
   // 4. Encolar el job para que el worker corra el agente.
+  //    Debounce: los mensajes de texto/audio esperan una ventana de silencio
+  //    (`process_after` en el futuro) y se consolidan en el worker. Los
+  //    comprobantes (con adjunto) se procesan de inmediato, sin acumular.
+  const debounceSeconds = serverEnv().MESSAGE_DEBOUNCE_SECONDS;
+  const isImmediate = Boolean(attachmentPath) || debounceSeconds <= 0;
+  const processAfter = isImmediate
+    ? new Date().toISOString()
+    : new Date(Date.now() + debounceSeconds * 1000).toISOString();
+
   const { data: job, error: jobErr } = await supabase
     .from("agent_jobs")
     .insert({
       conversation_id: conversationId,
       user_message_id: message.id,
       status: "pending",
+      process_after: processAfter,
     })
     .select("id")
     .single();
@@ -210,14 +223,29 @@ export async function POST(req: NextRequest) {
     workerHeaders["x-vercel-protection-bypass"] =
       process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
   }
-  after(
+  const triggerWorker = () =>
     fetch(`${req.nextUrl.origin}/api/jobs/process`, {
       method: "POST",
       headers: workerHeaders,
     }).catch(() => {
       // El cron lo levanta igual; no es crítico si este disparo falla.
-    }),
-  );
+    });
+
+  if (isImmediate) {
+    after(triggerWorker());
+  } else {
+    // Debounce: esperamos la ventana (+2s de margen) y recién ahí disparamos el
+    // worker, así el `process_after` del job ya venció. Si dentro de la ventana
+    // llega otro mensaje, su propio disparo (más tardío) será el que procese el
+    // turno consolidado; los disparos previos encuentran el job re-diferido por
+    // el worker y no hacen nada. El cron de cada minuto es el respaldo.
+    after(
+      (async () => {
+        await new Promise((r) => setTimeout(r, (debounceSeconds + 2) * 1000));
+        await triggerWorker();
+      })(),
+    );
+  }
 
   return NextResponse.json(
     { conversationId, messageId: message.id, jobId: job.id },

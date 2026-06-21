@@ -97,6 +97,10 @@ const serverSchema = z.object({
   // (no se rompe nada). El modelo se puede sobre-escribir por env.
   OPENAI_API_KEY: z.string().min(1).optional(),
   OPENAI_TRANSCRIBE_MODEL: z.string().default("gpt-4o-transcribe"),
+  // Acumulación de mensajes (debounce) para WhatsApp: ventana de silencio en
+  // segundos antes de consolidar y responder los mensajes que llegan seguidos.
+  // Testing: 20. Producción: ~60. Solo aplica a conversaciones de WhatsApp.
+  MESSAGE_DEBOUNCE_SECONDS: z.coerce.number().int().nonnegative().default(20),
   // Email notifications via Gmail SMTP + App Password. Las tres son
   // opcionales: si alguna falta, el sender hace skip silencioso y la app
   // sigue funcionando (no bloquea el flow del agente).
@@ -135,6 +139,7 @@ export function serverEnv(): ServerEnv {
     GHL_SEND_ALLOWLIST: process.env.GHL_SEND_ALLOWLIST,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     OPENAI_TRANSCRIBE_MODEL: process.env.OPENAI_TRANSCRIBE_MODEL,
+    MESSAGE_DEBOUNCE_SECONDS: process.env.MESSAGE_DEBOUNCE_SECONDS,
     GMAIL_USER: process.env.GMAIL_USER,
     GMAIL_APP_PASSWORD: process.env.GMAIL_APP_PASSWORD,
     EMAIL_NOTIFY_TO: process.env.EMAIL_NOTIFY_TO,
