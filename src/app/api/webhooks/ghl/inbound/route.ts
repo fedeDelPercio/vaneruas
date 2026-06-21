@@ -71,13 +71,11 @@ export async function POST(req: NextRequest) {
   // Texto del mensaje: estándar primero, fallback al custom data.
   const content = (data.message?.body ?? data.customData?.message ?? "").trim();
   if (!content) {
-    // Sin texto no hay nada que procese el agente (ej: evento de sistema).
-    // DEBUG TEMPORAL: devolvemos el payload recibido para inspeccionar cómo
-    // llegan los adjuntos (imagen/PDF/audio) desde GHL. Revertir tras capturar.
-    return NextResponse.json(
-      { skipped: "sin contenido de texto", _debug_received: body },
-      { status: 200 },
-    );
+    // Sin texto no hay nada que procese el agente. Nota: el webhook del
+    // workflow "Customer Replied" NO trae la URL de los adjuntos (imagen/PDF/
+    // audio llegan con body vacío y attachments vacío). Los adjuntos se van a
+    // manejar con el webhook InboundMessage de la app de GHL.
+    return NextResponse.json({ skipped: "sin contenido de texto" }, { status: 200 });
   }
 
   const supabase = getSupabaseServerClient();
