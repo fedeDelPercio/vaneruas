@@ -34,13 +34,13 @@ const TABS: Array<{
   icon: typeof MessagesSquare;
   roles: ProfileRole[];
 }> = [
-  { href: "/conversations", label: "Testing", icon: MessagesSquare, roles: ["dev", "client"] },
-  { href: "/wa", label: "WhatsApp", icon: MessageCircle, roles: ["dev", "asesor"] },
-  { href: "/feedback", label: "Feedback", icon: Inbox, roles: ["dev", "client"] },
+  { href: "/conversations", label: "Testing", icon: MessagesSquare, roles: ["dev"] },
+  { href: "/wa", label: "WhatsApp", icon: MessageCircle, roles: ["dev", "client", "asesor"] },
+  { href: "/feedback", label: "Feedback", icon: Inbox, roles: ["dev"] },
   { href: "/payments", label: "Aprobaciones", icon: Receipt, roles: ["dev", "client", "asesor"] },
   { href: "/interventions", label: "Derivaciones", icon: Flag, roles: ["dev", "client", "asesor"] },
   { href: "/certificados", label: "Certificados", icon: Award, roles: ["dev", "client", "asesor"] },
-  { href: "/events", label: "Eventos", icon: CalendarDays, roles: ["dev", "client"] },
+  { href: "/events", label: "Eventos", icon: CalendarDays, roles: ["dev", "client", "asesor"] },
   { href: "/metrics", label: "Métricas", icon: BarChart3, roles: ["dev", "client", "asesor"] },
   // Oculto por ahora (el módulo sigue vivo, solo se sacó el tab del nav).
   // Para reactivar: re-importar el ícono de lucide y descomentar la línea.

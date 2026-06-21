@@ -56,22 +56,23 @@ export function clearStoredProfile(): void {
 // rebotar si el rol logueado entra por URL directa).
 //
 // Roles:
-//   - dev    -> todo (panel completo + Webhooks)
-//   - client -> testing + feedback (operación del cliente)
-//   - asesor -> WhatsApp (gestiona conversaciones reales)
+//   - dev    -> todo (panel completo: Testing, Feedback, Webhooks, etc.)
+//   - client -> operación: WhatsApp, Aprobaciones, Derivaciones, Certificados,
+//               Eventos, Métricas. SIN Testing ni Feedback (solo dev).
+//   - asesor -> mismo set operativo que client.
 //
 // Cuando un cliente clone este template y sume módulos propios (ej. /leads
 // en Quintaglia), tiene que agregar las rutas correspondientes a esta tabla.
 // ===========================================================================
 
 const ROLE_ACCESS: Record<string, ProfileRole[]> = {
-  "/conversations": ["dev", "client"],
-  "/wa": ["dev", "asesor"],
-  "/feedback": ["dev", "client"],
+  "/conversations": ["dev"],
+  "/feedback": ["dev"],
+  "/wa": ["dev", "client", "asesor"],
   "/payments": ["dev", "client", "asesor"],
   "/interventions": ["dev", "client", "asesor"],
   "/certificados": ["dev", "client", "asesor"],
-  "/events": ["dev", "client"],
+  "/events": ["dev", "client", "asesor"],
   "/metrics": ["dev", "client", "asesor"],
   "/webhooks": ["dev"],
 };
@@ -90,8 +91,10 @@ export function canAccess(role: ProfileRole, path: string): boolean {
 
 /** Ruta a la que mandar al usuario sin destino válido. */
 export function defaultRouteForRole(role: ProfileRole): string {
-  if (role === "asesor") return "/wa";
-  return "/conversations";
+  // dev arranca en Testing; el resto (client / asesor) no accede a Testing,
+  // así que su home es WhatsApp.
+  if (role === "dev") return "/conversations";
+  return "/wa";
 }
 
 /** Etiqueta humana del rol (para la UI). */
