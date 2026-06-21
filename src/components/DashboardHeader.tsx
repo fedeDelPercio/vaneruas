@@ -104,8 +104,8 @@ export function DashboardHeader() {
   if (!profile) return null;
 
   return (
-    <header className="relative z-50 flex items-center justify-between gap-2 border-b border-neutral-200/70 bg-white/80 px-4 backdrop-blur sm:px-6 dark:border-neutral-800/70 dark:bg-neutral-950/80">
-      <div className="flex items-center gap-4 sm:gap-7">
+    <header className="relative z-50 flex items-center justify-between gap-1 border-b border-neutral-200/70 bg-white/80 px-3 backdrop-blur sm:gap-2 sm:px-6 dark:border-neutral-800/70 dark:bg-neutral-950/80">
+      <div className="flex min-w-0 items-center gap-4 sm:gap-7">
         <Link
           href="/conversations"
           className="hidden items-center gap-2.5 py-4 text-[13px] font-medium tracking-tight-er text-neutral-900 transition hover:opacity-80 sm:flex dark:text-neutral-50"
@@ -113,7 +113,10 @@ export function DashboardHeader() {
           <BrandLogo />
           Agentic&nbsp;Panel
         </Link>
-        <nav className="-mb-px flex items-center">
+        {/* Mobile: solo íconos. El nav contiene su propio scroll (sin barra) por
+            si un rol tiene muchos tabs en una pantalla muy chica, así nunca
+            desborda la página. En el caso normal (cliente, 6 tabs) no scrollea. */}
+        <nav className="-mb-px flex min-w-0 items-center overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {TABS.filter((t) => t.roles.includes(profile.role)).map((tab) => {
             const active = pathname.startsWith(tab.href);
             const Icon = tab.icon;
@@ -122,7 +125,7 @@ export function DashboardHeader() {
               <Link
                 key={tab.href}
                 href={tab.href}
-                className={`relative flex items-center gap-2 px-3 py-4 text-[13px] transition sm:px-3.5 ${
+                className={`relative flex items-center gap-1 px-1.5 py-4 text-[13px] transition sm:gap-2 sm:px-3.5 ${
                   active
                     ? "text-neutral-900 dark:text-neutral-50"
                     : "text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
@@ -132,7 +135,9 @@ export function DashboardHeader() {
                   className={`h-3.5 w-3.5 shrink-0 ${active ? "text-gold" : ""}`}
                   strokeWidth={1.75}
                 />
-                <span className="hidden min-[380px]:inline">{tab.label}</span>
+                {/* Mobile: solo ícono (el título de cada página dice la sección).
+                    Desktop (sm+): ícono + label. Así el nav no desborda en mobile. */}
+                <span className="hidden sm:inline">{tab.label}</span>
                 {count > 0 && (
                   <span
                     aria-label={`${count} pendientes`}
