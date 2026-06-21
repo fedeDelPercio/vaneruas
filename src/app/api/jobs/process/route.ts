@@ -197,19 +197,24 @@ async function processJob(job: AgentJob): Promise<void> {
     .filter(Boolean);
 
   let lastMessageId: string | null = null;
+  // Burbujas insertadas (id + texto) para entregarlas al canal y, en WhatsApp,
+  // guardar el messageId de GHL en cada una (dedup del webhook OutboundMessage).
+  const insertedSegments: { id: string; content: string }[] = [];
   for (let i = 0; i < segments.length; i++) {
     const isLast = i === segments.length - 1;
+    const segment = segments[i] ?? "";
     const { data: msg } = await supabase
       .from("messages")
       .insert({
         conversation_id: job.conversation_id,
         role: "assistant",
-        content: segments[i] ?? "",
+        content: segment,
         // Solo el último mensaje del turno lleva el trace.
         trace_id: isLast ? result.traceId : null,
       })
       .select("id")
       .single();
+    if (msg) insertedSegments.push({ id: msg.id, content: segment });
     if (isLast && msg) lastMessageId = msg.id;
   }
 
@@ -251,7 +256,7 @@ async function processJob(job: AgentJob): Promise<void> {
     contactId: convState?.external_id ?? null,
     phone: convState?.wa_jid ?? null,
     conversationId: job.conversation_id,
-    segments,
+    segments: insertedSegments,
   });
 
   // Job terminado. El estado real del agente vive en el trace.
@@ -327,7 +332,7 @@ async function deliverAgentReply(opts: {
   contactId: string | null;
   phone: string | null;
   conversationId: string;
-  segments: string[];
+  segments: { id: string; content: string }[];
 }): Promise<void> {
   if (opts.source !== "whatsapp") return;
   const { contactId } = opts;
@@ -342,14 +347,22 @@ async function deliverAgentReply(opts: {
   const supabase = getSupabaseServerClient();
   for (const segment of opts.segments) {
     try {
-      await ghlSendWhatsApp(contactId, segment);
+      const ghlMessageId = await ghlSendWhatsApp(contactId, segment.content);
+      // Guardar el messageId de GHL en la burbuja, para deduplicar después el
+      // webhook OutboundMessage (que va a reportar este mismo envío).
+      if (ghlMessageId) {
+        await supabase
+          .from("messages")
+          .update({ external_id: ghlMessageId })
+          .eq("id", segment.id);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "error desconocido";
       console.error(`[ghl] envío falló, encolo en wa_outbox: ${message}`);
       await supabase.from("wa_outbox").insert({
         conversation_id: opts.conversationId,
         phone: opts.phone ?? contactId,
-        content: segment,
+        content: segment.content,
         attempts: 1,
         error: message,
       });

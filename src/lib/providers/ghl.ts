@@ -36,9 +36,14 @@ export function ghlSendAllowed(contactId: string): boolean {
 
 /**
  * Envía un mensaje de WhatsApp al contacto vía la Conversations API de GHL.
- * Lanza si la API responde con error (el caller decide reintentar/encolar).
+ * Devuelve el `messageId` que asigna GHL (lo guardamos para deduplicar el
+ * webhook OutboundMessage de la app: así no re-ingerimos nuestros propios
+ * envíos como si fueran de un humano). Lanza si la API responde con error.
  */
-export async function ghlSendWhatsApp(contactId: string, message: string): Promise<void> {
+export async function ghlSendWhatsApp(
+  contactId: string,
+  message: string,
+): Promise<string | null> {
   const token = process.env.GHL_API_KEY;
   if (!token) throw new Error("GHL_API_KEY no configurada");
 
@@ -58,4 +63,7 @@ export async function ghlSendWhatsApp(contactId: string, message: string): Promi
     const body = await res.text().catch(() => "");
     throw new Error(`GHL send ${res.status}: ${body.slice(0, 300)}`);
   }
+
+  const data = (await res.json().catch(() => null)) as { messageId?: string } | null;
+  return data?.messageId ?? null;
 }
