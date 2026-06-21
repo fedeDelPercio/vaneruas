@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { serverEnv } from "@/lib/env";
 import { runAgent } from "@/lib/agent/run";
-import { testProvider } from "@/lib/providers/test-provider";
+import { ghlSendAllowed, ghlSendWhatsApp } from "@/lib/providers/ghl";
 import { isAllowedComprobanteType } from "@/lib/payments/storage";
 import { handleAttachmentIntake } from "@/lib/titles/handle";
 import type { HistoryMessage } from "@/lib/agent/types";
@@ -67,12 +67,12 @@ export async function POST(req: NextRequest) {
     p_limit: BATCH_SIZE,
   });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (!jobs || jobs.length === 0) return NextResponse.json({ processed: 0 });
 
+  const claimed = jobs ?? [];
   let processed = 0;
   let failed = 0;
   // Secuencial: evita levantar varias sesiones del Agent SDK en paralelo.
-  for (const job of jobs) {
+  for (const job of claimed) {
     try {
       await processJob(job);
       processed++;
@@ -82,7 +82,11 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ claimed: jobs.length, processed, failed });
+  // Reintentos de entrega a WhatsApp que quedaron pendientes (corre siempre,
+  // incluso sin jobs nuevos, porque también lo dispara el cron de cada minuto).
+  await drainWaOutbox();
+
+  return NextResponse.json({ claimed: claimed.length, processed, failed });
 }
 
 /** Procesa un job: corre el agente y persiste la respuesta. */
@@ -130,7 +134,7 @@ async function processJob(job: AgentJob): Promise<void> {
   // cliente sin respuesta apenas se derivaba — ej. tras interes_compra.)
   const { data: convState } = await supabase
     .from("conversations")
-    .select("mode")
+    .select("mode, source, external_id, wa_jid")
     .eq("id", job.conversation_id)
     .maybeSingle();
 
@@ -240,8 +244,15 @@ async function processJob(job: AgentJob): Promise<void> {
     .update({ updated_at: new Date().toISOString() })
     .eq("id", job.conversation_id);
 
-  // Entrega externa del canal (no-op en el provider de test).
-  await testProvider.sendMessage(job.conversation_id, result.assistantMessage);
+  // Entrega externa del canal. Para WhatsApp (GHL) se manda cada burbuja por
+  // separado; para el panel (test) es no-op (Realtime ya refleja `messages`).
+  await deliverAgentReply({
+    source: convState?.source ?? "test",
+    contactId: convState?.external_id ?? null,
+    phone: convState?.wa_jid ?? null,
+    conversationId: job.conversation_id,
+    segments,
+  });
 
   // Job terminado. El estado real del agente vive en el trace.
   await supabase
@@ -300,4 +311,98 @@ async function handleJobFailure(job: AgentJob, err: unknown): Promise<void> {
   console.error(
     `[jobs] job ${job.id} falló (intento ${job.attempts}/${job.max_attempts}): ${message}`,
   );
+}
+
+// Máximo de reintentos de entrega antes de abandonar una fila del outbox.
+const MAX_OUTBOX_ATTEMPTS = 5;
+
+/**
+ * Entrega la respuesta del agente por el canal. Para WhatsApp manda cada
+ * burbuja a GHL; si el envío falla, encola en `wa_outbox` para que el cron
+ * reintente. Respeta la allowlist (fail-closed). Para el panel (test) es
+ * no-op: Realtime ya refleja la tabla `messages`.
+ */
+async function deliverAgentReply(opts: {
+  source: string;
+  contactId: string | null;
+  phone: string | null;
+  conversationId: string;
+  segments: string[];
+}): Promise<void> {
+  if (opts.source !== "whatsapp") return;
+  const { contactId } = opts;
+  if (!contactId) return;
+
+  // Guardrail: solo se envía a contactos habilitados en la allowlist.
+  if (!ghlSendAllowed(contactId)) {
+    console.debug(`[ghl] envío omitido (fuera de allowlist): ${contactId}`);
+    return;
+  }
+
+  const supabase = getSupabaseServerClient();
+  for (const segment of opts.segments) {
+    try {
+      await ghlSendWhatsApp(contactId, segment);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "error desconocido";
+      console.error(`[ghl] envío falló, encolo en wa_outbox: ${message}`);
+      await supabase.from("wa_outbox").insert({
+        conversation_id: opts.conversationId,
+        phone: opts.phone ?? contactId,
+        content: segment,
+        attempts: 1,
+        error: message,
+      });
+    }
+  }
+}
+
+/**
+ * Reintenta las entregas pendientes en `wa_outbox` (las que el envío inline
+ * no pudo completar). Lo llama el cron cada minuto. Resuelve el contactId
+ * desde la conversación y respeta la allowlist.
+ */
+async function drainWaOutbox(): Promise<void> {
+  const supabase = getSupabaseServerClient();
+  const { data: rows } = await supabase
+    .from("wa_outbox")
+    .select("id, conversation_id, content, attempts")
+    .is("sent_at", null)
+    .lt("attempts", MAX_OUTBOX_ATTEMPTS)
+    .order("created_at", { ascending: true })
+    .limit(20);
+  if (!rows || rows.length === 0) return;
+
+  for (const row of rows) {
+    const { data: conv } = await supabase
+      .from("conversations")
+      .select("external_id")
+      .eq("id", row.conversation_id)
+      .maybeSingle();
+    const contactId = conv?.external_id ?? null;
+
+    if (!contactId || !ghlSendAllowed(contactId)) {
+      // Sin destino o fuera de allowlist: cuenta el intento para que no se
+      // reintente para siempre, pero no se envía.
+      await supabase
+        .from("wa_outbox")
+        .update({ attempts: row.attempts + 1, error: "sin contactId o fuera de allowlist" })
+        .eq("id", row.id);
+      continue;
+    }
+
+    try {
+      await ghlSendWhatsApp(contactId, row.content);
+      await supabase
+        .from("wa_outbox")
+        .update({ sent_at: new Date().toISOString(), error: null })
+        .eq("id", row.id);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "error desconocido";
+      await supabase
+        .from("wa_outbox")
+        .update({ attempts: row.attempts + 1, error: message })
+        .eq("id", row.id);
+    }
+  }
 }

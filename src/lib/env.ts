@@ -84,6 +84,14 @@ const serverSchema = z.object({
   // dominio ya está detrás del bypass de Deployment Protection). Setearlo en
   // prod suma una segunda capa de auth.
   GHL_WEBHOOK_SECRET: z.string().min(1).optional(),
+  // Private Integration Token de GHL (scope conversations/message.write) para
+  // enviar las respuestas del agente a WhatsApp. Opcional: si falta, el envío
+  // saliente queda deshabilitado (la respuesta igual queda en el panel).
+  GHL_API_KEY: z.string().min(1).optional(),
+  // Allowlist de contact_id de GHL a los que el agente PUEDE responder por
+  // WhatsApp (fail-closed). Vacía/sin setear -> no se manda a nadie. "*" ->
+  // todos (producción). "id1,id2" -> solo esos. Guardrail de testing.
+  GHL_SEND_ALLOWLIST: z.string().optional(),
   // Email notifications via Gmail SMTP + App Password. Las tres son
   // opcionales: si alguna falta, el sender hace skip silencioso y la app
   // sigue funcionando (no bloquea el flow del agente).
@@ -118,6 +126,8 @@ export function serverEnv(): ServerEnv {
     CRON_SECRET: process.env.CRON_SECRET,
     WEBHOOK_SIGNING_SECRET: process.env.WEBHOOK_SIGNING_SECRET,
     GHL_WEBHOOK_SECRET: process.env.GHL_WEBHOOK_SECRET,
+    GHL_API_KEY: process.env.GHL_API_KEY,
+    GHL_SEND_ALLOWLIST: process.env.GHL_SEND_ALLOWLIST,
     GMAIL_USER: process.env.GMAIL_USER,
     GMAIL_APP_PASSWORD: process.env.GMAIL_APP_PASSWORD,
     EMAIL_NOTIFY_TO: process.env.EMAIL_NOTIFY_TO,
