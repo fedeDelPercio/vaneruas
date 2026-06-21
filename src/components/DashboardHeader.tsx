@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   ChevronDown,
   MessagesSquare,
+  MessageCircle,
   LogOut,
   Inbox,
   Receipt,
@@ -33,14 +34,14 @@ const TABS: Array<{
   roles: ProfileRole[];
 }> = [
   { href: "/conversations", label: "Testing", icon: MessagesSquare, roles: ["dev", "client"] },
+  { href: "/wa", label: "WhatsApp", icon: MessageCircle, roles: ["dev", "asesor"] },
   { href: "/feedback", label: "Feedback", icon: Inbox, roles: ["dev", "client"] },
   { href: "/payments", label: "Aprobaciones", icon: Receipt, roles: ["dev", "client", "asesor"] },
   { href: "/interventions", label: "Derivaciones", icon: Flag, roles: ["dev", "client", "asesor"] },
   { href: "/events", label: "Eventos", icon: CalendarDays, roles: ["dev", "client"] },
   { href: "/metrics", label: "Métricas", icon: BarChart3, roles: ["dev", "client", "asesor"] },
-  // Ocultos por ahora (los módulos siguen vivos, solo se sacó el tab del nav).
+  // Oculto por ahora (el módulo sigue vivo, solo se sacó el tab del nav).
   // Para reactivar: re-importar el ícono de lucide y descomentar la línea.
-  //   { href: "/wa", label: "WhatsApp", icon: MessageCircle, roles: ["dev", "asesor"] },
   //   { href: "/webhooks", label: "Webhooks", icon: Webhook, roles: ["dev"] },
 ];
 

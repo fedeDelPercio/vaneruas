@@ -360,7 +360,7 @@ export function ConversationPanel({
             )}
             <p className="mt-0.5 font-mono text-[10.5px] uppercase tracking-wide text-neutral-500 dark:text-neutral-500">
               {conversation?.source === "whatsapp"
-                ? `WhatsApp · +${conversation.external_id ?? "?"}`
+                ? `WhatsApp · ${conversation.wa_jid ?? conversation.external_id ?? "?"}`
                 : "Conversación de prueba"}
             </p>
             {conversation?.contact_email && (
