@@ -19,6 +19,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useProfile } from "./ProfileProvider";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { ghlConversationUrl } from "@/lib/ghl-link";
 import { eventBySlug } from "@/lib/payments/event-match";
 import type {
   PaymentItem,
@@ -600,9 +601,11 @@ export function PaymentsList() {
                 <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
                   {p.conversation && (
                     <button
-                      onClick={() =>
-                        router.push(`/conversations?id=${p.conversation!.id}`)
-                      }
+                      onClick={() => {
+                        const url = ghlConversationUrl(p.conversation);
+                        if (url) window.open(url, "_blank", "noopener,noreferrer");
+                        else router.push(`/conversations?id=${p.conversation!.id}`);
+                      }}
                       className="mr-auto flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] text-neutral-600 transition hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
                     >
                       Ver conversación
@@ -770,7 +773,11 @@ export function PaymentsList() {
                   {tr.conversation && (
                     <div className="mt-4 flex items-center border-t border-neutral-100 pt-3 dark:border-neutral-800">
                       <button
-                        onClick={() => router.push(`/conversations?id=${tr.conversation!.id}`)}
+                        onClick={() => {
+                          const url = ghlConversationUrl(tr.conversation);
+                          if (url) window.open(url, "_blank", "noopener,noreferrer");
+                          else router.push(`/conversations?id=${tr.conversation!.id}`);
+                        }}
                         className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] text-neutral-600 transition hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
                       >
                         Ver conversación

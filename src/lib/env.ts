@@ -38,6 +38,11 @@ const clientSchema = z.object({
     .string()
     .min(1, "NEXT_PUBLIC_CLIENT_SLUG es obligatoria (ej: 'ibath', 'quintaglia')")
     .regex(/^[a-z][a-z0-9_]*$/, "NEXT_PUBLIC_CLIENT_SLUG debe ser snake_case"),
+  // locationId de la subcuenta de GoHighLevel. Lo usa el panel para armar el
+  // link directo a la conversación en GHL ("Ver conversación" en Aprobaciones,
+  // Derivaciones y Certificados). Opcional: si falta, esos botones caen al
+  // visor interno del panel.
+  NEXT_PUBLIC_GHL_LOCATION_ID: z.string().min(1).optional(),
 });
 
 function parseClientEnv() {
@@ -49,6 +54,7 @@ function parseClientEnv() {
     NEXT_PUBLIC_SUPABASE_CLIENT_JWT: process.env.NEXT_PUBLIC_SUPABASE_CLIENT_JWT,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_CLIENT_SLUG: process.env.NEXT_PUBLIC_CLIENT_SLUG,
+    NEXT_PUBLIC_GHL_LOCATION_ID: process.env.NEXT_PUBLIC_GHL_LOCATION_ID,
   });
   if (!parsed.success) {
     throw new Error(

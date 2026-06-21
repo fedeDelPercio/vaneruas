@@ -5,6 +5,7 @@ import { Loader2, Inbox, Check, RotateCcw, ArrowRight, AlertTriangle } from "luc
 import { useRouter } from "next/navigation";
 import { useProfile } from "./ProfileProvider";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { ghlConversationUrl } from "@/lib/ghl-link";
 import type { InterventionItem } from "@/app/api/interventions/route";
 
 // Bandeja de derivaciones al equipo: notificaciones del agente que necesitan
@@ -211,7 +212,11 @@ export function InterventionsList() {
                 <div className="mt-3 flex flex-wrap items-center justify-end gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
                   {it.conversation && (
                     <button
-                      onClick={() => router.push(`/conversations?id=${it.conversation!.id}`)}
+                      onClick={() => {
+                        const url = ghlConversationUrl(it.conversation);
+                        if (url) window.open(url, "_blank", "noopener,noreferrer");
+                        else router.push(`/conversations?id=${it.conversation!.id}`);
+                      }}
                       className="mr-auto flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] text-neutral-600 transition hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
                     >
                       Ver conversación
