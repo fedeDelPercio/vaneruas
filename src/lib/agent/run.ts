@@ -8,6 +8,7 @@ import { runOrchestrator } from "./orchestrator";
 import { evaluateResponse } from "./evaluator";
 import { loadActiveEventsBlock } from "./events-kb";
 import { getTimeContext } from "./business-hours";
+import { matchEventByAmount } from "@/lib/payments/event-match";
 import type {
   AgentRunInput,
   AgentRunResult,
@@ -330,24 +331,32 @@ async function loadPaymentContext(conversationId: string): Promise<string> {
       .limit(5);
     if (!data?.length) return "";
 
-    const montos = data
+    const lineas = data
       .map((p) => {
+        if (p.amount === null) return null;
         const cur = p.currency ?? "ARS";
-        const n =
-          p.amount === null
-            ? null
-            : new Intl.NumberFormat("es-AR", { minimumFractionDigits: 0 }).format(
-                Number(p.amount),
-              );
-        return n ? `${cur} ${n}` : null;
+        const monto = new Intl.NumberFormat("es-AR", { minimumFractionDigits: 0 }).format(
+          Number(p.amount),
+        );
+        // Identificación automática del evento por el monto (hardcode).
+        const ev = matchEventByAmount(Number(p.amount));
+        return ev
+          ? `${cur} ${monto} (corresponde a: ${ev.label})`
+          : `${cur} ${monto}`;
       })
-      .filter(Boolean);
-    if (!montos.length) return "";
+      .filter((l): l is string => Boolean(l));
+    if (!lineas.length) return "";
+
+    const algunoIdentificado = data.some((p) => matchEventByAmount(Number(p.amount)));
+    const guia = algunoIdentificado
+      ? "El evento ya está identificado por el monto: NO le preguntes a qué " +
+        "corresponde, dalo por sabido y respondé sobre ese evento."
+      : "Si pregunta por el detalle de un evento, usá el monto para deducir a " +
+        "cuál corresponde (comparalo con los precios de los eventos vigentes).";
 
     return (
-      `El contacto envió comprobante(s) de pago en esta conversación por: ${montos.join(", ")}. ` +
-      "Si pregunta por el detalle de un evento, usá el monto para deducir a cuál " +
-      "corresponde (comparalo con los precios de los eventos vigentes)."
+      `El contacto envió comprobante(s) de pago en esta conversación por: ${lineas.join(", ")}. ` +
+      guia
     );
   } catch (err) {
     console.error("[run] no se pudo cargar el contexto de pagos:", err);

@@ -14,10 +14,12 @@ import {
   ShieldAlert,
   MessageSquareQuote,
   Mail,
+  Ticket,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useProfile } from "./ProfileProvider";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { eventBySlug } from "@/lib/payments/event-match";
 import type {
   PaymentItem,
   PaymentStats,
@@ -465,6 +467,7 @@ export function PaymentsList() {
         <div className="space-y-3">
           {items.map((p) => {
             const badge = statusBadge(p.status);
+            const ev = eventBySlug(p.eventSlug);
             const isPending = p.status === "pending";
             const busy = busyId === p.id;
             return (
@@ -523,6 +526,15 @@ export function PaymentsList() {
                         </p>
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5">
+                        {ev && (
+                          <span
+                            className="flex items-center gap-1 badge-pill border-neutral-200 bg-neutral-50 text-gold dark:border-neutral-800 dark:bg-neutral-900/40"
+                            title={`Identificado por el monto: ${ev.label}`}
+                          >
+                            <Ticket className="h-3 w-3" strokeWidth={1.75} />
+                            {ev.shortLabel}
+                          </span>
+                        )}
                         {p.awaitingTitle && (
                           <span
                             className="flex items-center gap-1 badge-pill border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400"
