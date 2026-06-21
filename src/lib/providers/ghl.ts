@@ -84,13 +84,22 @@ export interface GhlInboundMessage {
 }
 
 /**
- * Trae el último mensaje ENTRANTE del contacto vía la API de GHL. El webhook
- * del workflow "Customer Replied" no incluye la URL de los adjuntos; esto la
- * recupera (search de conversación -> mensajes -> último inbound). Usa el PIT.
+ * Recupera de la API de GHL el mensaje ENTRANTE relevante del contacto y sus
+ * adjuntos (el webhook del workflow "Customer Replied" no trae las URLs). Usa
+ * el PIT.
+ *
+ * `expectedBody` = el texto que vino en el webhook (el mensaje que lo disparó).
+ * Buscamos ESE mensaje por su body y devolvemos SU adjunto. Esto es clave: NO
+ * alcanza con "el último entrante", porque si la persona manda el comprobante y
+ * justo después otro mensaje (ej. "asi va?"), el último pasa a ser ese segundo
+ * mensaje (sin adjunto) y se perdería la imagen. Match por body lo evita.
+ * Para mensajes sin texto (imagen/audio sin caption) caemos al inbound más
+ * reciente que tenga adjunto.
  */
 export async function ghlFetchLatestInbound(
   contactId: string,
   locationId: string,
+  expectedBody?: string,
 ): Promise<GhlInboundMessage | null> {
   if (!process.env.GHL_API_KEY) return null;
   try {
@@ -103,7 +112,7 @@ export async function ghlFetchLatestInbound(
     const conversationId = sData.conversations?.[0]?.id;
     if (!conversationId) return null;
 
-    const mRes = await fetch(`${GHL_BASE}/conversations/${conversationId}/messages?limit=5`, {
+    const mRes = await fetch(`${GHL_BASE}/conversations/${conversationId}/messages?limit=10`, {
       headers: ghlHeaders(),
       signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     });
@@ -114,15 +123,30 @@ export async function ghlFetchLatestInbound(
     const list = Array.isArray(mData.messages)
       ? mData.messages
       : mData.messages?.messages ?? [];
-    const latest = list.find((m) => (m.direction ?? "").toLowerCase() === "inbound");
-    if (!latest) return null;
-    return {
-      body: latest.body ?? "",
-      attachments: Array.isArray(latest.attachments)
-        ? latest.attachments.filter((a): a is string => typeof a === "string")
+    const inbound = list.filter((m) => (m.direction ?? "").toLowerCase() === "inbound");
+    if (!inbound.length) return null;
+
+    const toResult = (m: GhlRawMessage): GhlInboundMessage => ({
+      body: m.body ?? "",
+      attachments: Array.isArray(m.attachments)
+        ? m.attachments.filter((a): a is string => typeof a === "string")
         : [],
-      messageType: latest.messageType ?? null,
-    };
+      messageType: m.messageType ?? null,
+    });
+
+    // 1. El mensaje que disparó el webhook (match por texto): su adjunto es el
+    //    que hay que capturar, aunque haya un mensaje posterior más nuevo.
+    const wanted = (expectedBody ?? "").trim();
+    if (wanted) {
+      const match = inbound.find((m) => (m.body ?? "").trim() === wanted);
+      if (match) return toResult(match);
+    }
+    // 2. Sin texto (imagen/audio sin caption) o sin match: el inbound más
+    //    reciente que tenga adjunto.
+    const withAttachment = inbound.find(
+      (m) => Array.isArray(m.attachments) && m.attachments.length > 0,
+    );
+    return toResult(withAttachment ?? inbound[0]!);
   } catch {
     return null;
   }

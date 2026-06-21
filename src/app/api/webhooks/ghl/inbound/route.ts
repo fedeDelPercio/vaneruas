@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
   // texto): un comprobante puede venir con caption, en cuyo caso el webhook
   // trae el texto pero igual hay un archivo adjunto que hay que procesar.
   if (locationId) {
-    const latest = await ghlFetchLatestInbound(data.contact_id, locationId);
+    const latest = await ghlFetchLatestInbound(data.contact_id, locationId, webhookText);
     const url = latest?.attachments[0];
     if (url) {
       const file = await downloadUrl(url);
