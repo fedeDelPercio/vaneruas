@@ -30,9 +30,11 @@ export const NOTIFY_TEAM_TOOL_SCHEMA: Tool = {
         type: "string",
         description:
           "Categoría de la notificación en snake_case. Categorías válidas: " +
-          "'fuera_de_conocimiento', 'escalado_manual'. La intención de compra " +
-          "NO deriva (la venta es autogestionada) y ser clienta tampoco deriva. " +
-          "Usá las categorías definidas en el prompt del orquestador.",
+          "'fuera_de_conocimiento', 'escalado_manual', 'reclamo_certificado'. " +
+          "Usá 'reclamo_certificado' cuando la persona reclama que no le llegó el " +
+          "certificado o diploma de una masterclass a la que asistió. La intención " +
+          "de compra NO deriva (la venta es autogestionada) y ser clienta tampoco " +
+          "deriva. Usá las categorías definidas en el prompt del orquestador.",
       },
       reason: {
         type: "string",

@@ -10,19 +10,22 @@ export const dynamic = "force-dynamic";
 // notificación). Liviano: solo `count`, sin traer filas. RLS aísla por cliente.
 //
 //  - payments: comprobantes en estado 'pending' (a validar / aprobar).
-//  - interventions: derivaciones sin resolver, excluyendo `validacion_pago`
-//    (esas viven en el módulo de aprobaciones, no en la bandeja).
+//  - interventions: derivaciones sin resolver, excluyendo las que tienen
+//    módulo propio (`validacion_pago` → /payments, `reclamo_certificado` →
+//    /certificados).
+//  - certificados: reclamos de certificados (`reclamo_certificado`) sin resolver.
 // ===========================================================================
 
 export interface ModuleCounts {
   payments: number;
   interventions: number;
+  certificados: number;
 }
 
 export async function GET() {
   const sb = getSupabaseServerClient();
 
-  const [payments, interventions] = await Promise.all([
+  const [payments, interventions, certificados] = await Promise.all([
     sb
       .from("payment_validations")
       .select("id", { count: "exact", head: true })
@@ -31,12 +34,18 @@ export async function GET() {
       .from("agent_notifications")
       .select("id", { count: "exact", head: true })
       .is("resolved_at", null)
-      .not("category", "in", "(validacion_pago)"),
+      .not("category", "in", "(validacion_pago,reclamo_certificado)"),
+    sb
+      .from("agent_notifications")
+      .select("id", { count: "exact", head: true })
+      .is("resolved_at", null)
+      .eq("category", "reclamo_certificado"),
   ]);
 
   const counts: ModuleCounts = {
     payments: payments.count ?? 0,
     interventions: interventions.count ?? 0,
+    certificados: certificados.count ?? 0,
   };
   return NextResponse.json(counts);
 }

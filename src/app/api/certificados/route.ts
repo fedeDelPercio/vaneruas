@@ -4,32 +4,24 @@ import { getSupabaseServerClient } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 
 // ===========================================================================
-// GET /api/interventions?status=pending|resolved|all
+// GET /api/certificados?status=pending|resolved|all
 //
-// Bandeja de derivaciones al equipo: las notificaciones del agente que
-// implican intervención humana, excluyendo las derivadas por comprobante
-// (`validacion_pago`), que se trabajan en /payments (ver EXCLUDED_CATEGORIES).
+// Reclamos de certificados/diplomas de masterclass: notificaciones del agente
+// con categoría `reclamo_certificado` (asistentes que dicen no haber recibido
+// su certificado). Es la contraparte de /api/interventions, pero filtrando
+// SOLO esa categoría: tiene su propio módulo /certificados, igual que los
+// comprobantes (`validacion_pago`) tienen el de /payments.
 //
-// Resuelve la conversación de origen y quién marcó la derivación como
-// atendida. RLS aísla por client_slug vía el JWT.
+// Resuelve la conversación de origen y quién marcó el reclamo como atendido.
+// RLS aísla por client_slug vía el JWT.
 // ===========================================================================
 
 const MAX_ITEMS = 300;
 
-// Categorías que NO entran a la bandeja porque tienen su propio módulo:
-//  - `validacion_pago` → /payments (comprobantes; el worker los procesa fuera
-//    del orquestador y solo registra esa notificación).
-//  - `reclamo_certificado` → /certificados (reclamos de certificados de
-//    masterclass; misma idea: bandeja propia, ver src/app/api/certificados).
-// El resto de las categorías (cliente_existente, interes_compra,
-// fuera_de_conocimiento, escalado_manual, falla_tecnica) SÍ necesitan la
-// atención del equipo acá (esta clienta va a tener muchas clientas existentes,
-// y queremos verlas).
-const EXCLUDED_CATEGORIES = ["validacion_pago", "reclamo_certificado"];
+export const CERTIFICADO_CATEGORY = "reclamo_certificado";
 
-export interface InterventionItem {
+export interface CertificadoItem {
   id: string;
-  category: string;
   reason: string | null;
   summary: string | null;
   createdAt: string;
@@ -45,7 +37,7 @@ export async function GET(req: NextRequest) {
   let query = sb
     .from("agent_notifications")
     .select("*")
-    .not("category", "in", `(${EXCLUDED_CATEGORIES.join(",")})`)
+    .eq("category", CERTIFICADO_CATEGORY)
     .order("created_at", { ascending: false })
     .limit(MAX_ITEMS);
 
@@ -57,7 +49,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
   if (!rows?.length) {
-    return NextResponse.json({ items: [] satisfies InterventionItem[] });
+    return NextResponse.json({ items: [] satisfies CertificadoItem[] });
   }
 
   // Resolver conversaciones de origen.
@@ -69,7 +61,7 @@ export async function GET(req: NextRequest) {
     : { data: [] };
   const convById = new Map((convs ?? []).map((c) => [c.id, c]));
 
-  // Resolver quién atendió cada derivación.
+  // Resolver quién atendió cada reclamo.
   const resolverIds = Array.from(
     new Set(rows.map((r) => r.resolved_by).filter(Boolean) as string[]),
   );
@@ -78,12 +70,11 @@ export async function GET(req: NextRequest) {
     : { data: [] };
   const resolverById = new Map((resolvers ?? []).map((p) => [p.id, p]));
 
-  const items: InterventionItem[] = rows.map((r) => {
+  const items: CertificadoItem[] = rows.map((r) => {
     const conv = r.conversation_id ? convById.get(r.conversation_id) : null;
     const resolver = r.resolved_by ? resolverById.get(r.resolved_by) : null;
     return {
       id: r.id,
-      category: r.category,
       reason: r.reason,
       summary: r.summary,
       createdAt: r.created_at,

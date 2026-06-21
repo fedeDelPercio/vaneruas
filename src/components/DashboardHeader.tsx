@@ -12,6 +12,7 @@ import {
   Receipt,
   BarChart3,
   Flag,
+  Award,
   CalendarDays,
 } from "lucide-react";
 import { useProfile } from "./ProfileProvider";
@@ -38,6 +39,7 @@ const TABS: Array<{
   { href: "/feedback", label: "Feedback", icon: Inbox, roles: ["dev", "client"] },
   { href: "/payments", label: "Aprobaciones", icon: Receipt, roles: ["dev", "client", "asesor"] },
   { href: "/interventions", label: "Derivaciones", icon: Flag, roles: ["dev", "client", "asesor"] },
+  { href: "/certificados", label: "Certificados", icon: Award, roles: ["dev", "client", "asesor"] },
   { href: "/events", label: "Eventos", icon: CalendarDays, roles: ["dev", "client"] },
   { href: "/metrics", label: "Métricas", icon: BarChart3, roles: ["dev", "client", "asesor"] },
   // Oculto por ahora (el módulo sigue vivo, solo se sacó el tab del nav).
@@ -49,14 +51,22 @@ export function DashboardHeader() {
   const { profile, changeProfile } = useProfile();
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [counts, setCounts] = useState<ModuleCounts>({ payments: 0, interventions: 0 });
+  const [counts, setCounts] = useState<ModuleCounts>({
+    payments: 0,
+    interventions: 0,
+    certificados: 0,
+  });
 
   const loadCounts = useCallback(async () => {
     try {
       const r = await fetch("/api/counts", { cache: "no-store" });
       if (!r.ok) return;
       const j = (await r.json()) as ModuleCounts;
-      setCounts({ payments: j.payments ?? 0, interventions: j.interventions ?? 0 });
+      setCounts({
+        payments: j.payments ?? 0,
+        interventions: j.interventions ?? 0,
+        certificados: j.certificados ?? 0,
+      });
     } catch {
       // El badge es informativo: si falla el conteo, no rompemos el header.
     }
@@ -88,6 +98,7 @@ export function DashboardHeader() {
   const countByHref: Record<string, number> = {
     "/payments": counts.payments,
     "/interventions": counts.interventions,
+    "/certificados": counts.certificados,
   };
 
   if (!profile) return null;

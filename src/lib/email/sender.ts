@@ -104,6 +104,11 @@ const CATEGORY_PRESENTATION: Record<
     subjectPrefix: "Comprobante de pago",
     summaryHeading: "Datos del comprobante",
   },
+  reclamo_certificado: {
+    eyebrow: "Reclamo de certificado",
+    subjectPrefix: "Reclamo de certificado",
+    summaryHeading: "Resumen del reclamo",
+  },
 };
 
 function presentation(c: string): {
