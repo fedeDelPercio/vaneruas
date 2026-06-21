@@ -79,6 +79,11 @@ const serverSchema = z.object({
   WEBHOOK_SIGNING_SECRET: z
     .string()
     .min(1, "WEBHOOK_SIGNING_SECRET es obligatoria"),
+  // Secreto compartido con el webhook entrante de GHL (header x-ghl-secret).
+  // Opcional: si no está seteado, el endpoint no exige el header (en prod el
+  // dominio ya está detrás del bypass de Deployment Protection). Setearlo en
+  // prod suma una segunda capa de auth.
+  GHL_WEBHOOK_SECRET: z.string().min(1).optional(),
   // Email notifications via Gmail SMTP + App Password. Las tres son
   // opcionales: si alguna falta, el sender hace skip silencioso y la app
   // sigue funcionando (no bloquea el flow del agente).
@@ -112,6 +117,7 @@ export function serverEnv(): ServerEnv {
     AGENT_TIMEOUT_MS: process.env.AGENT_TIMEOUT_MS,
     CRON_SECRET: process.env.CRON_SECRET,
     WEBHOOK_SIGNING_SECRET: process.env.WEBHOOK_SIGNING_SECRET,
+    GHL_WEBHOOK_SECRET: process.env.GHL_WEBHOOK_SECRET,
     GMAIL_USER: process.env.GMAIL_USER,
     GMAIL_APP_PASSWORD: process.env.GMAIL_APP_PASSWORD,
     EMAIL_NOTIFY_TO: process.env.EMAIL_NOTIFY_TO,
