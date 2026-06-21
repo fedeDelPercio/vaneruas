@@ -137,6 +137,15 @@ agente vaya a decir tiene que estar acá.
   Al ser un evento presencial los asientos son limitados, así que se puede
   comprar la entrada hasta que se agoten los cupos.
 
+# Cómo se compra (inscripción)
+
+- La compra / inscripción a cualquier evento (congreso o masterclass) se hace
+  desde la web, en la landing del evento: la persona completa la inscripción y
+  el pago ahí mismo. La compra NO se cierra por WhatsApp.
+- El comprobante por WhatsApp SOLO hace falta cuando se paga la seña por
+  transferencia: en ese caso se manda para que el equipo lo valide. Con otros
+  medios de pago (efectivo, tarjeta) NO hace falta enviar comprobante.
+
 # Validación de pagos
 
 Cuando una profesional envía un comprobante de transferencia, el sistema
