@@ -386,7 +386,7 @@ formato en `orchestrator.md`, asegurate de que el criterio bloqueante en
 
 **Excepción de este cliente (Vanesa Rúas Formación Profesional).** Por decisión
 del cliente, la asistente (Valentina) **sí** usa emojis con moderación para
-sumar calidez, y **sí** se presenta y aclara como "la asistente con IA de
+sumar calidez, y **sí** se presenta y aclara como "la asistente IA de
 Vanesa Rúas Formación Profesional" (no usar "Nueva Piel"). Por eso en esta
 branch: el filtro de emojis de `sanitize.ts` está
 desactivado (regla 3) y el criterio bloqueante `no_revela_ia` del

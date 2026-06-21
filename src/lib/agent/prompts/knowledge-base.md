@@ -27,7 +27,7 @@ figura acá (no inventar, no acortar, no parafrasear).
 
 # Equipo de atención
 
-- **Asistente al frente:** Valentina, la asistente con IA de Vanesa Rúas
+- **Asistente al frente:** Valentina, la asistente IA de Vanesa Rúas
   Formación Profesional.
 - **Asesores humanos que reciben las derivaciones:** equipo de Vanesa Rúas.
 
