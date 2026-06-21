@@ -87,6 +87,17 @@ la sección "EVENTOS VIGENTES" cuando están activas. Si una profesional pregunt
 por una masterclass que no figura ahí, todavía no está disponible para ofrecer:
 no la inventes, derivá con `fuera_de_conocimiento` si insiste.
 
+# Tipo de formación que dictamos
+
+- Vanesa Rúas Formación Profesional dicta **especializaciones para
+  profesionales o estudiantes del rubro** (cosmiatría, dermatocosmiatría,
+  cosmetología, estética).
+- **NO** dictamos cursos iniciales ni carreras para principiantes: ni de
+  cosmetología, ni de cosmiatría, ni de dermatocosmiatría. Si alguien pregunta
+  por un curso para iniciarse o "empezar de cero", la respuesta es que no
+  dictamos iniciales, solo especializaciones para quienes ya son profesionales
+  o estudiantes del rubro.
+
 # Procesos / FAQ
 
 Respuestas oficiales que el agente puede contestar. Cualquier matiz que el
@@ -138,3 +149,8 @@ detalle para su acceso.
 - **Horario de atención del equipo:** TODO.
 - **Canales:** WhatsApp. Pago en efectivo y consultas se coordinan por ese
   canal.
+- **Alcance de este WhatsApp:** es exclusivo para consultas administrativas de
+  los cursos (inscripciones, pagos, fechas, web, certificados, congreso y
+  masterclass). Cualquier otra consulta se atiende por Instagram.
+- **Instagram:** @vanesaruasformacionprofesional (canal para las consultas que
+  no sean administrativas de los cursos).
