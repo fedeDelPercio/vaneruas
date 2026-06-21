@@ -135,6 +135,60 @@ interface GhlRawMessage {
   messageType?: string;
 }
 
+export interface GhlContact {
+  email: string | null;
+  firstName: string | null;
+  lastName: string | null;
+}
+
+/**
+ * Trae el contacto de GHL por id (email + nombre + apellido). Usa el PIT.
+ *
+ * REQUIERE que el PIT tenga el scope `contacts.readonly` ("View Contacts"). Si
+ * no lo tiene, GHL responde 401 y devolvemos null (fail-open: el llamador trata
+ * al contacto como no registrado y sigue el flujo normal de hoy). Nunca lanza.
+ */
+export async function ghlFetchContact(contactId: string): Promise<GhlContact | null> {
+  if (!process.env.GHL_API_KEY) return null;
+  try {
+    const res = await fetch(`${GHL_BASE}/contacts/${encodeURIComponent(contactId)}`, {
+      headers: {
+        Authorization: `Bearer ${process.env.GHL_API_KEY}`,
+        // La Contacts API usa una versión distinta a la de Conversations.
+        Version: "2021-07-28",
+        Accept: "application/json",
+      },
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json().catch(() => null)) as { contact?: unknown } | null;
+    const c = (data?.contact ?? data) as Record<string, unknown> | null;
+    if (!c) return null;
+    const str = (v: unknown): string | null =>
+      typeof v === "string" && v.trim() ? v.trim() : null;
+    return {
+      email: str(c.email),
+      firstName: str(c.firstName),
+      lastName: str(c.lastName),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * ¿El contacto de GHL cuenta como "profesional ya registrada"? (heurística
+ * temporal, a afinar): tiene email cargado, O tiene nombre Y apellido (así están
+ * agendadas las clientas de siempre). Un contacto auto-creado por WhatsApp
+ * normalmente no tiene email ni apellido, así que no califica.
+ */
+export function ghlContactIsRegistered(contact: GhlContact | null): boolean {
+  if (!contact) return false;
+  if (contact.email) return true;
+  if (contact.firstName && contact.lastName) return true;
+  return false;
+}
+
 /** Baja un archivo de una URL (las URLs de adjuntos de GHL son públicas). */
 export async function downloadUrl(
   url: string,

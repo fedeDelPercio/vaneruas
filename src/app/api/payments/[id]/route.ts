@@ -9,8 +9,12 @@ export const dynamic = "force-dynamic";
 // pedimos el correo para darle el acceso (lo vamos a usar para el alta en
 // Tiendup en un paso siguiente). Voz de Valentina (Vanesa Rúas Formación
 // Profesional): cálida, con un emoji, sin punto final.
-const PAYMENT_APPROVED_MESSAGE =
+const PAYMENT_APPROVED_ASK_EMAIL =
   "Buenísimo, tu pago quedó verificado ✅ Para darte el acceso al curso necesito tu correo electrónico, me lo compartís?";
+// Cuando ya tenemos el correo (clienta registrada en GHL o lo compartió antes),
+// no se lo volvemos a pedir: solo confirmamos.
+const PAYMENT_APPROVED_HAS_EMAIL =
+  "Buenísimo, tu pago quedó verificado ✅ Ya te enviamos el acceso al curso a tu correo, cualquier cosa quedamos en contacto 🙌";
 
 // ===========================================================================
 // PATCH /api/payments/[id]
@@ -110,12 +114,23 @@ export async function PATCH(
     prev?.conversation_id
   ) {
     try {
+      // ¿Ya tenemos el correo? (clienta registrada en GHL o lo compartió antes).
+      // Si lo tenemos, no se lo volvemos a pedir.
+      const { data: conv } = await sb
+        .from("conversations")
+        .select("contact_email")
+        .eq("id", prev.conversation_id)
+        .maybeSingle();
+      const message = conv?.contact_email?.trim()
+        ? PAYMENT_APPROVED_HAS_EMAIL
+        : PAYMENT_APPROVED_ASK_EMAIL;
+
       const { data: inserted } = await sb
         .from("messages")
         .insert({
           conversation_id: prev.conversation_id,
           role: "assistant",
-          content: PAYMENT_APPROVED_MESSAGE,
+          content: message,
         })
         .select("id")
         .single();
@@ -127,7 +142,7 @@ export async function PATCH(
       await deliverAssistantToWhatsApp({
         conversationId: prev.conversation_id,
         messageId: inserted?.id,
-        content: PAYMENT_APPROVED_MESSAGE,
+        content: message,
       });
     } catch (err) {
       console.error("[payments] no se pudo enviar la confirmación al cliente:", err);

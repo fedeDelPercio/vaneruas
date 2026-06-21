@@ -9,6 +9,7 @@ import {
 } from "@/lib/payments/register";
 import { classifyAttachment, type AttachmentClassification } from "./classify";
 import { deliverAssistantToWhatsApp } from "@/lib/whatsapp-delivery";
+import { ghlFetchContact, ghlContactIsRegistered } from "@/lib/providers/ghl";
 
 // ===========================================================================
 // Gate de validación de título profesional.
@@ -41,13 +42,31 @@ interface IntakeArgs {
 export async function handleAttachmentIntake(args: IntakeArgs): Promise<void> {
   const supabase = getSupabaseServerClient();
 
-  // ¿Registrada como contacto? (hoy: flag en ATP; a futuro: GHL).
+  // ¿Registrada como contacto? Primero el flag local (ATP); si no, consultamos
+  // GHL: una clienta ya agendada (con email, o nombre y apellido) no tiene que
+  // acreditar el título de nuevo. Ver `ghlContactIsRegistered`.
   const { data: conv } = await supabase
     .from("conversations")
-    .select("is_existing_customer")
+    .select("is_existing_customer, source, external_id")
     .eq("id", args.conversationId)
     .maybeSingle();
-  const registered = conv?.is_existing_customer ?? false;
+  let registered = conv?.is_existing_customer ?? false;
+
+  if (!registered && conv?.source === "whatsapp" && conv.external_id) {
+    const ghlContact = await ghlFetchContact(conv.external_id);
+    if (ghlContactIsRegistered(ghlContact)) {
+      registered = true;
+      // Cacheamos el alta y, si GHL tiene el email, lo guardamos (así después
+      // no se lo pedimos al aprobar el pago).
+      await supabase
+        .from("conversations")
+        .update({
+          is_existing_customer: true,
+          ...(ghlContact?.email ? { contact_email: ghlContact.email } : {}),
+        })
+        .eq("id", args.conversationId);
+    }
+  }
 
   // ¿Ya acreditó un título válido en esta conversación?
   let hasValidTitle = false;
