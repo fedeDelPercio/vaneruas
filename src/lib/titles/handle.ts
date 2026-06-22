@@ -10,6 +10,7 @@ import {
 import { classifyAttachment, type AttachmentClassification } from "./classify";
 import { deliverAssistantToWhatsApp } from "@/lib/whatsapp-delivery";
 import { ghlFetchContact, ghlContactIsRegistered } from "@/lib/providers/ghl";
+import { assistantSaidRecently } from "@/lib/messages/dedup";
 
 // ===========================================================================
 // Gate de validación de título profesional.
@@ -166,6 +167,21 @@ async function handleTitleSubmission(
   const supabase = getSupabaseServerClient();
   const valid = cls?.title_is_valid ?? false;
 
+  // ¿Ya validamos un título en esta conversación ANTES de este? Pasa seguido
+  // que mandan VARIOS certificados juntos (cada uno es un mensaje/job aparte).
+  // Si ya hay uno válido, este es adicional: lo registramos para auditoría
+  // pero NO repetimos la confirmación ("Listo, validé tu título") ni el cartel.
+  let priorValid = false;
+  if (valid) {
+    const { data: prior } = await supabase
+      .from("professional_titles")
+      .select("id")
+      .eq("conversation_id", args.conversationId)
+      .eq("is_valid", true)
+      .limit(1);
+    priorValid = Boolean(prior?.length);
+  }
+
   // Guardar el título recibido (válido o no, para auditoría).
   await supabase.from("professional_titles").insert({
     conversation_id: args.conversationId,
@@ -189,6 +205,10 @@ async function handleTitleSubmission(
     await touchConversation(args.conversationId);
     return;
   }
+
+  // Ya habíamos validado un título antes en esta conversación (mandó varios
+  // certificados): este queda registrado, pero no repetimos la confirmación.
+  if (priorValid) return;
 
   // Título válido: tildar "clienta", liberar el comprobante retenido y avisarle.
   await markConversationTitleValidated(args.conversationId, {
@@ -248,6 +268,9 @@ export async function markConversationTitleValidated(
 }
 
 async function insertAssistant(conversationId: string, content: string): Promise<void> {
+  // Dedup: si ya mandamos este mismo texto hace poco (burst de varios adjuntos),
+  // no lo repetimos.
+  if (await assistantSaidRecently(conversationId, content)) return;
   const { data } = await getSupabaseServerClient()
     .from("messages")
     .insert({ conversation_id: conversationId, role: "assistant", content })

@@ -8,6 +8,7 @@ import type { Json } from "@/lib/supabase/types";
 import { downloadComprobante } from "./storage";
 import { extractPaymentData, type PaymentExtraction } from "./extract";
 import { matchEventByAmount } from "./event-match";
+import { assistantSaidRecently } from "@/lib/messages/dedup";
 
 export const PAYMENT_NOTIFICATION_CATEGORY = "validacion_pago";
 
@@ -121,16 +122,19 @@ export async function handlePaymentComprobante(
     });
     const titleAskMsg =
       "Genial, recibí tu comprobante 🙌 Para confirmar tu inscripción necesito validar que seas profesional del rubro, me compartís una foto o PDF de tu título o certificado de alumno en curso como profesional de la estetica? Apenas lo valide, mando tu pago a aprobar ✨";
-    const { data: titleAsk } = await supabase
-      .from("messages")
-      .insert({ conversation_id: args.conversationId, role: "assistant", content: titleAskMsg })
-      .select("id")
-      .single();
-    await deliverAssistantToWhatsApp({
-      conversationId: args.conversationId,
-      messageId: titleAsk?.id,
-      content: titleAskMsg,
-    });
+    // Dedup: si mandó varios comprobantes juntos, pedimos el título una sola vez.
+    if (!(await assistantSaidRecently(args.conversationId, titleAskMsg))) {
+      const { data: titleAsk } = await supabase
+        .from("messages")
+        .insert({ conversation_id: args.conversationId, role: "assistant", content: titleAskMsg })
+        .select("id")
+        .single();
+      await deliverAssistantToWhatsApp({
+        conversationId: args.conversationId,
+        messageId: titleAsk?.id,
+        content: titleAskMsg,
+      });
+    }
     await touchConversation(args.conversationId);
     return;
   }
@@ -144,26 +148,43 @@ export async function handlePaymentComprobante(
     isDuplicate,
   });
 
+  // ¿La imagen REALMENTE es un comprobante? Solo lo confirmamos si el extractor
+  // lo leyó como tal (is_payment_receipt === true). Si dice que NO lo es, o si
+  // no se pudo leer (extraction null: pasa con PDFs que vision no procesa, ej.
+  // una constancia de alumno que mandan sin que se la pidamos), NO le decimos
+  // "gracias por el comprobante": ack neutro, y el equipo lo revisa igual. Así
+  // no confirmamos un pago que no entendimos ni duplicamos la confirmación.
+  const looksLikeReceipt = extraction?.is_payment_receipt === true;
+
   // 4. Cartel de sistema en el panel.
   await supabase.from("messages").insert({
     conversation_id: args.conversationId,
     role: "system",
-    content: "Comprobante de pago recibido, pendiente de validación",
+    content: looksLikeReceipt
+      ? "Comprobante de pago recibido, pendiente de validación"
+      : "Imagen recibida que no parece un comprobante, a revisar por el equipo",
   });
 
-  // 5. Confirmación a la profesional.
-  const receivedMsg =
-    "Genial, gracias por compartir el comprobante 🙌 El equipo lo revisa y te confirma la inscripción a la brevedad";
-  const { data: received } = await supabase
-    .from("messages")
-    .insert({ conversation_id: args.conversationId, role: "assistant", content: receivedMsg })
-    .select("id")
-    .single();
-  await deliverAssistantToWhatsApp({
-    conversationId: args.conversationId,
-    messageId: received?.id,
-    content: receivedMsg,
-  });
+  // 5. Confirmación a la profesional. Si la imagen NO parece un comprobante
+  //    (ej. mandó la constancia de alumno o un título sin que se lo pidamos),
+  //    NO le decimos "gracias por el comprobante": ack neutro para no confundir
+  //    ni duplicar la confirmación de pago. Dedup: si ya mandamos este mismo
+  //    texto hace poco (mandó varios comprobantes juntos), no lo repetimos.
+  const receivedMsg = looksLikeReceipt
+    ? "Genial, gracias por compartir el comprobante 🙌 El equipo lo revisa y te confirma la inscripción a la brevedad"
+    : "Gracias, ya lo recibimos 🙌 El equipo lo revisa y te confirma a la brevedad";
+  if (!(await assistantSaidRecently(args.conversationId, receivedMsg))) {
+    const { data: received } = await supabase
+      .from("messages")
+      .insert({ conversation_id: args.conversationId, role: "assistant", content: receivedMsg })
+      .select("id")
+      .single();
+    await deliverAssistantToWhatsApp({
+      conversationId: args.conversationId,
+      messageId: received?.id,
+      content: receivedMsg,
+    });
+  }
 
   // 6. Reordenar la conversación.
   await touchConversation(args.conversationId);
