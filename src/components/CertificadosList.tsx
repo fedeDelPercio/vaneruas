@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useProfile } from "./ProfileProvider";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ghlConversationUrl } from "@/lib/ghl-link";
+import { ContactStrip } from "./ContactStrip";
 import type { CertificadoItem } from "@/app/api/certificados/route";
 
 // Módulo Certificados: reclamos de asistentes que dicen no haber recibido el
@@ -176,6 +177,10 @@ export function CertificadosList() {
                     {it.summary}
                   </p>
                 )}
+
+                {/* Quién escribe (contacto de WhatsApp): nombre + teléfono para
+                    ubicar la conversación a mano si el link a GHL falla. */}
+                {it.conversation && <ContactStrip conversation={it.conversation} />}
 
                 {isResolved && (
                   <p className="mt-2 text-[12px] text-ok">

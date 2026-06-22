@@ -37,7 +37,7 @@ export interface TitleSubmission {
  * comprobante retenido que lo agrupe. Se revisa desde el mismo panel.
  */
 export interface TitleReview {
-  conversation: { id: string; displayName: string; source: string; externalId: string | null; phone: string | null } | null;
+  conversation: { id: string; displayName: string; source: string; externalId: string | null; phone: string | null; ghlConversationId: string | null } | null;
   submissions: TitleSubmission[];
   /** Último mensaje de texto de la contacta (ej. una negativa a mandar el título). */
   contactNote: string | null;
@@ -82,7 +82,7 @@ export interface PaymentItem {
   titles: TitleSubmission[];
   /** Último mensaje de texto de la contacta (útil cuando hay un comprobante retenido). */
   contactNote: string | null;
-  conversation: { id: string; displayName: string; source: string; externalId: string | null; phone: string | null } | null;
+  conversation: { id: string; displayName: string; source: string; externalId: string | null; phone: string | null; ghlConversationId: string | null } | null;
   validatedAt: string | null;
   validationNote: string | null;
   validatedByName: string | null;
@@ -116,7 +116,7 @@ export async function GET(req: NextRequest) {
     new Set(rows.map((r) => r.conversation_id).filter(Boolean) as string[]),
   );
   const { data: convs } = convIds.length
-    ? await sb.from("conversations").select("id, display_name, source, contact_email, external_id, wa_jid").in("id", convIds)
+    ? await sb.from("conversations").select("id, display_name, source, contact_email, external_id, wa_jid, ghl_conversation_id").in("id", convIds)
     : { data: [] };
   const convById = new Map((convs ?? []).map((c) => [c.id, c]));
 
@@ -214,7 +214,7 @@ export async function GET(req: NextRequest) {
   if (missingConvIds.length) {
     const { data: moreConvs } = await sb
       .from("conversations")
-      .select("id, display_name, source, contact_email, external_id, wa_jid")
+      .select("id, display_name, source, contact_email, external_id, wa_jid, ghl_conversation_id")
       .in("id", missingConvIds);
     (moreConvs ?? []).forEach((c) => convById.set(c.id, c));
   }
@@ -275,7 +275,7 @@ export async function GET(req: NextRequest) {
         ? contactNoteByConv.get(r.conversation_id) ?? null
         : null,
       conversation: conv
-        ? { id: conv.id, displayName: conv.display_name ?? "(sin nombre)", source: conv.source, externalId: conv.external_id ?? null, phone: conv.wa_jid ?? null }
+        ? { id: conv.id, displayName: conv.display_name ?? "(sin nombre)", source: conv.source, externalId: conv.external_id ?? null, phone: conv.wa_jid ?? null, ghlConversationId: conv.ghl_conversation_id ?? null }
         : null,
       validatedAt: r.validated_at,
       validationNote: r.validation_note,
@@ -301,7 +301,7 @@ export async function GET(req: NextRequest) {
         submissions.map((s) => s.createdAt).sort().slice(-1)[0] ?? "";
       titleReviews.push({
         conversation: conv
-          ? { id: conv.id, displayName: conv.display_name ?? "(sin nombre)", source: conv.source, externalId: conv.external_id ?? null, phone: conv.wa_jid ?? null }
+          ? { id: conv.id, displayName: conv.display_name ?? "(sin nombre)", source: conv.source, externalId: conv.external_id ?? null, phone: conv.wa_jid ?? null, ghlConversationId: conv.ghl_conversation_id ?? null }
           : null,
         submissions,
         contactNote: contactNoteByConv.get(convId) ?? null,

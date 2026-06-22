@@ -54,6 +54,15 @@ export async function GET(req: NextRequest) {
   }
 
   const ghlConvId = await ghlFindConversationId(contactId, locationId);
+  // Cache-on-read: si lo resolvimos, lo guardamos para que el próximo click use
+  // el link directo (sin volver a resolver). Best-effort, no bloquea el redirect.
+  if (ghlConvId) {
+    await sb
+      .from("conversations")
+      .update({ ghl_conversation_id: ghlConvId })
+      .eq("id", convId)
+      .is("ghl_conversation_id", null);
+  }
   const target = ghlConvId
     ? `${GHL_APP_BASE}/${locationId}/conversations/conversations/${ghlConvId}${INBOX_QS}`
     : `${GHL_APP_BASE}/${locationId}/contacts/detail/${contactId}`;

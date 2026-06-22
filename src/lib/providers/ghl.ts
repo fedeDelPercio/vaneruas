@@ -97,30 +97,30 @@ export async function ghlFetchRecentInbound(
   contactId: string,
   locationId: string,
   limit = 10,
-): Promise<GhlInboundMessage[]> {
-  if (!process.env.GHL_API_KEY) return [];
+): Promise<{ conversationId: string | null; messages: GhlInboundMessage[] }> {
+  if (!process.env.GHL_API_KEY) return { conversationId: null, messages: [] };
   try {
     const sUrl = `${GHL_BASE}/conversations/search?locationId=${encodeURIComponent(
       locationId,
     )}&contactId=${encodeURIComponent(contactId)}`;
     const sRes = await fetch(sUrl, { headers: ghlHeaders(), signal: AbortSignal.timeout(SEND_TIMEOUT_MS) });
-    if (!sRes.ok) return [];
+    if (!sRes.ok) return { conversationId: null, messages: [] };
     const sData = (await sRes.json()) as { conversations?: { id: string }[] };
-    const conversationId = sData.conversations?.[0]?.id;
-    if (!conversationId) return [];
+    const conversationId = sData.conversations?.[0]?.id ?? null;
+    if (!conversationId) return { conversationId: null, messages: [] };
 
     const mRes = await fetch(`${GHL_BASE}/conversations/${conversationId}/messages?limit=${limit}`, {
       headers: ghlHeaders(),
       signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     });
-    if (!mRes.ok) return [];
+    if (!mRes.ok) return { conversationId, messages: [] };
     const mData = (await mRes.json()) as {
       messages?: { messages?: GhlRawMessage[] } | GhlRawMessage[];
     };
     const list = Array.isArray(mData.messages)
       ? mData.messages
       : mData.messages?.messages ?? [];
-    return list
+    const messages = list
       .filter((m) => (m.direction ?? "").toLowerCase() === "inbound")
       .map((m) => ({
         body: m.body ?? "",
@@ -130,8 +130,9 @@ export async function ghlFetchRecentInbound(
         messageType: m.messageType ?? null,
         dateAdded: m.dateAdded ?? null,
       }));
+    return { conversationId, messages };
   } catch {
-    return [];
+    return { conversationId: null, messages: [] };
   }
 }
 

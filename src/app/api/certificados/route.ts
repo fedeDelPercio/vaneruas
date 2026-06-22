@@ -27,7 +27,7 @@ export interface CertificadoItem {
   createdAt: string;
   resolvedAt: string | null;
   resolvedByName: string | null;
-  conversation: { id: string; displayName: string; source: string; externalId: string | null } | null;
+  conversation: { id: string; displayName: string; source: string; externalId: string | null; phone: string | null; ghlConversationId: string | null } | null;
 }
 
 export async function GET(req: NextRequest) {
@@ -58,7 +58,7 @@ export async function GET(req: NextRequest) {
     new Set(rows.map((r) => r.conversation_id).filter(Boolean) as string[]),
   );
   const { data: convs } = convIds.length
-    ? await sb.from("conversations").select("id, display_name, source, external_id").in("id", convIds)
+    ? await sb.from("conversations").select("id, display_name, source, external_id, wa_jid, ghl_conversation_id").in("id", convIds)
     : { data: [] };
   const convById = new Map((convs ?? []).map((c) => [c.id, c]));
 
@@ -82,7 +82,7 @@ export async function GET(req: NextRequest) {
       resolvedAt: r.resolved_at,
       resolvedByName: resolver?.name ?? null,
       conversation: conv
-        ? { id: conv.id, displayName: conv.display_name ?? "(sin nombre)", source: conv.source, externalId: conv.external_id ?? null }
+        ? { id: conv.id, displayName: conv.display_name ?? "(sin nombre)", source: conv.source, externalId: conv.external_id ?? null, phone: conv.wa_jid ?? null, ghlConversationId: conv.ghl_conversation_id ?? null }
         : null,
     };
   });

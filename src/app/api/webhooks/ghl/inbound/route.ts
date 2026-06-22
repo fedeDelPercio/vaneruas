@@ -127,7 +127,19 @@ export async function POST(req: NextRequest) {
   const items: InboundItem[] = [];
 
   if (locationId) {
-    const recent = await ghlFetchRecentInbound(data.contact_id, locationId);
+    const { conversationId: ghlConvId, messages: recent } = await ghlFetchRecentInbound(
+      data.contact_id,
+      locationId,
+    );
+    // Cacheamos el conversationId de GHL (el thread) para armar el deep-link
+    // directo desde el panel. Solo lo seteamos si todavía no lo teníamos.
+    if (ghlConvId && conversationId) {
+      await supabase
+        .from("conversations")
+        .update({ ghl_conversation_id: ghlConvId })
+        .eq("id", conversationId)
+        .is("ghl_conversation_id", null);
+    }
     const captions = freshAttachmentCaptions(recent, Date.now());
     const candidateUrls = [...captions.keys()];
 

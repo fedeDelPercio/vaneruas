@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useProfile } from "./ProfileProvider";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ghlConversationUrl } from "@/lib/ghl-link";
+import { ContactStrip } from "./ContactStrip";
 import type { InterventionItem } from "@/app/api/interventions/route";
 
 // Bandeja de derivaciones al equipo: notificaciones del agente que necesitan
@@ -201,6 +202,10 @@ export function InterventionsList() {
                     {it.summary}
                   </p>
                 )}
+
+                {/* Quién escribe (contacto de WhatsApp): nombre + teléfono para
+                    ubicar la conversación a mano si el link a GHL falla. */}
+                {it.conversation && <ContactStrip conversation={it.conversation} />}
 
                 {isResolved && (
                   <p className="mt-2 text-[12px] text-ok">

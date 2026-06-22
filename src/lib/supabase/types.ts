@@ -95,6 +95,7 @@ export type Database = {
           simulated_timestamp: string | null;
           is_existing_customer: boolean;
           contact_email: string | null;
+          ghl_conversation_id: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -111,6 +112,7 @@ export type Database = {
           simulated_timestamp?: string | null;
           is_existing_customer?: boolean;
           contact_email?: string | null;
+          ghl_conversation_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -127,6 +129,7 @@ export type Database = {
           simulated_timestamp?: string | null;
           is_existing_customer?: boolean;
           contact_email?: string | null;
+          ghl_conversation_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
