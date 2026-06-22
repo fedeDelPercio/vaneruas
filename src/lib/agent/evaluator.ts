@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { serverEnv } from "@/lib/env";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
-import { getAnthropicClient } from "./llm-client";
+import { createConversationMessage } from "./llm-call";
 import { loadPrompt } from "./prompts";
 import { usageToTotals } from "./hooks/token-tracker";
 import type { EvaluationResult, HistoryMessage, RunContext } from "./types";
@@ -117,9 +117,10 @@ export async function evaluateResponse(params: {
 
   let evaluation: EvaluationResult;
   let usage: unknown = null;
+  let provider = "anthropic";
 
   try {
-    const response = await getAnthropicClient().messages.create(
+    const response = await createConversationMessage(
       {
         model,
         max_tokens: EVALUATOR_MAX_TOKENS,
@@ -137,11 +138,11 @@ export async function evaluateResponse(params: {
       { signal: abortController.signal },
     );
     usage = response.usage;
+    provider = response.provider;
 
     // Con tool_choice forzado siempre debería venir un bloque tool_use.
     const toolBlock = response.content.find(
-      (b): b is Extract<typeof b, { type: "tool_use" }> =>
-        b.type === "tool_use" && b.name === EVALUATION_TOOL_NAME,
+      (b) => b.type === "tool_use" && b.name === EVALUATION_TOOL_NAME,
     );
     if (!toolBlock) {
       throw new Error("el evaluator no invocó la tool evaluation_result");
@@ -189,7 +190,7 @@ export async function evaluateResponse(params: {
         step_name: "evaluator",
         iteration: ctx.iteration,
         model,
-        provider: "anthropic",
+        provider,
         input: {
           userMessage: params.userMessage,
           assistantResponse: params.assistantResponse,

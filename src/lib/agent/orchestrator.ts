@@ -5,7 +5,7 @@ import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { serverEnv } from "@/lib/env";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import type { Json } from "@/lib/supabase/types";
-import { getAnthropicClient } from "./llm-client";
+import { createConversationMessage } from "./llm-call";
 import { loadPrompt } from "./prompts";
 import {
   NOTIFY_TEAM_TOOL_NAME,
@@ -93,7 +93,7 @@ export async function runOrchestrator(params: {
   const tools: Tool[] = [NOTIFY_TEAM_TOOL_SCHEMA];
 
   try {
-    const response = await getAnthropicClient().messages.create(
+    const response = await createConversationMessage(
       {
         model,
         max_tokens: ORCHESTRATOR_MAX_TOKENS,
@@ -145,7 +145,8 @@ export async function runOrchestrator(params: {
       inputTokens: totals.inputTokens,
       outputTokens: totals.outputTokens,
       latencyMs: Date.now() - startedAt,
-      model,
+      // Si respondió el fallback, lo dejamos visible en el trace.
+      model: response.provider === "anthropic" ? model : `openrouter:${response.model}`,
       notification: ctx.notification,
     };
   } finally {

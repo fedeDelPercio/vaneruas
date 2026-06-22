@@ -103,6 +103,14 @@ const serverSchema = z.object({
   // (no se rompe nada). El modelo se puede sobre-escribir por env.
   OPENAI_API_KEY: z.string().min(1).optional(),
   OPENAI_TRANSCRIBE_MODEL: z.string().default("gpt-4o-transcribe"),
+  // Plan B ante caída de Claude: fallback del camino conversacional (orchestrator
+  // + evaluator) a OpenRouter. Cascada: Anthropic directo → Claude por OpenRouter
+  // → modelo de último recurso por OpenRouter. Opcional: sin la key el fallback
+  // queda inerte y el agente se comporta igual que hoy (solo Anthropic). Los
+  // slugs de modelo son de OpenRouter (verificar el nombre exacto en su catálogo).
+  OPENROUTER_API_KEY: z.string().min(1).optional(),
+  OPENROUTER_MODEL_PRIMARY: z.string().default("anthropic/claude-sonnet-4.5"),
+  OPENROUTER_MODEL_FALLBACK: z.string().default("openai/gpt-4o"),
   // Acumulación de mensajes (debounce) para WhatsApp: ventana de silencio en
   // segundos antes de consolidar y responder los mensajes que llegan seguidos.
   // Testing: 20. Producción: ~60. Solo aplica a conversaciones de WhatsApp.
@@ -145,6 +153,9 @@ export function serverEnv(): ServerEnv {
     GHL_SEND_ALLOWLIST: process.env.GHL_SEND_ALLOWLIST,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     OPENAI_TRANSCRIBE_MODEL: process.env.OPENAI_TRANSCRIBE_MODEL,
+    OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+    OPENROUTER_MODEL_PRIMARY: process.env.OPENROUTER_MODEL_PRIMARY,
+    OPENROUTER_MODEL_FALLBACK: process.env.OPENROUTER_MODEL_FALLBACK,
     MESSAGE_DEBOUNCE_SECONDS: process.env.MESSAGE_DEBOUNCE_SECONDS,
     GMAIL_USER: process.env.GMAIL_USER,
     GMAIL_APP_PASSWORD: process.env.GMAIL_APP_PASSWORD,
