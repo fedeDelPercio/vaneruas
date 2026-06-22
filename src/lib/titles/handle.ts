@@ -11,6 +11,7 @@ import { classifyAttachment, type AttachmentClassification } from "./classify";
 import { deliverAssistantToWhatsApp } from "@/lib/whatsapp-delivery";
 import { ghlFetchContact, ghlContactIsRegistered } from "@/lib/providers/ghl";
 import { assistantSaidRecently } from "@/lib/messages/dedup";
+import { captionLooksLikePayment } from "@/lib/payments/signals";
 
 // ===========================================================================
 // Gate de validación de título profesional.
@@ -124,8 +125,26 @@ export async function handleAttachmentIntake(
     return { handled: true };
   }
 
-  // "otro": la imagen no es comprobante ni título.
+  // "otro": la imagen no es comprobante ni título según la clasificación.
   const caption = (args.caption ?? "").trim();
+
+  // Salvaguarda de pago (regla dura del producto): vision a veces marca "otro"
+  // un comprobante REAL (capturas de transferencia, PDFs de baja calidad). Si el
+  // texto que acompaña al adjunto habla de un pago, o ya hubo un comprobante en
+  // esta conversación, lo tratamos como comprobante igual. NUNCA mandamos al
+  // flujo conversacional (que podría contestar "agotado") a quien está mandando
+  // su comprobante. El extractor de pago decide después si es un comprobante
+  // real; si no lo es, queda registrado con un acuse neutro para que el equipo
+  // lo revise (mejor eso que decirle "no hay entradas" a alguien que ya pagó).
+  if (captionLooksLikePayment(caption) || (await conversationHasPayment(args.conversationId))) {
+    if (registered || hasValidTitle) {
+      await handlePaymentComprobante(args);
+    } else {
+      await handlePaymentComprobante(args, { awaitingTitle: true });
+    }
+    return { handled: true };
+  }
+
   const hasMeaningfulText = caption.length > 0 && !caption.startsWith("[");
   if (hasMeaningfulText) {
     // El texto indica otra intención (ej. "perdí mis archivos, mándenme los
@@ -265,6 +284,16 @@ export async function markConversationTitleValidated(
   );
   await touchConversation(conversationId);
   return released;
+}
+
+/** ¿Esta conversación ya tiene algún comprobante registrado? */
+async function conversationHasPayment(conversationId: string): Promise<boolean> {
+  const { data } = await getSupabaseServerClient()
+    .from("payment_validations")
+    .select("id")
+    .eq("conversation_id", conversationId)
+    .limit(1);
+  return Boolean(data?.length);
 }
 
 async function insertAssistant(conversationId: string, content: string): Promise<void> {
