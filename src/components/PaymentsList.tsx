@@ -42,6 +42,26 @@ const FILTERS: { key: StatusFilter; label: string }[] = [
   { key: "all", label: "Todos" },
 ];
 
+type EventFilter = "all" | "congreso" | "masterclass";
+
+/** A qué evento corresponde un comprobante (por su slug), o null si no se identificó. */
+function eventKind(slug: string | null | undefined): "congreso" | "masterclass" | null {
+  const ev = eventBySlug(slug);
+  if (!ev) return null;
+  return ev.slug === "congreso" ? "congreso" : "masterclass";
+}
+
+/**
+ * Color del badge de evento, para distinguirlos de un vistazo: Congreso dorado
+ * (acento de marca), Masterclass esmeralda. Mismo tinte sutil que los demás
+ * badges del panel (borde + bg al 6%).
+ */
+function eventBadgeClass(slug: string | null | undefined): string {
+  return eventKind(slug) === "congreso"
+    ? "border-gold/30 bg-gold/[0.06] text-gold"
+    : "border-ok/30 bg-ok/[0.06] text-ok";
+}
+
 function fmtDateTime(iso: string): string {
   return new Date(iso).toLocaleString("es-AR", {
     day: "2-digit",
@@ -283,6 +303,7 @@ export function PaymentsList() {
   const router = useRouter();
   const { profile } = useProfile();
   const [filter, setFilter] = useState<StatusFilter>("pending");
+  const [eventFilter, setEventFilter] = useState<EventFilter>("all");
   const [items, setItems] = useState<PaymentItem[] | null>(null);
   const [titleReviews, setTitleReviews] = useState<TitleReview[]>([]);
   const [stats, setStats] = useState<PaymentStats | null>(null);
@@ -396,6 +417,24 @@ export function PaymentsList() {
     );
   }
 
+  // Contador y filtro por evento. Los conteos se calculan sobre los items del
+  // estado actual (pendientes / validados / etc.); el filtro por evento se
+  // aplica solo a lo que se muestra. Las revisiones de título sueltas no tienen
+  // evento, así que solo aparecen en "Todos".
+  const congresoCount = items?.filter((p) => eventKind(p.eventSlug) === "congreso").length ?? 0;
+  const masterclassCount = items?.filter((p) => eventKind(p.eventSlug) === "masterclass").length ?? 0;
+  const hasEvents = congresoCount > 0 || masterclassCount > 0;
+  const visibleItems = (items ?? []).filter(
+    (p) => eventFilter === "all" || eventKind(p.eventSlug) === eventFilter,
+  );
+  const visibleTitleReviews = eventFilter === "all" ? titleReviews : [];
+
+  const EVENT_FILTERS: { key: EventFilter; label: string; count: number; dot: string }[] = [
+    { key: "all", label: "Todos", count: congresoCount + masterclassCount, dot: "" },
+    { key: "congreso", label: "Congreso", count: congresoCount, dot: "bg-gold" },
+    { key: "masterclass", label: "Masterclass", count: masterclassCount, dot: "bg-ok" },
+  ];
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-6 sm:px-8">
       <div className="flex items-center justify-between pb-3">
@@ -404,7 +443,7 @@ export function PaymentsList() {
         </h1>
         {items && (
           <span className="font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-            {items.length} comprobante{items.length === 1 ? "" : "s"}
+            {visibleItems.length} comprobante{visibleItems.length === 1 ? "" : "s"}
           </span>
         )}
       </div>
@@ -433,7 +472,7 @@ export function PaymentsList() {
       )}
 
       {/* Filtros por estado */}
-      <div className="mb-4 flex items-center gap-1">
+      <div className="mb-3 flex items-center gap-1">
         {FILTERS.map((f) => (
           <button
             key={f.key}
@@ -449,16 +488,50 @@ export function PaymentsList() {
         ))}
       </div>
 
+      {/* Filtro + contador por evento (Congreso dorado / Masterclass esmeralda) */}
+      {items && hasEvents && (
+        <div className="mb-4 flex items-center gap-1.5">
+          {EVENT_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              onClick={() => setEventFilter(f.key)}
+              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] transition ${
+                eventFilter === f.key
+                  ? "bg-neutral-900 text-white dark:bg-neutral-50 dark:text-neutral-950"
+                  : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              }`}
+            >
+              {f.dot && <span className={`h-1.5 w-1.5 rounded-full ${f.dot}`} />}
+              {f.label}
+              <span
+                className={`font-mono text-[11px] ${
+                  eventFilter === f.key
+                    ? "opacity-70"
+                    : "text-neutral-400 dark:text-neutral-500"
+                }`}
+              >
+                {f.count}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {items === null ? (
         <div className="flex items-center justify-center gap-2 py-16 text-[13px] text-neutral-500 dark:text-neutral-500">
           <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} />
           Cargando comprobantes…
         </div>
-      ) : items.length === 0 && titleReviews.length === 0 ? (
+      ) : visibleItems.length === 0 && visibleTitleReviews.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
           <Receipt className="h-6 w-6 text-neutral-300 dark:text-neutral-700" strokeWidth={1.5} />
           <p className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300">
-            No hay comprobantes {filter !== "all" ? FILTERS.find((f) => f.key === filter)?.label.toLowerCase() : ""}
+            No hay comprobantes{" "}
+            {eventFilter !== "all"
+              ? `de ${eventFilter === "congreso" ? "Congreso" : "Masterclass"}`
+              : filter !== "all"
+                ? FILTERS.find((f) => f.key === filter)?.label.toLowerCase()
+                : ""}
           </p>
           <p className="text-[12px] text-neutral-500 dark:text-neutral-500">
             Los comprobantes que manden las profesionales por WhatsApp aparecen acá.
@@ -466,7 +539,7 @@ export function PaymentsList() {
         </div>
       ) : (
         <div className="space-y-3">
-          {items.map((p) => {
+          {visibleItems.map((p) => {
             const badge = statusBadge(p.status);
             const ev = eventBySlug(p.eventSlug);
             const isPending = p.status === "pending";
@@ -529,7 +602,7 @@ export function PaymentsList() {
                       <div className="flex shrink-0 items-center gap-1.5">
                         {ev && (
                           <span
-                            className="flex items-center gap-1 badge-pill border-neutral-200 bg-neutral-50 text-gold dark:border-neutral-800 dark:bg-neutral-900/40"
+                            className={`flex items-center gap-1 badge-pill ${eventBadgeClass(p.eventSlug)}`}
                             title={`Identificado por el monto: ${ev.label}`}
                           >
                             <Ticket className="h-3 w-3" strokeWidth={1.75} />
@@ -728,7 +801,7 @@ export function PaymentsList() {
           {/* Títulos a validar sin comprobante asociado: la contacta mandó algo
               para acreditarse que la IA no dio por bueno, pero todavía no hay un
               comprobante que lo agrupe. */}
-          {titleReviews.length > 0 && (
+          {visibleTitleReviews.length > 0 && (
             <>
               <div className="flex items-center gap-2 pt-2">
                 <span className="font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
@@ -736,7 +809,7 @@ export function PaymentsList() {
                 </span>
                 <span className="h-px flex-1 bg-neutral-100 dark:bg-neutral-800" />
               </div>
-              {titleReviews.map((tr) => (
+              {visibleTitleReviews.map((tr) => (
                 <article
                   key={tr.conversation?.id ?? tr.submissions[0]?.id}
                   className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"
