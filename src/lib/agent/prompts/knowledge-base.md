@@ -58,23 +58,32 @@ Congreso especializado para profesionales de la estética.
   por correo electrónico unos días después del evento. Impreso: se entrega el
   día del evento en la acreditación.
 
-### Entradas
+### Entradas — AGOTADO (sold out)
 
-- **BLACK:** disponible.
-- **SILVER:** agotada (sold out).
-- **GOLD:** agotada (sold out).
-- Los cupos son limitados (evento presencial): se puede comprar hasta agotar
-  cupos.
-- **Precios:** TODO (confirmar valores de cada entrada con el equipo).
+- **El Congreso está AGOTADO. NO quedan entradas de ningún tipo.** Todas las
+  categorías están vendidas: **BLACK agotada, SILVER agotada, GOLD agotada.**
+  Ya no se pueden comprar entradas nuevas ni reservar lugar.
+- **Cómo comunicarlo (importante):** con empatía y calidez, lamentando que se
+  hayan agotado y pidiendo disculpas si corresponde (ej. "Uy, te cuento que las
+  entradas al Congreso ya se agotaron, así que por ahora no tenemos
+  disponibilidad, una lástima 🙏"). **NO** ofrezcas comprar, **NO** compartas el link de la
+  landing del Congreso, **NO** sugieras que todavía quedan lugares, y **NO**
+  inventes lista de espera ni "avisos cuando se libere un lugar" (si la persona
+  insiste mucho o pide quedar anotada por si se libera algo, derivá al equipo
+  con `escalado_manual`).
 
-### Proceso de compra
+### Quienes ya pagaron la seña conservan su lugar
 
-1. Elegir el tipo de entrada.
-2. Pagar la seña (no reembolsable).
-3. Completar el pago en el evento.
-- La compra de entradas se hace de forma individual, para que cada profesional
-  reciba su certificado con su nombre y apellido correspondientes.
-- El pago en efectivo se coordina por WhatsApp.
+- **Las personas que YA pagaron su seña por transferencia tienen su lugar
+  reservado:** conservan su entrada al Congreso. Estar agotado NO afecta a quien
+  ya señó.
+- A esas personas SÍ las ayudás con los detalles del Congreso: fechas, lugar,
+  qué incluye la entrada, certificado, y el saldo.
+- **Saldo:** la seña reserva el lugar y **el saldo restante se abona el día del
+  evento, en la acreditación.** El monto exacto del saldo depende de la entrada
+  que compró; si te pide el número exacto y no lo tenés acá, no lo inventes:
+  decile que el equipo se lo confirma y derivá con `escalado_manual`.
+- La seña no es reembolsable.
 
 ### Reservas hoteleras
 
@@ -134,14 +143,18 @@ agente vaya a decir tiene que estar acá.
   día del evento en la acreditación.
 
 - **¿Hasta cuándo tengo tiempo de comprar mis entradas?**
-  Al ser un evento presencial los asientos son limitados, así que se puede
-  comprar la entrada hasta que se agoten los cupos.
+  Las entradas al Congreso ya están AGOTADAS, no quedan lugares de ningún tipo.
+  Comunicalo con empatía y disculpate si corresponde. Quienes ya pagaron su seña
+  conservan su lugar.
 
 # Cómo se compra (inscripción)
 
-- La compra / inscripción a cualquier evento (congreso o masterclass) se hace
-  desde la web, en la landing del evento: la persona completa la inscripción y
-  el pago ahí mismo. La compra NO se cierra por WhatsApp.
+- **El Congreso está AGOTADO: no se vende más, no apliques nada de esta sección
+  al Congreso ni compartas su landing.** Lo de abajo aplica a las masterclass y
+  otros eventos vigentes (los que figuran en EVENTOS VIGENTES).
+- La compra / inscripción a un evento vigente se hace desde la web, en la landing
+  del evento: la persona completa la inscripción y el pago ahí mismo. La compra
+  NO se cierra por WhatsApp.
 - El comprobante por WhatsApp SOLO hace falta cuando se paga la seña por
   transferencia: en ese caso se manda para que el equipo lo valide. Con otros
   medios de pago (efectivo, tarjeta) NO hace falta enviar comprobante.
