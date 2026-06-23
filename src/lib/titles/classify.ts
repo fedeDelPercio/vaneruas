@@ -16,7 +16,7 @@ import { serverEnv } from "@/lib/env";
 // del título.
 // ===========================================================================
 
-export type AttachmentKind = "comprobante" | "titulo" | "otro";
+export type AttachmentKind = "comprobante" | "titulo" | "meme" | "otro";
 
 export interface AttachmentClassification {
   kind: AttachmentKind;
@@ -35,9 +35,9 @@ const SCHEMA = {
   properties: {
     kind: {
       type: "string",
-      enum: ["comprobante", "titulo", "otro"],
+      enum: ["comprobante", "titulo", "meme", "otro"],
       description:
-        "Clasificá la imagen: 'comprobante' si es un comprobante de transferencia o pago bancario; 'titulo' si es un título, diploma, certificado de estudios profesional o una constancia/certificado de alumno regular (en curso) de una formación del rubro; 'otro' para cualquier otra cosa (selfie, foto suelta, captura no relacionada).",
+        "Clasificá la imagen: 'comprobante' si es un comprobante de transferencia o pago bancario; 'titulo' si es un título, diploma, certificado de estudios profesional o una constancia/certificado de alumno regular (en curso) de una formación del rubro; 'meme' si es un meme, GIF, sticker, imagen de reacción, captura graciosa, foto de una persona/famoso reaccionando, o cualquier imagen que claramente NO es un documento (no es comprobante ni título) y que se mandó como reacción o broma; 'otro' para cualquier otra cosa que no encaje (foto suelta no relacionada, captura ambigua). Ante la duda entre 'comprobante' y 'meme', si se ve cualquier dato bancario/monto/transferencia es 'comprobante'.",
     },
     title_is_valid: {
       type: "boolean",
@@ -80,7 +80,11 @@ const SCHEMA = {
 const SYSTEM_PROMPT = [
   "Sos un clasificador de imágenes para una formación profesional en estética.",
   "Recibís un adjunto que mandó una persona y tenés que decidir si es:",
-  "un comprobante de pago bancario, un título/certificado profesional, u otra cosa.",
+  "un comprobante de pago bancario, un título/certificado profesional, un meme",
+  "(GIF, sticker, imagen de reacción o broma), u otra cosa. Las profesionales",
+  "mandan seguido memes o GIFs de reacción (ej. una famosa reaccionando): eso es",
+  "'meme', NO un comprobante ni un título. Solo es 'comprobante' si se ve un pago",
+  "real (monto, banco, transferencia); solo es 'titulo' si se ve un certificado real.",
   "Si es un título, validá que sea un certificado GENUINO de cosmetología,",
   "cosmiatría, dermatocosmiatría, estética o un área afín. Sé razonable: aceptá",
   "diplomas y certificados de cursos del rubro, aunque sean de distintas",

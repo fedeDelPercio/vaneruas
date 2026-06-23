@@ -76,6 +76,8 @@ export interface PaymentItem {
   comprobanteType: string | null;
   /** true si otro comprobante anterior comparte el mismo N° de operación. */
   isDuplicate: boolean;
+  /** true si el contacto YA tiene otro comprobante validado en esta conversación. */
+  contactHasValidatedPayment: boolean;
   /** true si el comprobante está retenido esperando validar el título profesional. */
   awaitingTitle: boolean;
   /** Títulos que mandó la contacta en la misma conversación (cert primero). */
@@ -119,6 +121,25 @@ export async function GET(req: NextRequest) {
     ? await sb.from("conversations").select("id, display_name, source, contact_email, external_id, wa_jid, ghl_conversation_id").in("id", convIds)
     : { data: [] };
   const convById = new Map((convs ?? []).map((c) => [c.id, c]));
+
+  // ¿Qué conversaciones ya tienen ALGÚN comprobante validado? Sirve para avisar
+  // en la tarjeta que ese contacto ya está aprobado y este envío es adicional
+  // (pasa seguido: mandan el comprobante, después una segunda foto / constancia /
+  // un GIF; el real ya se validó y el resto es ruido).
+  const { data: validatedRows } = convIds.length
+    ? await sb
+        .from("payment_validations")
+        .select("id, conversation_id")
+        .eq("status", "validated")
+        .in("conversation_id", convIds)
+    : { data: [] };
+  const validatedIdsByConv = new Map<string, Set<string>>();
+  for (const vr of validatedRows ?? []) {
+    if (!vr.conversation_id) continue;
+    const set = validatedIdsByConv.get(vr.conversation_id) ?? new Set<string>();
+    set.add(vr.id);
+    validatedIdsByConv.set(vr.conversation_id, set);
+  }
 
   // Resolver validadores.
   const validatorIds = Array.from(
@@ -247,6 +268,11 @@ export async function GET(req: NextRequest) {
   const items: PaymentItem[] = rows.map((r, i) => {
     const conv = r.conversation_id ? convById.get(r.conversation_id) : null;
     const validator = r.validated_by ? validatorById.get(r.validated_by) : null;
+    // "Ya validado" si hay OTRA fila validada (distinta a esta) en la misma conv.
+    const validatedSet = r.conversation_id ? validatedIdsByConv.get(r.conversation_id) : null;
+    const contactHasValidatedPayment = Boolean(
+      validatedSet && [...validatedSet].some((id) => id !== r.id),
+    );
     return {
       id: r.id,
       status: r.status as PaymentItem["status"],
@@ -269,6 +295,7 @@ export async function GET(req: NextRequest) {
       comprobanteUrl: signedUrls[i] ?? null,
       comprobanteType: r.comprobante_type,
       isDuplicate: duplicateIds.has(r.id),
+      contactHasValidatedPayment,
       awaitingTitle: r.awaiting_title ?? false,
       titles: r.conversation_id ? titlesByConv.get(r.conversation_id) ?? [] : [],
       contactNote: r.conversation_id

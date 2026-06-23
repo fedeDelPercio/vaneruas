@@ -6,6 +6,7 @@ import {
   Receipt,
   FileText,
   Check,
+  CheckCheck,
   X,
   RotateCcw,
   ArrowRight,
@@ -628,6 +629,15 @@ export function PaymentsList() {
                             N° repetido
                           </span>
                         )}
+                        {p.contactHasValidatedPayment && (
+                          <span
+                            className="flex items-center gap-1 badge-pill border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400"
+                            title="Este contacto ya tiene un comprobante validado en esta conversación. Este envío es adicional."
+                          >
+                            <CheckCheck className="h-3 w-3 text-ok" strokeWidth={1.75} />
+                            Ya envió comprobante
+                          </span>
+                        )}
                         <span
                           className={`badge-pill ${badge.cls}`}
                         >
@@ -751,6 +761,12 @@ export function PaymentsList() {
                     </>
                   ) : isPending ? (
                     <>
+                      {p.contactHasValidatedPayment && (
+                        <span className="mr-auto flex items-center gap-1.5 text-[12px] text-neutral-500 dark:text-neutral-400">
+                          <CheckCheck className="h-3.5 w-3.5 text-ok" strokeWidth={1.75} />
+                          Este contacto ya tiene un comprobante validado
+                        </span>
+                      )}
                       <input
                         value={notes[p.id] ?? ""}
                         onChange={(e) =>

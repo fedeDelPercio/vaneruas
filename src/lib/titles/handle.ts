@@ -106,6 +106,17 @@ export async function handleAttachmentIntake(
   // como comprobante retenido (seguro: no aprobamos nada sin título).
   const kind = cls?.kind ?? "comprobante";
 
+  // Meme / GIF / sticker / reacción: NO es pago ni título. Pasa muy seguido que
+  // mandan un GIF de reacción. No registramos nada (no crea comprobante ni
+  // título) y no contestamos como si fuera un documento. Si el adjunto trae un
+  // texto concreto (ej. "Muchas gracias"), lo dejamos caer al agente para que
+  // responda a ESE texto; si es solo el meme, no respondemos nada.
+  if (kind === "meme") {
+    const caption = (args.caption ?? "").trim();
+    const hasMeaningfulText = caption.length > 0 && !caption.startsWith("[");
+    return { handled: !hasMeaningfulText };
+  }
+
   // Título / certificado: lo enruta el flujo de título (lo valida y registra).
   // Para no registradas funciona además como gate; para registradas solo lo
   // reconoce y responde, sin confundirlo con un comprobante.
