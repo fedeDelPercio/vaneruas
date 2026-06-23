@@ -13,6 +13,7 @@ import {
   BarChart3,
   Flag,
   Award,
+  UserPlus,
   CalendarDays,
 } from "lucide-react";
 import { useProfile } from "./ProfileProvider";
@@ -40,6 +41,7 @@ const TABS: Array<{
   { href: "/payments", label: "Aprobaciones", icon: Receipt, roles: ["dev", "client", "asesor"] },
   { href: "/interventions", label: "Derivaciones", icon: Flag, roles: ["dev", "client", "asesor"] },
   { href: "/certificados", label: "Certificados", icon: Award, roles: ["dev", "client", "asesor"] },
+  { href: "/agendar", label: "Agendar", icon: UserPlus, roles: ["dev", "client", "asesor"] },
   { href: "/events", label: "Eventos", icon: CalendarDays, roles: ["dev", "client", "asesor"] },
   { href: "/metrics", label: "Métricas", icon: BarChart3, roles: ["dev", "client", "asesor"] },
   // Oculto por ahora (el módulo sigue vivo, solo se sacó el tab del nav).
@@ -55,6 +57,7 @@ export function DashboardHeader() {
     payments: 0,
     interventions: 0,
     certificados: 0,
+    agendar: 0,
   });
 
   const loadCounts = useCallback(async () => {
@@ -66,6 +69,7 @@ export function DashboardHeader() {
         payments: j.payments ?? 0,
         interventions: j.interventions ?? 0,
         certificados: j.certificados ?? 0,
+        agendar: j.agendar ?? 0,
       });
     } catch {
       // El badge es informativo: si falla el conteo, no rompemos el header.
@@ -89,6 +93,11 @@ export function DashboardHeader() {
         { event: "*", schema: "public", table: "agent_notifications" },
         () => void loadCounts(),
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "conversations" },
+        () => void loadCounts(),
+      )
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
@@ -99,6 +108,7 @@ export function DashboardHeader() {
     "/payments": counts.payments,
     "/interventions": counts.interventions,
     "/certificados": counts.certificados,
+    "/agendar": counts.agendar,
   };
 
   if (!profile) return null;

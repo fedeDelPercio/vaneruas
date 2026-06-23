@@ -72,6 +72,7 @@ const ROLE_ACCESS: Record<string, ProfileRole[]> = {
   "/payments": ["dev", "client", "asesor"],
   "/interventions": ["dev", "client", "asesor"],
   "/certificados": ["dev", "client", "asesor"],
+  "/agendar": ["dev", "client", "asesor"],
   "/events": ["dev", "client", "asesor"],
   "/metrics": ["dev", "client", "asesor"],
   "/webhooks": ["dev"],

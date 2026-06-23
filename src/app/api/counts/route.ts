@@ -14,18 +14,20 @@ export const dynamic = "force-dynamic";
 //    módulo propio (`validacion_pago` → /payments, `reclamo_certificado` →
 //    /certificados).
 //  - certificados: reclamos de certificados (`reclamo_certificado`) sin resolver.
+//  - agendar: contactos de WhatsApp todavía sin agendar (agendada = false).
 // ===========================================================================
 
 export interface ModuleCounts {
   payments: number;
   interventions: number;
   certificados: number;
+  agendar: number;
 }
 
 export async function GET() {
   const sb = getSupabaseServerClient();
 
-  const [payments, interventions, certificados] = await Promise.all([
+  const [payments, interventions, certificados, agendar] = await Promise.all([
     sb
       .from("payment_validations")
       .select("id", { count: "exact", head: true })
@@ -40,12 +42,18 @@ export async function GET() {
       .select("id", { count: "exact", head: true })
       .is("resolved_at", null)
       .eq("category", "reclamo_certificado"),
+    sb
+      .from("conversations")
+      .select("id", { count: "exact", head: true })
+      .eq("source", "whatsapp")
+      .eq("agendada", false),
   ]);
 
   const counts: ModuleCounts = {
     payments: payments.count ?? 0,
     interventions: interventions.count ?? 0,
     certificados: certificados.count ?? 0,
+    agendar: agendar.count ?? 0,
   };
   return NextResponse.json(counts);
 }
