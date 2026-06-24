@@ -12,6 +12,10 @@ import {
   NOTIFY_TEAM_TOOL_SCHEMA,
   applyNotifyTeam,
   type NotifyTeamArgs,
+  REGISTRAR_NOMBRE_TOOL_NAME,
+  REGISTRAR_NOMBRE_TOOL_SCHEMA,
+  applyRegistrarNombre,
+  type RegistrarNombreArgs,
 } from "./tools";
 import { usageToTotals } from "./hooks/token-tracker";
 import { type TimeContext } from "./business-hours";
@@ -40,7 +44,7 @@ const ORCHESTRATOR_MAX_TOKENS = 2048;
 async function logToolStep(
   ctx: RunContext,
   toolName: string,
-  input: NotifyTeamArgs,
+  input: Record<string, unknown>,
   output: string,
 ): Promise<void> {
   try {
@@ -90,7 +94,7 @@ export async function runOrchestrator(params: {
   const timeout = setTimeout(() => abortController.abort(), env.AGENT_TIMEOUT_MS);
   const startedAt = Date.now();
 
-  const tools: Tool[] = [NOTIFY_TEAM_TOOL_SCHEMA];
+  const tools: Tool[] = [NOTIFY_TEAM_TOOL_SCHEMA, REGISTRAR_NOMBRE_TOOL_SCHEMA];
 
   try {
     const response = await createConversationMessage(
@@ -127,8 +131,20 @@ export async function runOrchestrator(params: {
         await logToolStep(
           ctx,
           NOTIFY_TEAM_TOOL_NAME,
-          args,
+          args as unknown as Record<string, unknown>,
           "Equipo notificado. Conversación derivada a un humano.",
+        );
+      } else if (
+        block.type === "tool_use" &&
+        block.name === REGISTRAR_NOMBRE_TOOL_NAME
+      ) {
+        const args = block.input as RegistrarNombreArgs;
+        await applyRegistrarNombre(ctx, args);
+        await logToolStep(
+          ctx,
+          REGISTRAR_NOMBRE_TOOL_NAME,
+          args as unknown as Record<string, unknown>,
+          "Nombre registrado en el panel y seteado en el contacto de GHL.",
         );
       }
     }

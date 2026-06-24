@@ -15,6 +15,13 @@ export {
   type NotifyTeamArgs,
 } from "./notify_team";
 
+export {
+  REGISTRAR_NOMBRE_TOOL_NAME,
+  REGISTRAR_NOMBRE_TOOL_SCHEMA,
+  applyRegistrarNombre,
+  type RegistrarNombreArgs,
+} from "./registrar_nombre";
+
 /** Nombres de tools que el agente puede invocar. */
-export const PANEL_TOOL_NAMES = ["notify_team"] as const;
+export const PANEL_TOOL_NAMES = ["notify_team", "registrar_nombre"] as const;
 export type PanelToolName = (typeof PANEL_TOOL_NAMES)[number];

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { serverEnv } from "@/lib/env";
 import { runAgent } from "@/lib/agent/run";
-import { ghlSendAllowed, ghlSendWhatsApp } from "@/lib/providers/ghl";
+import { ghlSendAllowed, ghlSendWhatsApp, ghlUpdateContact } from "@/lib/providers/ghl";
 import { isAllowedComprobanteType } from "@/lib/payments/storage";
 import { handleAttachmentIntake } from "@/lib/titles/handle";
 import { resolveWhatsAppTurn } from "@/lib/agent/debounce";
@@ -204,9 +204,12 @@ async function processJob(job: AgentJob): Promise<void> {
   }
 
   // Captura del correo: si el turno trae un email (típico tras validar el pago,
-  // cuando le pedimos el correo para el acceso), lo guardamos en la conversación.
-  // Best-effort: no corta el flujo del agente.
-  await captureContactEmail(job.conversation_id, turnUserMessage);
+  // cuando le pedimos el correo para el acceso), lo guardamos en la conversación
+  // y lo seteamos en el contacto de GHL. Best-effort: no corta el flujo del agente.
+  await captureContactEmail(job.conversation_id, turnUserMessage, {
+    externalId: convState?.external_id ?? null,
+    source: convState?.source ?? null,
+  });
 
   // Historial: mensajes previos al turno actual, últimos N.
   const history: HistoryMessage[] = allMsgs
@@ -317,6 +320,7 @@ const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
 async function captureContactEmail(
   conversationId: string,
   content: string | null,
+  opts: { externalId: string | null; source: string | null },
 ): Promise<void> {
   const match = content?.match(EMAIL_RE);
   if (!match) return;
@@ -326,6 +330,10 @@ async function captureContactEmail(
       .from("conversations")
       .update({ contact_email: email })
       .eq("id", conversationId);
+    // Empujar el correo al contacto de GHL (best-effort, requiere contacts.write).
+    if (opts.source === "whatsapp" && opts.externalId) {
+      await ghlUpdateContact(opts.externalId, { email });
+    }
   } catch (err) {
     console.error("[jobs] no se pudo guardar el correo de la contacta:", err);
   }

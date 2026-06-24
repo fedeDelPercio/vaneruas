@@ -186,6 +186,48 @@ export async function ghlFetchContact(contactId: string): Promise<GhlContact | n
 }
 
 /**
+ * Actualiza campos del contacto en GHL (PUT /contacts/{id}). Lo usan el agente
+ * (nombre y apellido que da la persona) y la captura de correo, para que el
+ * contacto quede agendado en GHL sin trabajo manual. Best-effort: requiere que
+ * el PIT tenga el scope `contacts.write` ("Edit Contacts"); si no lo tiene, GHL
+ * responde 401/403 y devolvemos false (el dato igual queda en nuestro panel).
+ * Nunca lanza.
+ */
+export async function ghlUpdateContact(
+  contactId: string,
+  fields: { firstName?: string | null; lastName?: string | null; email?: string | null },
+): Promise<boolean> {
+  if (!process.env.GHL_API_KEY) return false;
+  const body: Record<string, string> = {};
+  if (fields.firstName?.trim()) body.firstName = fields.firstName.trim();
+  if (fields.lastName?.trim()) body.lastName = fields.lastName.trim();
+  if (fields.email?.trim()) body.email = fields.email.trim();
+  if (Object.keys(body).length === 0) return false;
+  try {
+    const res = await fetch(`${GHL_BASE}/contacts/${encodeURIComponent(contactId)}`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${process.env.GHL_API_KEY}`,
+        // La Contacts API usa una versión distinta a la de Conversations.
+        Version: "2021-07-28",
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      console.error(`[ghl] update contact ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error("[ghl] update contact falló:", err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
+/**
  * ¿El contacto de GHL cuenta como "profesional ya registrada"? (heurística
  * temporal, a afinar): tiene email cargado, O tiene nombre Y apellido (así están
  * agendadas las clientas de siempre). Un contacto auto-creado por WhatsApp
