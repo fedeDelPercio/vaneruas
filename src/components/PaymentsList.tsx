@@ -310,6 +310,7 @@ export function PaymentsList() {
   const [titleReviews, setTitleReviews] = useState<TitleReview[]>([]);
   const [stats, setStats] = useState<PaymentStats | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [deliveryNotice, setDeliveryNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [busyTitleId, setBusyTitleId] = useState<string | null>(null);
   const [confirmForceId, setConfirmForceId] = useState<string | null>(null);
@@ -377,10 +378,18 @@ export function PaymentsList() {
           ...(opts.force ? { force: true } : {}),
         }),
       });
+      const j = await r.json().catch(() => ({}));
       if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
         setError(j.error ?? "No se pudo actualizar el comprobante");
         return;
+      }
+      // Si al aprobar no se pudo avisar al cliente (ventana de 24h vencida u
+      // otro error), avisamos en el momento: el comprobante queda marcado para
+      // enviar la confirmación a mano.
+      if (j.deliveryFailed) {
+        setDeliveryNotice(
+          "El pago se aprobó, pero no se pudo avisar al cliente por WhatsApp (probable ventana de 24 horas vencida). Quedó marcado en el comprobante para que le envíes la confirmación manualmente desde GHL.",
+        );
       }
       await load(filterRef.current);
     } catch {
@@ -449,6 +458,26 @@ export function PaymentsList() {
           </span>
         )}
       </div>
+
+      {/* Aviso inmediato si al aprobar no se pudo avisar al cliente. */}
+      {deliveryNotice && (
+        <div className="mb-4 flex items-start gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-3.5 py-2.5 dark:border-neutral-800 dark:bg-neutral-900/40">
+          <AlertTriangle
+            className="mt-0.5 h-4 w-4 shrink-0 text-red-600 dark:text-red-400"
+            strokeWidth={1.75}
+          />
+          <p className="flex-1 text-[12px] leading-relaxed text-neutral-700 dark:text-neutral-200">
+            {deliveryNotice}
+          </p>
+          <button
+            onClick={() => setDeliveryNotice(null)}
+            className="shrink-0 rounded-md p-1 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
+            aria-label="Cerrar"
+          >
+            <X className="h-3.5 w-3.5" strokeWidth={2} />
+          </button>
+        </div>
+      )}
 
       {/* Resumen para las gestoras (no ven Métricas): pendientes + tiempo
           promedio de validación. */}
@@ -638,6 +667,15 @@ export function PaymentsList() {
                             Ya envió comprobante
                           </span>
                         )}
+                        {p.deliveryFailed && (
+                          <span
+                            className="flex items-center gap-1 badge-pill border-red-600/30 bg-red-600/[0.06] text-red-700 dark:border-red-500/30 dark:bg-red-500/[0.06] dark:text-red-300"
+                            title={p.deliveryError ?? "No se pudo avisar al cliente por WhatsApp"}
+                          >
+                            <AlertTriangle className="h-3 w-3" strokeWidth={1.75} />
+                            No se avisó al cliente
+                          </span>
+                        )}
                         <span
                           className={`badge-pill ${badge.cls}`}
                         >
@@ -681,6 +719,22 @@ export function PaymentsList() {
                         {p.validatedAt ? ` · ${fmtDateTime(p.validatedAt)}` : ""}
                         {p.validationNote ? ` · ${p.validationNote}` : ""}
                       </p>
+                    )}
+
+                    {/* No se pudo avisar al cliente (ej. ventana de 24h de
+                        WhatsApp vencida): el equipo lo envía a mano. */}
+                    {p.deliveryFailed && (
+                      <div className="mt-2 flex items-start gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-900/40">
+                        <AlertTriangle
+                          className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-600 dark:text-red-400"
+                          strokeWidth={1.75}
+                        />
+                        <p className="text-[12px] leading-relaxed text-neutral-700 dark:text-neutral-200">
+                          No se pudo avisar al cliente por WhatsApp, probablemente por la
+                          ventana de 24 horas vencida. Enviale la confirmación manualmente
+                          desde GHL.
+                        </p>
+                      </div>
                     )}
                   </div>
                 </div>

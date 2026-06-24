@@ -15,14 +15,25 @@ import { ghlSendAllowed, ghlSendWhatsApp } from "@/lib/providers/ghl";
 // y el contacto está habilitado en la allowlist (GHL_SEND_ALLOWLIST).
 // ===========================================================================
 
+// Resultado de un intento de entrega:
+//  - "sent": se envió a WhatsApp vía GHL.
+//  - "skipped": no correspondía enviar (panel, modo humano, fuera de allowlist,
+//    o contenido vacío). NO es un error.
+//  - "failed": se intentó enviar y GHL devolvió error (ej. ventana de 24h
+//    vencida). `error` trae el detalle.
+export interface DeliveryResult {
+  status: "sent" | "skipped" | "failed";
+  error?: string;
+}
+
 export async function deliverAssistantToWhatsApp(opts: {
   conversationId: string;
   /** Id de la fila en `messages`, para guardar el messageId de GHL (dedup). */
   messageId?: string | null;
   content: string;
-}): Promise<void> {
+}): Promise<DeliveryResult> {
   const content = opts.content.trim();
-  if (!content) return;
+  if (!content) return { status: "skipped" };
 
   const supabase = getSupabaseServerClient();
   const { data: conv } = await supabase
@@ -32,10 +43,10 @@ export async function deliverAssistantToWhatsApp(opts: {
     .maybeSingle();
 
   // Panel (source=test): la entrega la hace Realtime. Modo humano: la IA calla.
-  if (!conv || conv.source !== "whatsapp" || conv.mode === "HUMAN") return;
+  if (!conv || conv.source !== "whatsapp" || conv.mode === "HUMAN") return { status: "skipped" };
 
   const contactId = conv.external_id;
-  if (!contactId || !ghlSendAllowed(contactId)) return;
+  if (!contactId || !ghlSendAllowed(contactId)) return { status: "skipped" };
 
   try {
     const ghlMessageId = await ghlSendWhatsApp(contactId, content);
@@ -45,10 +56,10 @@ export async function deliverAssistantToWhatsApp(opts: {
         .update({ external_id: ghlMessageId })
         .eq("id", opts.messageId);
     }
+    return { status: "sent" };
   } catch (err) {
-    console.error(
-      "[whatsapp-delivery] no se pudo enviar a WhatsApp:",
-      err instanceof Error ? err.message : err,
-    );
+    const error = err instanceof Error ? err.message : String(err);
+    console.error("[whatsapp-delivery] no se pudo enviar a WhatsApp:", error);
+    return { status: "failed", error };
   }
 }

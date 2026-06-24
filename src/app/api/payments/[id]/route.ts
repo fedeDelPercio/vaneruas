@@ -109,6 +109,7 @@ export async function PATCH(
       .eq("id", prev.conversation_id);
   }
 
+  let deliveryFailed = false;
   if (
     status === "validated" &&
     prev?.status !== "validated" &&
@@ -140,15 +141,37 @@ export async function PATCH(
         .update({ updated_at: new Date().toISOString() })
         .eq("id", prev.conversation_id);
       // Entrega real al WhatsApp del contacto (vía GHL) si corresponde.
-      await deliverAssistantToWhatsApp({
+      const delivery = await deliverAssistantToWhatsApp({
         conversationId: prev.conversation_id,
         messageId: inserted?.id,
         content: message,
       });
+      // Si NO se pudo avisar al cliente (típico: ventana de 24h de WhatsApp
+      // vencida), lo marcamos en el comprobante para que el equipo lo vea en
+      // Aprobaciones e intervenga a mano. Si se envió (o se omitió por test /
+      // modo humano), limpiamos cualquier marca previa.
+      deliveryFailed = delivery.status === "failed";
+      await sb
+        .from("payment_validations")
+        .update(
+          deliveryFailed
+            ? { delivery_failed: true, delivery_error: delivery.error ?? null }
+            : { delivery_failed: false, delivery_error: null },
+        )
+        .eq("id", id);
     } catch (err) {
       console.error("[payments] no se pudo enviar la confirmación al cliente:", err);
+      // No pudimos ni siquiera intentar la entrega: marcamos para revisión manual.
+      deliveryFailed = true;
+      await sb
+        .from("payment_validations")
+        .update({
+          delivery_failed: true,
+          delivery_error: err instanceof Error ? err.message : "error desconocido",
+        })
+        .eq("id", id);
     }
   }
 
-  return NextResponse.json({ id: data.id, status }, { status: 200 });
+  return NextResponse.json({ id: data.id, status, deliveryFailed }, { status: 200 });
 }

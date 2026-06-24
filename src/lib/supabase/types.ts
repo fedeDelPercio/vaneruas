@@ -208,6 +208,8 @@ export type Database = {
           event_slug: string | null;
           status: string;
           awaiting_title: boolean;
+          delivery_failed: boolean;
+          delivery_error: string | null;
           validated_by: string | null;
           validated_at: string | null;
           validation_note: string | null;
@@ -239,6 +241,8 @@ export type Database = {
           event_slug?: string | null;
           status?: string;
           awaiting_title?: boolean;
+          delivery_failed?: boolean;
+          delivery_error?: string | null;
           validated_by?: string | null;
           validated_at?: string | null;
           validation_note?: string | null;
@@ -270,6 +274,8 @@ export type Database = {
           event_slug?: string | null;
           status?: string;
           awaiting_title?: boolean;
+          delivery_failed?: boolean;
+          delivery_error?: string | null;
           validated_by?: string | null;
           validated_at?: string | null;
           validation_note?: string | null;

@@ -80,6 +80,10 @@ export interface PaymentItem {
   contactHasValidatedPayment: boolean;
   /** true si el comprobante está retenido esperando validar el título profesional. */
   awaitingTitle: boolean;
+  /** true si no se pudo avisar al cliente al aprobar (ej. ventana de 24h vencida). */
+  deliveryFailed: boolean;
+  /** Detalle del error de entrega, si lo hubo. */
+  deliveryError: string | null;
   /** Títulos que mandó la contacta en la misma conversación (cert primero). */
   titles: TitleSubmission[];
   /** Último mensaje de texto de la contacta (útil cuando hay un comprobante retenido). */
@@ -297,6 +301,8 @@ export async function GET(req: NextRequest) {
       isDuplicate: duplicateIds.has(r.id),
       contactHasValidatedPayment,
       awaitingTitle: r.awaiting_title ?? false,
+      deliveryFailed: r.delivery_failed ?? false,
+      deliveryError: r.delivery_error ?? null,
       titles: r.conversation_id ? titlesByConv.get(r.conversation_id) ?? [] : [],
       contactNote: r.conversation_id
         ? contactNoteByConv.get(r.conversation_id) ?? null
