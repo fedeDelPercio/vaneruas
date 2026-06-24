@@ -23,6 +23,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ghlConversationUrl } from "@/lib/ghl-link";
 import { ContactStrip } from "./ContactStrip";
 import { eventBySlug } from "@/lib/payments/event-match";
+import { recipientMismatches } from "@/lib/payments/recipient";
 import type {
   PaymentItem,
   PaymentStats,
@@ -72,6 +73,27 @@ function fmtDateTime(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/**
+ * Fecha y hora del comprobante NORMALIZADA (DD/MM/AAAA, HH:MM), uniforme entre
+ * tarjetas. Usa la fecha ya parseada (`transferred_at`), que se guarda como la
+ * hora de pared del comprobante en UTC: por eso formateamos en timeZone UTC, así
+ * mostramos la hora original sin desfasar por la zona del navegador. Si el OCR no
+ * pudo normalizarla, caemos al texto crudo del comprobante.
+ */
+function fmtTransferDate(transferredAt: string | null, raw: string | null): string | null {
+  if (transferredAt) {
+    return new Date(transferredAt).toLocaleString("es-AR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "UTC",
+    });
+  }
+  return raw;
 }
 
 /** Formatea una duración en ms a algo legible y corto (ej. "2 h 15 min"). */
@@ -575,6 +597,9 @@ export function PaymentsList() {
             const ev = eventBySlug(p.eventSlug);
             const isPending = p.status === "pending";
             const busy = busyId === p.id;
+            // ¿El destinatario del comprobante no coincide con la cuenta de Vane?
+            const recipientWarn = recipientMismatches(p.recipientName, p.recipientTaxId);
+            const recipientWarnLabels = recipientWarn.map((w) => (w === "cuit" ? "CUIT" : "nombre"));
             return (
               <article
                 key={p.id}
@@ -676,6 +701,15 @@ export function PaymentsList() {
                             No se avisó al cliente
                           </span>
                         )}
+                        {recipientWarn.length > 0 && (
+                          <span
+                            className="flex items-center gap-1 badge-pill border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400"
+                            title="El destinatario del comprobante no coincide con la cuenta de Vanesa Rúas"
+                          >
+                            <AlertTriangle className="h-3 w-3 text-warn" strokeWidth={1.75} />
+                            Destinatario no coincide
+                          </span>
+                        )}
                         <span
                           className={`badge-pill ${badge.cls}`}
                         >
@@ -689,7 +723,7 @@ export function PaymentsList() {
                     {p.conversation && <ContactStrip conversation={p.conversation} />}
 
                     <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5">
-                      <Field label="Fecha y hora" value={p.transferDateRaw} />
+                      <Field label="Fecha y hora" value={fmtTransferDate(p.transferredAt, p.transferDateRaw)} />
                       <Field label="Banco / medio" value={p.bankOrMethod} />
                       <Field label="N° de operación" value={p.operationNumber} />
                       <Field label="CUIT emisor" value={p.senderTaxId} />
@@ -719,6 +753,22 @@ export function PaymentsList() {
                         {p.validatedAt ? ` · ${fmtDateTime(p.validatedAt)}` : ""}
                         {p.validationNote ? ` · ${p.validationNote}` : ""}
                       </p>
+                    )}
+
+                    {/* Destinatario distinto a la cuenta de Vane: revisar antes
+                        de aprobar (puede ser otra cuenta o un comprobante falso). */}
+                    {recipientWarn.length > 0 && (
+                      <div className="mt-2 flex items-start gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-900/40">
+                        <AlertTriangle
+                          className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warn"
+                          strokeWidth={1.75}
+                        />
+                        <p className="text-[12px] leading-relaxed text-neutral-700 dark:text-neutral-200">
+                          El {recipientWarnLabels.join(" y el ")} del destinatario{" "}
+                          {recipientWarn.length > 1 ? "no coinciden" : "no coincide"} con la
+                          cuenta de Vanesa Rúas. Verificá el comprobante antes de aprobar.
+                        </p>
+                      </div>
                     )}
 
                     {/* No se pudo avisar al cliente (ej. ventana de 24h de
