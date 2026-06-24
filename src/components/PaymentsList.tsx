@@ -16,6 +16,7 @@ import {
   MessageSquareQuote,
   Mail,
   Ticket,
+  Users,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useProfile } from "./ProfileProvider";
@@ -622,6 +623,17 @@ export function PaymentsList() {
           {groupByConversation(visibleItems).map((group) => {
             const first = group[0]!;
             const groupAwaitingTitle = group.some((g) => g.awaitingTitle);
+            // Comprobantes a nombre de personas distintas en la misma conversación:
+            // alguien compró una entrada para otra persona. Hay que registrar a esa
+            // otra persona aparte (no tenemos su mail para darle el acceso).
+            const distinctSenders = Array.from(
+              new Set(
+                group
+                  .map((g) => g.senderName?.trim())
+                  .filter((n): n is string => Boolean(n)),
+              ),
+            );
+            const multiplePeople = distinctSenders.length >= 2;
             return (
               <article
                 key={first.id}
@@ -664,6 +676,19 @@ export function PaymentsList() {
                   <p className="mb-2 font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
                     {group.length} comprobantes de este contacto
                   </p>
+                )}
+
+                {/* Comprobantes a nombre de personas distintas: registrar aparte
+                    a la otra persona (no tenemos su mail para el acceso). */}
+                {multiplePeople && (
+                  <div className="mb-3 flex items-start gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-900/40">
+                    <Users className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warn" strokeWidth={1.75} />
+                    <p className="text-[12px] leading-relaxed text-neutral-700 dark:text-neutral-200">
+                      Hay comprobantes a nombre de distintas personas ({distinctSenders.join(", ")}).
+                      Si alguna entrada es para otra persona, registrala aparte con su nombre y mail:
+                      no tenemos sus datos para darle el acceso.
+                    </p>
+                  </div>
                 )}
 
                 {group.map((p, idx) => {
