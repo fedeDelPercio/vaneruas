@@ -116,6 +116,33 @@ function fmtAmount(amount: number | null, currency: string | null): string {
   return `${currency ?? "ARS"} ${n}`;
 }
 
+/**
+ * Agrupa comprobantes por conversación: una sola card por contacto, aunque haya
+ * mandado varios comprobantes (cada uno conserva su propia aprobación/rechazo).
+ * Mantiene el orden de aparición. Los que no tienen conversación van en su
+ * propia card.
+ */
+function groupByConversation(items: PaymentItem[]): PaymentItem[][] {
+  const groups: PaymentItem[][] = [];
+  const byConv = new Map<string, PaymentItem[]>();
+  for (const it of items) {
+    const key = it.conversation?.id;
+    if (!key) {
+      groups.push([it]);
+      continue;
+    }
+    const existing = byConv.get(key);
+    if (existing) {
+      existing.push(it);
+    } else {
+      const arr = [it];
+      byConv.set(key, arr);
+      groups.push(arr);
+    }
+  }
+  return groups;
+}
+
 function statusBadge(status: PaymentItem["status"]): { label: string; cls: string } {
   if (status === "validated") {
     return {
@@ -592,32 +619,26 @@ export function PaymentsList() {
         </div>
       ) : (
         <div className="space-y-3">
-          {visibleItems.map((p) => {
-            const badge = statusBadge(p.status);
-            const ev = eventBySlug(p.eventSlug);
-            const isPending = p.status === "pending";
-            const busy = busyId === p.id;
-            // ¿El destinatario del comprobante no coincide con la cuenta de Vane?
-            const recipientWarn = recipientMismatches(p.recipientName, p.recipientTaxId);
-            const recipientWarnLabels = recipientWarn.map((w) => (w === "cuit" ? "CUIT" : "nombre"));
+          {groupByConversation(visibleItems).map((group) => {
+            const first = group[0]!;
+            const groupAwaitingTitle = group.some((g) => g.awaitingTitle);
             return (
               <article
-                key={p.id}
+                key={first.id}
                 className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"
               >
-                {/* Acreditación del título primero (cuando la contacta lo mandó o
-                    dijo algo al respecto), después el comprobante: así el equipo
-                    revisa la acreditación y luego el pago. Todo lo del título va
-                    bajo un mismo encabezado para que no quede suelto. */}
-                {(p.titles.length > 0 || (p.awaitingTitle && p.contactNote)) && (
+                {/* Acreditación del título: UNA vez por contacto, aunque haya
+                    mandado varios comprobantes (todos comparten los mismos
+                    títulos). Va arriba; abajo, cada comprobante con su acción. */}
+                {(first.titles.length > 0 || (groupAwaitingTitle && first.contactNote)) && (
                   <div className="mb-4 border-b border-neutral-100 pb-4 dark:border-neutral-800">
                     <p className="mb-2.5 flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
                       <GraduationCap className="h-3 w-3" strokeWidth={1.75} />
                       Título profesional
                     </p>
-                    {p.titles.length > 0 && (
+                    {first.titles.length > 0 && (
                       <div className="space-y-3">
-                        {p.titles.map((sub) => (
+                        {first.titles.map((sub) => (
                           <TitleSubmissionRow
                             key={sub.id}
                             sub={sub}
@@ -628,16 +649,36 @@ export function PaymentsList() {
                         ))}
                       </div>
                     )}
-                    {p.awaitingTitle && p.contactNote && (
+                    {groupAwaitingTitle && first.contactNote && (
                       <ContactNote
-                        text={p.contactNote}
+                        text={first.contactNote}
                         label="Mensaje de la contacta sobre el título"
-                        className={p.titles.length > 0 ? "mt-3" : "mt-0"}
+                        className={first.titles.length > 0 ? "mt-3" : "mt-0"}
                       />
                     )}
                   </div>
                 )}
 
+                {/* Si mandó más de un comprobante, lo aclaramos: van todos acá. */}
+                {group.length > 1 && (
+                  <p className="mb-2 font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+                    {group.length} comprobantes de este contacto
+                  </p>
+                )}
+
+                {group.map((p, idx) => {
+                  const badge = statusBadge(p.status);
+                  const ev = eventBySlug(p.eventSlug);
+                  const isPending = p.status === "pending";
+                  const busy = busyId === p.id;
+                  // ¿El destinatario del comprobante no coincide con la cuenta de Vane?
+                  const recipientWarn = recipientMismatches(p.recipientName, p.recipientTaxId);
+                  const recipientWarnLabels = recipientWarn.map((w) => (w === "cuit" ? "CUIT" : "nombre"));
+                  return (
+                    <div
+                      key={p.id}
+                      className={idx > 0 ? "mt-4 border-t border-neutral-200 pt-4 dark:border-neutral-800" : ""}
+                    >
                 <div className="flex flex-col gap-4 sm:flex-row">
                   {/* Comprobante */}
                   <div className="shrink-0">
@@ -919,6 +960,9 @@ export function PaymentsList() {
                     </button>
                   )}
                 </div>
+                    </div>
+                  );
+                })}
               </article>
             );
           })}
