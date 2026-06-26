@@ -39,10 +39,25 @@ export async function GET(req: NextRequest) {
   const sb = getSupabaseServerClient();
   const status = req.nextUrl.searchParams.get("status") ?? "pending";
 
+  // El módulo Agendar es SOLO para quienes mandaron un comprobante de pago (no
+  // para cualquier contacto que consulta). Primero juntamos las conversaciones
+  // que tienen al menos un comprobante; el listado se acota a esas.
+  const { data: payRows } = await sb
+    .from("payment_validations")
+    .select("conversation_id")
+    .not("conversation_id", "is", null);
+  const comprobanteConvIds = Array.from(
+    new Set((payRows ?? []).map((r) => r.conversation_id).filter(Boolean) as string[]),
+  );
+  if (!comprobanteConvIds.length) {
+    return NextResponse.json({ items: [] satisfies AgendarItem[] });
+  }
+
   let query = sb
     .from("conversations")
     .select("id, display_name, source, external_id, wa_jid, agendada, created_at, updated_at")
     .eq("source", "whatsapp")
+    .in("id", comprobanteConvIds)
     // Más recientes primero: el contacto que acaba de escribir es el que hay
     // que agendar ahora.
     .order("updated_at", { ascending: false })

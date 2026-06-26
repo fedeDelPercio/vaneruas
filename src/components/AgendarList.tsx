@@ -75,6 +75,12 @@ export function AgendarList() {
         { event: "*", schema: "public", table: "conversations" },
         () => void load(filterRef.current),
       )
+      // Un comprobante nuevo hace aparecer a ese contacto en la lista.
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "payment_validations" },
+        () => void load(filterRef.current),
+      )
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
@@ -124,9 +130,10 @@ export function AgendarList() {
       </div>
 
       <p className="mb-4 text-[12px] leading-relaxed text-neutral-500 dark:text-neutral-500">
-        Contactos de WhatsApp para dar de alta en GoHighLevel y, según el caso, en
-        los grupos de WhatsApp. El nombre y apellido lo pide la asistente en el
-        chat. Cuando los agendes, marcalos como agendados.
+        Contactos que mandaron su comprobante de pago, para dar de alta en
+        GoHighLevel y, según el caso, en los grupos de WhatsApp. El nombre y
+        apellido lo pide la asistente en el chat. Cuando los agendes, marcalos
+        como agendados.
       </p>
 
       <div className="mb-4 flex items-center gap-1">
@@ -157,7 +164,7 @@ export function AgendarList() {
             No hay contactos {filter === "pending" ? "por agendar" : filter === "done" ? "agendados" : ""}
           </p>
           <p className="text-[12px] text-neutral-500 dark:text-neutral-500">
-            Cuando alguien nuevo escriba por WhatsApp, aparece acá para agendarlo.
+            Cuando alguien mande su comprobante de pago, aparece acá para agendarlo.
           </p>
         </div>
       ) : (

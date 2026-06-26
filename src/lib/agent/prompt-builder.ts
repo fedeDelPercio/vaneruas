@@ -124,10 +124,10 @@ function customerContextBlock(isExisting: boolean): string {
   }
   return [
     "=== Estado del contacto ===",
-    "El contacto todavía no es clienta ni está agendada en nuestra base.",
-    "Atendela normalmente según el procedimiento del orquestador. Si todavía no",
-    "lo hiciste en esta conversación, pedile su nombre y apellido aclarando que",
-    "es para agendarla en nuestra base (una sola vez, sin trabar su consulta).",
+    "El contacto todavía no es clienta. Atendela normalmente según el",
+    "procedimiento del orquestador. El nombre y apellido para agendar se le pide",
+    "SOLO cuando manda su comprobante de pago (ver paso 6), no a cualquiera que",
+    "consulta.",
   ].join("\n");
 }
 

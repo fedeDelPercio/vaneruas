@@ -27,7 +27,7 @@ export interface ModuleCounts {
 export async function GET() {
   const sb = getSupabaseServerClient();
 
-  const [payments, interventions, certificados, agendar] = await Promise.all([
+  const [payments, interventions, certificados, payConvRows] = await Promise.all([
     sb
       .from("payment_validations")
       .select("id", { count: "exact", head: true })
@@ -42,18 +42,30 @@ export async function GET() {
       .select("id", { count: "exact", head: true })
       .is("resolved_at", null)
       .eq("category", "reclamo_certificado"),
-    sb
+    // Conversaciones con comprobante (el módulo Agendar es solo para esas).
+    sb.from("payment_validations").select("conversation_id").not("conversation_id", "is", null),
+  ]);
+
+  // agendar: de las que mandaron comprobante, las que todavía no están agendadas.
+  const comprobanteConvIds = Array.from(
+    new Set((payConvRows.data ?? []).map((r) => r.conversation_id).filter(Boolean) as string[]),
+  );
+  let agendar = 0;
+  if (comprobanteConvIds.length) {
+    const { count } = await sb
       .from("conversations")
       .select("id", { count: "exact", head: true })
       .eq("source", "whatsapp")
-      .eq("agendada", false),
-  ]);
+      .eq("agendada", false)
+      .in("id", comprobanteConvIds);
+    agendar = count ?? 0;
+  }
 
   const counts: ModuleCounts = {
     payments: payments.count ?? 0,
     interventions: interventions.count ?? 0,
     certificados: certificados.count ?? 0,
-    agendar: agendar.count ?? 0,
+    agendar,
   };
   return NextResponse.json(counts);
 }
