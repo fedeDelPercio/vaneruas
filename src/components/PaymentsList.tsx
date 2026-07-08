@@ -17,6 +17,7 @@ import {
   Mail,
   Ticket,
   Users,
+  KeyRound,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useProfile } from "./ProfileProvider";
@@ -360,7 +361,8 @@ export function PaymentsList() {
   const [titleReviews, setTitleReviews] = useState<TitleReview[]>([]);
   const [stats, setStats] = useState<PaymentStats | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [deliveryNotice, setDeliveryNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busyAccessId, setBusyAccessId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [busyTitleId, setBusyTitleId] = useState<string | null>(null);
   const [confirmForceId, setConfirmForceId] = useState<string | null>(null);
@@ -437,7 +439,7 @@ export function PaymentsList() {
       // otro error), avisamos en el momento: el comprobante queda marcado para
       // enviar la confirmación a mano.
       if (j.deliveryFailed) {
-        setDeliveryNotice(
+        setNotice(
           "El pago se aprobó, pero no se pudo avisar al cliente por WhatsApp (probable ventana de 24 horas vencida). Quedó marcado en el comprobante para que le envíes la confirmación manualmente desde GHL.",
         );
       }
@@ -446,6 +448,30 @@ export function PaymentsList() {
       setError("Error de red al actualizar");
     } finally {
       setBusyId(null);
+    }
+  }
+
+  // Da acceso al curso (Tiendup) para un pago de masterclass validado. Fase 1:
+  // manual, lo dispara el equipo desde la card.
+  async function grantAccess(id: string) {
+    setBusyAccessId(id);
+    try {
+      const r = await fetch(`/api/payments/${id}/grant-access`, { method: "PATCH" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        setNotice(
+          j.error
+            ? `No se pudo dar el acceso al curso: ${j.error}`
+            : "No se pudo dar el acceso al curso",
+        );
+      } else {
+        setNotice(`Acceso al curso dado a ${j.email ?? "el contacto"} ✨`);
+      }
+      await load(filterRef.current);
+    } catch {
+      setNotice("Error de red al dar el acceso al curso");
+    } finally {
+      setBusyAccessId(null);
     }
   }
 
@@ -509,18 +535,18 @@ export function PaymentsList() {
         )}
       </div>
 
-      {/* Aviso inmediato si al aprobar no se pudo avisar al cliente. */}
-      {deliveryNotice && (
+      {/* Aviso inmediato de una acción (entrega fallida, acceso al curso, etc). */}
+      {notice && (
         <div className="mb-4 flex items-start gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-3.5 py-2.5 dark:border-neutral-800 dark:bg-neutral-900/40">
           <AlertTriangle
             className="mt-0.5 h-4 w-4 shrink-0 text-red-600 dark:text-red-400"
             strokeWidth={1.75}
           />
           <p className="flex-1 text-[12px] leading-relaxed text-neutral-700 dark:text-neutral-200">
-            {deliveryNotice}
+            {notice}
           </p>
           <button
-            onClick={() => setDeliveryNotice(null)}
+            onClick={() => setNotice(null)}
             className="shrink-0 rounded-md p-1 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
             aria-label="Cerrar"
           >
@@ -696,6 +722,12 @@ export function PaymentsList() {
                   const ev = eventBySlug(p.eventSlug);
                   const isPending = p.status === "pending";
                   const busy = busyId === p.id;
+                  const accessBusy = busyAccessId === p.id;
+                  // Acceso al curso (Tiendup): solo masterclass validada con mail.
+                  const canGrantAccess =
+                    p.status === "validated" &&
+                    eventKind(p.eventSlug) === "masterclass" &&
+                    Boolean(p.contactEmail);
                   // ¿El destinatario del comprobante no coincide con la cuenta de Vane?
                   const recipientWarn = recipientMismatches(p.recipientName, p.recipientTaxId);
                   const recipientWarnLabels = recipientWarn.map((w) => (w === "cuit" ? "CUIT" : "nombre"));
@@ -971,18 +1003,41 @@ export function PaymentsList() {
                       </button>
                     </>
                   ) : (
-                    <button
-                      onClick={() => void setStatus(p.id, "pending")}
-                      disabled={busy}
-                      className="flex items-center gap-1.5 rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                    >
-                      {busy ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} />
-                      ) : (
-                        <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.75} />
-                      )}
-                      Volver a pendiente
-                    </button>
+                    <>
+                      {canGrantAccess &&
+                        (p.courseAccessGrantedAt ? (
+                          <span className="flex items-center gap-1.5 text-[12px] text-ok">
+                            <KeyRound className="h-3.5 w-3.5" strokeWidth={1.75} />
+                            Acceso al curso dado
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => void grantAccess(p.id)}
+                            disabled={accessBusy}
+                            title="Inscribir en el curso de Tiendup por su correo"
+                            className="flex items-center gap-1.5 rounded-md border border-neutral-200 px-3 py-2 text-[13px] font-medium text-neutral-700 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                          >
+                            {accessBusy ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
+                            ) : (
+                              <KeyRound className="h-3.5 w-3.5" strokeWidth={1.75} />
+                            )}
+                            Dar acceso al curso
+                          </button>
+                        ))}
+                      <button
+                        onClick={() => void setStatus(p.id, "pending")}
+                        disabled={busy}
+                        className="flex items-center gap-1.5 rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                      >
+                        {busy ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} />
+                        ) : (
+                          <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.75} />
+                        )}
+                        Volver a pendiente
+                      </button>
+                    </>
                   )}
                 </div>
                     </div>

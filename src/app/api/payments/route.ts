@@ -84,6 +84,10 @@ export interface PaymentItem {
   deliveryFailed: boolean;
   /** Detalle del error de entrega, si lo hubo. */
   deliveryError: string | null;
+  /** Cuándo se le dio acceso al curso en Tiendup (null = todavía no). */
+  courseAccessGrantedAt: string | null;
+  /** Detalle del último error al intentar dar acceso al curso. */
+  courseAccessError: string | null;
   /** Títulos que mandó la contacta en la misma conversación (cert primero). */
   titles: TitleSubmission[];
   /** Último mensaje de texto de la contacta (útil cuando hay un comprobante retenido). */
@@ -303,6 +307,8 @@ export async function GET(req: NextRequest) {
       awaitingTitle: r.awaiting_title ?? false,
       deliveryFailed: r.delivery_failed ?? false,
       deliveryError: r.delivery_error ?? null,
+      courseAccessGrantedAt: r.course_access_granted_at ?? null,
+      courseAccessError: r.course_access_error ?? null,
       titles: r.conversation_id ? titlesByConv.get(r.conversation_id) ?? [] : [],
       contactNote: r.conversation_id
         ? contactNoteByConv.get(r.conversation_id) ?? null

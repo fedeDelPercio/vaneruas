@@ -210,6 +210,8 @@ export type Database = {
           awaiting_title: boolean;
           delivery_failed: boolean;
           delivery_error: string | null;
+          course_access_granted_at: string | null;
+          course_access_error: string | null;
           validated_by: string | null;
           validated_at: string | null;
           validation_note: string | null;
@@ -243,6 +245,8 @@ export type Database = {
           awaiting_title?: boolean;
           delivery_failed?: boolean;
           delivery_error?: string | null;
+          course_access_granted_at?: string | null;
+          course_access_error?: string | null;
           validated_by?: string | null;
           validated_at?: string | null;
           validation_note?: string | null;
@@ -276,6 +280,8 @@ export type Database = {
           awaiting_title?: boolean;
           delivery_failed?: boolean;
           delivery_error?: string | null;
+          course_access_granted_at?: string | null;
+          course_access_error?: string | null;
           validated_by?: string | null;
           validated_at?: string | null;
           validation_note?: string | null;
