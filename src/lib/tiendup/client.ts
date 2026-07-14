@@ -88,6 +88,104 @@ export async function enrollCourseByEmail(args: {
   }
 }
 
+// --- Chequeo previo: ¿ya está inscripta? ----------------------------------
+//
+// CRÍTICO: el mail que capturamos por WhatsApp NO es confiable (typos, mails
+// truncados, o la persona da un mail distinto al de su cuenta de Tiendup). Si
+// inscribimos con un mail equivocado, Tiendup CREA un cliente nuevo con ese mail
+// basura y la persona real sigue sin acceso. Por eso, antes de inscribir,
+// buscamos si ya está en el curso (por mail o por NOMBRE) y avisamos.
+
+export interface TiendupEnrolled {
+  name: string | null;
+  lastName: string | null;
+  email: string | null;
+}
+
+/** normaliza para comparar: minúsculas, sin acentos, solo alfanumérico. */
+function normLoose(s: string | null | undefined): string {
+  return (s ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+/** Trae TODOS los inscriptos al curso (paginado). [] ante error. */
+export async function listEnrolled(courseId: number): Promise<TiendupEnrolled[]> {
+  const key = process.env.TIENDUP_API_KEY;
+  if (!key) return [];
+  const out: TiendupEnrolled[] = [];
+  try {
+    for (let page = 1; page <= 50; page++) {
+      const res = await fetch(
+        `${baseUrl()}/learning/courses/${courseId}/enrolled?limit=100&page=${page}`,
+        {
+          headers: { "x-api-key": key, Accept: "application/json" },
+          signal: AbortSignal.timeout(TIMEOUT_MS),
+        },
+      );
+      if (!res.ok) break;
+      const json = (await res.json()) as {
+        data?: { name?: string; last_name?: string; email?: string }[];
+        pages?: number;
+      };
+      const rows = json.data ?? [];
+      for (const r of rows) {
+        out.push({
+          name: r.name ?? null,
+          lastName: r.last_name ?? null,
+          email: r.email ?? null,
+        });
+      }
+      const pages = Number(json.pages ?? 1);
+      if (page >= pages || rows.length === 0) break;
+    }
+  } catch {
+    // best-effort: si falla, devolvemos lo que juntamos.
+  }
+  return out;
+}
+
+export interface ExistingEnrollment {
+  /** "email" = coincide el mail; "nombre" = coincide la persona pero con OTRO mail. */
+  matchedBy: "email" | "nombre";
+  enrolled: TiendupEnrolled;
+}
+
+/**
+ * ¿Esta persona ya está inscripta en el curso? Busca por mail (exacto, y también
+ * "limpiando" basura al principio, ej. "_mail@x.com") y, si no, por NOMBRE
+ * (todos los tokens del nombre presentes en el inscripto). Devuelve el match, o
+ * null si no aparece.
+ */
+export function findExistingEnrollment(args: {
+  enrolled: TiendupEnrolled[];
+  email: string;
+  fullName?: string | null;
+}): ExistingEnrollment | null {
+  const emailNorm = normLoose(args.email);
+  // a) match por mail (normLoose saca guiones bajos/puntos, así que cubre los
+  //    mails mal capturados tipo "_florencia...@gmail.com").
+  const byEmail = args.enrolled.find((e) => e.email && normLoose(e.email) === emailNorm);
+  if (byEmail) return { matchedBy: "email", enrolled: byEmail };
+
+  // b) match por nombre: todos los tokens significativos del nombre tienen que
+  //    estar en el nombre+apellido del inscripto.
+  const tokens = (args.fullName ?? "")
+    .split(/\s+/)
+    .map(normLoose)
+    .filter((t) => t.length > 3);
+  if (tokens.length >= 2) {
+    const byName = args.enrolled.find((e) => {
+      const full = normLoose(`${e.name ?? ""}${e.lastName ?? ""}`);
+      return tokens.every((t) => full.includes(t));
+    });
+    if (byName) return { matchedBy: "nombre", enrolled: byName };
+  }
+  return null;
+}
+
 /**
  * Parte un nombre completo en nombre + apellido (heurística simple: primera
  * palabra = nombre, el resto = apellido). Para poblar el cliente en Tiendup.

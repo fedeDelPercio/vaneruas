@@ -38,13 +38,15 @@ import type {
 // equipo revisa cada uno contra su contabilidad y lo marca aprobado o
 // rechazado para habilitar (o no) el acceso al curso.
 
-type StatusFilter = "pending" | "validated" | "rejected" | "all";
+type StatusFilter = "pending" | "validated" | "rejected" | "all" | "sin-acceso";
 
 const FILTERS: { key: StatusFilter; label: string }[] = [
   { key: "pending", label: "Pendientes" },
   { key: "validated", label: "Validados" },
   { key: "rejected", label: "Rechazados" },
   { key: "all", label: "Todos" },
+  // Worklist de entrega de acceso: masterclass validadas, con mail, sin acceso dado.
+  { key: "sin-acceso", label: "Falta acceso" },
 ];
 
 type EventFilter = "all" | "congreso" | "masterclass";
@@ -363,6 +365,12 @@ export function PaymentsList() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busyAccessId, setBusyAccessId] = useState<string | null>(null);
+  // Confirmación del acceso: el operador tiene que LEER el mail antes de dar el
+  // acceso (los mails capturados por WhatsApp a veces vienen mal).
+  const [confirmAccessId, setConfirmAccessId] = useState<string | null>(null);
+  // Aviso de Tiendup: "ya parece inscripta con otro mail" (id → texto). Si está,
+  // la próxima confirmación va con force.
+  const [accessWarn, setAccessWarn] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
   const [busyTitleId, setBusyTitleId] = useState<string | null>(null);
   const [confirmForceId, setConfirmForceId] = useState<string | null>(null);
@@ -372,7 +380,9 @@ export function PaymentsList() {
 
   const load = useCallback(async (status: StatusFilter) => {
     try {
-      const r = await fetch(`/api/payments?status=${status}`, { cache: "no-store" });
+      // "Falta acceso" es una vista sobre los validados (el resto se filtra acá).
+      const apiStatus = status === "sin-acceso" ? "validated" : status;
+      const r = await fetch(`/api/payments?status=${apiStatus}`, { cache: "no-store" });
       const j = await r.json();
       if (!r.ok) {
         setError(j.error ?? "No se pudieron cargar los comprobantes");
@@ -451,28 +461,64 @@ export function PaymentsList() {
     }
   }
 
-  // Da acceso al curso (Tiendup) para un pago de masterclass validado. Fase 1:
-  // manual, lo dispara el equipo desde la card.
-  async function grantAccess(id: string) {
+  /**
+   * Da acceso al curso (Tiendup) para un pago de masterclass validado. SIEMPRE
+   * manual y con confirmación. Si Tiendup detecta que la persona ya está
+   * inscripta con OTRO mail, devuelve 409 y mostramos el aviso: recién ahí el
+   * equipo puede forzar (force=true) si verificó que el mail está bien.
+   */
+  async function grantAccess(id: string, force = false) {
     setBusyAccessId(id);
     try {
-      const r = await fetch(`/api/payments/${id}/grant-access`, { method: "PATCH" });
+      const r = await fetch(`/api/payments/${id}/grant-access`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ force }),
+      });
       const j = await r.json().catch(() => ({}));
+
+      if (r.status === 409 && j.warning) {
+        // Ya parece inscripta con otro mail: dejamos el aviso y el confirm abierto
+        // en modo "forzar".
+        setAccessWarn((w) => ({ ...w, [id]: j.error as string }));
+        setNotice(j.error as string);
+        return;
+      }
       if (!r.ok || !j.ok) {
         setNotice(
           j.error
             ? `No se pudo dar el acceso al curso: ${j.error}`
             : "No se pudo dar el acceso al curso",
         );
-      } else {
-        setNotice(`Acceso al curso dado a ${j.email ?? "el contacto"} ✨`);
+        setConfirmAccessId(null);
+        return;
       }
+      setNotice(
+        j.alreadyEnrolled
+          ? `Ya estaba inscripta en el curso (${j.email}), quedó marcado en el panel`
+          : `Acceso al curso dado a ${j.email ?? "el contacto"} ✨`,
+      );
+      setConfirmAccessId(null);
+      setAccessWarn((w) => {
+        const next = { ...w };
+        delete next[id];
+        return next;
+      });
       await load(filterRef.current);
     } catch {
       setNotice("Error de red al dar el acceso al curso");
     } finally {
       setBusyAccessId(null);
     }
+  }
+
+  function cancelAccess(id: string) {
+    setConfirmAccessId(null);
+    setAccessWarn((w) => {
+      const next = { ...w };
+      delete next[id];
+      return next;
+    });
   }
 
   async function setTitleStatus(titleId: string, action: "approve" | "reject") {
@@ -511,10 +557,19 @@ export function PaymentsList() {
   const congresoCount = items?.filter((p) => eventKind(p.eventSlug) === "congreso").length ?? 0;
   const masterclassCount = items?.filter((p) => eventKind(p.eventSlug) === "masterclass").length ?? 0;
   const hasEvents = congresoCount > 0 || masterclassCount > 0;
-  const visibleItems = (items ?? []).filter(
-    (p) => eventFilter === "all" || eventKind(p.eventSlug) === eventFilter,
-  );
-  const visibleTitleReviews = eventFilter === "all" ? titleReviews : [];
+  const visibleItems = (items ?? [])
+    .filter((p) => eventFilter === "all" || eventKind(p.eventSlug) === eventFilter)
+    // "Falta acceso": masterclass validada, con mail, a la que todavía no se le
+    // dio el acceso al curso.
+    .filter(
+      (p) =>
+        filter !== "sin-acceso" ||
+        (eventKind(p.eventSlug) === "masterclass" &&
+          Boolean(p.contactEmail) &&
+          !p.courseAccessGrantedAt),
+    );
+  const visibleTitleReviews =
+    eventFilter === "all" && filter !== "sin-acceso" ? titleReviews : [];
 
   const EVENT_FILTERS: { key: EventFilter; label: string; count: number; dot: string }[] = [
     { key: "all", label: "Todos", count: congresoCount + masterclassCount, dot: "" },
@@ -632,17 +687,31 @@ export function PaymentsList() {
       ) : visibleItems.length === 0 && visibleTitleReviews.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
           <Receipt className="h-6 w-6 text-neutral-300 dark:text-neutral-700" strokeWidth={1.5} />
-          <p className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300">
-            No hay comprobantes{" "}
-            {eventFilter !== "all"
-              ? `de ${eventFilter === "congreso" ? "Congreso" : "Masterclass"}`
-              : filter !== "all"
-                ? FILTERS.find((f) => f.key === filter)?.label.toLowerCase()
-                : ""}
-          </p>
-          <p className="text-[12px] text-neutral-500 dark:text-neutral-500">
-            Los comprobantes que manden las profesionales por WhatsApp aparecen acá.
-          </p>
+          {filter === "sin-acceso" ? (
+            <>
+              <p className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300">
+                No hay nadie esperando el acceso al curso
+              </p>
+              <p className="text-[12px] text-neutral-500 dark:text-neutral-500">
+                Acá aparecen las masterclass validadas, con correo, a las que todavía no
+                se les dio el acceso.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300">
+                No hay comprobantes{" "}
+                {eventFilter !== "all"
+                  ? `de ${eventFilter === "congreso" ? "Congreso" : "Masterclass"}`
+                  : filter !== "all"
+                    ? FILTERS.find((f) => f.key === filter)?.label.toLowerCase()
+                    : ""}
+              </p>
+              <p className="text-[12px] text-neutral-500 dark:text-neutral-500">
+                Los comprobantes que manden las profesionales por WhatsApp aparecen acá.
+              </p>
+            </>
+          )}
         </div>
       ) : (
         <div className="space-y-3">
@@ -1010,18 +1079,56 @@ export function PaymentsList() {
                             <KeyRound className="h-3.5 w-3.5" strokeWidth={1.75} />
                             Acceso al curso dado
                           </span>
+                        ) : confirmAccessId === p.id ? (
+                          <>
+                            {/* El operador tiene que LEER el mail antes de confirmar. */}
+                            <span className="mr-auto flex items-center gap-1.5 text-[12px] text-neutral-600 dark:text-neutral-300">
+                              {accessWarn[p.id] ? (
+                                <>
+                                  <AlertTriangle
+                                    className="h-3.5 w-3.5 shrink-0 text-warn"
+                                    strokeWidth={1.75}
+                                  />
+                                  Ya parece tener acceso con otro correo. Dar acceso igual?
+                                </>
+                              ) : (
+                                <>
+                                  Dar acceso a{" "}
+                                  <span className="font-mono text-[12px] text-neutral-900 dark:text-neutral-100">
+                                    {p.contactEmail}
+                                  </span>
+                                  ?
+                                </>
+                              )}
+                            </span>
+                            <button
+                              onClick={() => cancelAccess(p.id)}
+                              disabled={accessBusy}
+                              className="rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              onClick={() => void grantAccess(p.id, Boolean(accessWarn[p.id]))}
+                              disabled={accessBusy}
+                              className="flex items-center gap-1.5 btn-gold"
+                            >
+                              {accessBusy ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
+                              ) : (
+                                <Check className="h-3.5 w-3.5" strokeWidth={2} />
+                              )}
+                              {accessWarn[p.id] ? "Dar acceso igual" : "Confirmar"}
+                            </button>
+                          </>
                         ) : (
                           <button
-                            onClick={() => void grantAccess(p.id)}
+                            onClick={() => setConfirmAccessId(p.id)}
                             disabled={accessBusy}
                             title="Inscribir en el curso de Tiendup por su correo"
                             className="flex items-center gap-1.5 rounded-md border border-neutral-200 px-3 py-2 text-[13px] font-medium text-neutral-700 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
                           >
-                            {accessBusy ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
-                            ) : (
-                              <KeyRound className="h-3.5 w-3.5" strokeWidth={1.75} />
-                            )}
+                            <KeyRound className="h-3.5 w-3.5" strokeWidth={1.75} />
                             Dar acceso al curso
                           </button>
                         ))}
