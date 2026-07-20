@@ -59,25 +59,36 @@ export async function createConversationMessage(
 ): Promise<LlmResponse> {
   const env = serverEnv();
 
-  // 1. Anthropic directo (camino normal).
-  try {
-    const r = await getAnthropicClient().messages.create(params, { signal: opts.signal });
-    return {
-      content: r.content as unknown as LlmContentBlock[],
-      usage: r.usage as unknown as LlmUsage,
-      stop_reason: r.stop_reason,
-      provider: "anthropic",
-      model: params.model,
-    };
-  } catch (err) {
-    if (!isFallbackWorthy(err)) throw err;
-    console.error("[llm] Anthropic falló, intentando OpenRouter:", describeError(err));
+  // Switch manual: forzar OpenRouter como primario (saltear Anthropic). Se usa
+  // cuando la cuenta de Anthropic no puede operar (ej. no se puede cargar
+  // crédito), pero OpenRouter sí tiene saldo. Requiere la key; si falta, se
+  // ignora el switch y sigue el camino normal (Anthropic directo).
+  const forceOpenRouter =
+    env.LLM_PRIMARY_PROVIDER === "openrouter" && Boolean(env.OPENROUTER_API_KEY);
+
+  // 1. Anthropic directo (camino normal), salvo que se haya forzado OpenRouter.
+  if (!forceOpenRouter) {
+    try {
+      const r = await getAnthropicClient().messages.create(params, { signal: opts.signal });
+      return {
+        content: r.content as unknown as LlmContentBlock[],
+        usage: r.usage as unknown as LlmUsage,
+        stop_reason: r.stop_reason,
+        provider: "anthropic",
+        model: params.model,
+      };
+    } catch (err) {
+      if (!isFallbackWorthy(err)) throw err;
+      console.error("[llm] Anthropic falló, intentando OpenRouter:", describeError(err));
+    }
   }
 
   const apiKey = env.OPENROUTER_API_KEY;
   if (!apiKey) {
     throw new Error(
-      "Anthropic falló y no hay OPENROUTER_API_KEY configurada para el fallback",
+      forceOpenRouter
+        ? "LLM_PRIMARY_PROVIDER=openrouter pero falta OPENROUTER_API_KEY"
+        : "Anthropic falló y no hay OPENROUTER_API_KEY configurada para el fallback",
     );
   }
 
@@ -95,7 +106,11 @@ export async function createConversationMessage(
   for (const model of cascade) {
     try {
       const r = await callOpenRouter(params, model, apiKey);
-      console.warn(`[llm] respondió OpenRouter (${model}) tras caída de Anthropic`);
+      console.warn(
+        forceOpenRouter
+          ? `[llm] respondió OpenRouter (${model}) [switch forzado a OpenRouter]`
+          : `[llm] respondió OpenRouter (${model}) tras caída de Anthropic`,
+      );
       return r;
     } catch (err) {
       lastErr = err;

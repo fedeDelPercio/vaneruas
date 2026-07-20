@@ -111,6 +111,14 @@ const serverSchema = z.object({
   OPENROUTER_API_KEY: z.string().min(1).optional(),
   OPENROUTER_MODEL_PRIMARY: z.string().default("anthropic/claude-sonnet-4.5"),
   OPENROUTER_MODEL_FALLBACK: z.string().default("openai/gpt-4o"),
+  // Proveedor primario del camino conversacional. Normalmente "anthropic"
+  // (Anthropic directo, y OpenRouter solo como fallback ante caída). Se puede
+  // forzar "openrouter" para SALTEAR Anthropic y responder siempre por
+  // OpenRouter (ej. problema de facturación en Anthropic: no se puede cargar
+  // crédito pero OpenRouter sí tiene saldo). Requiere OPENROUTER_API_KEY; si
+  // falta la key, se ignora el switch y sigue por Anthropic. Volver a
+  // "anthropic" + redeploy revierte el switch.
+  LLM_PRIMARY_PROVIDER: z.enum(["anthropic", "openrouter"]).default("anthropic"),
   // Acumulación de mensajes (debounce) para WhatsApp: ventana de silencio en
   // segundos antes de consolidar y responder los mensajes que llegan seguidos.
   // Testing: 20. Producción: ~60. Solo aplica a conversaciones de WhatsApp.
@@ -156,6 +164,7 @@ export function serverEnv(): ServerEnv {
     OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
     OPENROUTER_MODEL_PRIMARY: process.env.OPENROUTER_MODEL_PRIMARY,
     OPENROUTER_MODEL_FALLBACK: process.env.OPENROUTER_MODEL_FALLBACK,
+    LLM_PRIMARY_PROVIDER: process.env.LLM_PRIMARY_PROVIDER,
     MESSAGE_DEBOUNCE_SECONDS: process.env.MESSAGE_DEBOUNCE_SECONDS,
     GMAIL_USER: process.env.GMAIL_USER,
     GMAIL_APP_PASSWORD: process.env.GMAIL_APP_PASSWORD,
