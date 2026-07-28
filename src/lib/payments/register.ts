@@ -7,7 +7,7 @@ import { deliverAssistantToWhatsApp } from "@/lib/whatsapp-delivery";
 import type { Json } from "@/lib/supabase/types";
 import { downloadComprobante } from "./storage";
 import { extractPaymentData, type PaymentExtraction } from "./extract";
-import { matchEventByAmount } from "./event-match";
+import { resolveStoredEventSlug } from "./event-match";
 import { assistantSaidRecently } from "@/lib/messages/dedup";
 
 export const PAYMENT_NOTIFICATION_CATEGORY = "validacion_pago";
@@ -65,8 +65,11 @@ export async function handlePaymentComprobante(
 
   // 1c. Identificar el evento por el monto (hardcode temporal: cada comprobante
   //     que llega tiene un monto exacto distinto por evento). Así el equipo lo
-  //     ve etiquetado y el agente no tiene que preguntar a qué corresponde.
-  const matchedEvent = matchEventByAmount(extraction?.amount ?? null);
+  //     ve etiquetado y el agente no tiene que preguntar a qué corresponde. Si
+  //     el monto no matchea (típicamente porque el OCR falló y viene null), cae
+  //     al default (masterclass): así el comprobante queda entregable en el
+  //     panel sin depender de un backfill manual (ver resolveStoredEventSlug).
+  const storedEventSlug = resolveStoredEventSlug(extraction?.amount ?? null);
 
   // 2. Registrar la fila de validación (siempre, aunque el OCR falle).
   const { data: inserted, error: insertErr } = await supabase
@@ -76,7 +79,7 @@ export async function handlePaymentComprobante(
       message_id: args.messageId,
       comprobante_path: args.attachmentPath,
       comprobante_type: args.attachmentType,
-      event_slug: matchedEvent?.slug ?? null,
+      event_slug: storedEventSlug,
       sender_name: extraction?.sender_name ?? null,
       sender_tax_id: extraction?.sender_tax_id ?? null,
       recipient_name: extraction?.recipient_name ?? null,
