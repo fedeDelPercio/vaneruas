@@ -27,7 +27,13 @@ export const dynamic = "force-dynamic";
 //   - sin match → inscribimos.
 // ===========================================================================
 
-const bodySchema = z.object({ force: z.boolean().optional() });
+const bodySchema = z.object({
+  force: z.boolean().optional(),
+  // "Ya tiene acceso": marca el acceso como dado SIN inscribir en Tiendup. Para
+  // casos que el equipo ya resolvió por afuera (la dieron de alta a mano, o ya
+  // estaba y el cruce no la agarró). No requiere mail ni curso mapeado.
+  markOnly: z.boolean().optional(),
+});
 
 export async function PATCH(
   req: NextRequest,
@@ -35,7 +41,9 @@ export async function PATCH(
 ) {
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
-  const force = bodySchema.safeParse(body).data?.force === true;
+  const parsed = bodySchema.safeParse(body).data;
+  const force = parsed?.force === true;
+  const markOnly = parsed?.markOnly === true;
   const sb = getSupabaseServerClient();
 
   const { data: pay } = await sb
@@ -52,6 +60,20 @@ export async function PATCH(
       { error: "El pago tiene que estar validado antes de dar el acceso" },
       { status: 409 },
     );
+  }
+
+  // "Ya tiene acceso": marca sin inscribir en Tiendup. Corta acá; no toca el
+  // curso ni el mail ni la API de Tiendup.
+  if (markOnly) {
+    await sb
+      .from("payment_validations")
+      .update({
+        course_access_granted_at: new Date().toISOString(),
+        course_access_error: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+    return NextResponse.json({ ok: true, markedOnly: true }, { status: 200 });
   }
 
   const courseId = tiendupCourseIdForEvent(pay.event_slug);

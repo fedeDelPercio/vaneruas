@@ -368,6 +368,9 @@ export function PaymentsList() {
   // Confirmación del acceso: el operador tiene que LEER el mail antes de dar el
   // acceso (los mails capturados por WhatsApp a veces vienen mal).
   const [confirmAccessId, setConfirmAccessId] = useState<string | null>(null);
+  // Confirmación de "Ya tiene acceso" (marcar como resuelto sin inscribir en
+  // Tiendup): para casos que el equipo ya dio de alta por afuera.
+  const [confirmMarkId, setConfirmMarkId] = useState<string | null>(null);
   // Aviso de Tiendup: "ya parece inscripta con otro mail" (id → texto). Si está,
   // la próxima confirmación va con force.
   const [accessWarn, setAccessWarn] = useState<Record<string, string>>({});
@@ -519,6 +522,35 @@ export function PaymentsList() {
       delete next[id];
       return next;
     });
+  }
+
+  /**
+   * "Ya tiene acceso": marca el comprobante como acceso dado SIN inscribir en
+   * Tiendup. Para casos que el equipo ya resolvió por afuera (alta manual, o ya
+   * estaba y el cruce no la agarró). Sale del worklist de "Falta acceso".
+   */
+  async function markAccess(id: string) {
+    setBusyAccessId(id);
+    try {
+      const r = await fetch(`/api/payments/${id}/grant-access`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ markOnly: true }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        setNotice(j.error ? `No se pudo marcar: ${j.error}` : "No se pudo marcar el acceso");
+        setConfirmMarkId(null);
+        return;
+      }
+      setNotice("Marcado como que ya tiene acceso");
+      setConfirmMarkId(null);
+      await load(filterRef.current);
+    } catch {
+      setNotice("Error de red al marcar el acceso");
+    } finally {
+      setBusyAccessId(null);
+    }
   }
 
   async function setTitleStatus(titleId: string, action: "approve" | "reject") {
@@ -1123,16 +1155,51 @@ export function PaymentsList() {
                               {accessWarn[p.id] ? "Dar acceso igual" : "Confirmar"}
                             </button>
                           </>
+                        ) : confirmMarkId === p.id ? (
+                          <>
+                            <span className="mr-auto flex items-center gap-1.5 text-[12px] text-neutral-600 dark:text-neutral-300">
+                              Marcar como que ya tiene acceso, sin inscribir en Tiendup?
+                            </span>
+                            <button
+                              onClick={() => setConfirmMarkId(null)}
+                              disabled={accessBusy}
+                              className="rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              onClick={() => void markAccess(p.id)}
+                              disabled={accessBusy}
+                              className="flex items-center gap-1.5 btn-gold"
+                            >
+                              {accessBusy ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
+                              ) : (
+                                <Check className="h-3.5 w-3.5" strokeWidth={2} />
+                              )}
+                              Confirmar
+                            </button>
+                          </>
                         ) : (
-                          <button
-                            onClick={() => setConfirmAccessId(p.id)}
-                            disabled={accessBusy}
-                            title="Inscribir en el curso de Tiendup por su correo"
-                            className="flex items-center gap-1.5 rounded-md border border-neutral-200 px-3 py-2 text-[13px] font-medium text-neutral-700 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
-                          >
-                            <KeyRound className="h-3.5 w-3.5" strokeWidth={1.75} />
-                            Dar acceso al curso
-                          </button>
+                          <>
+                            <button
+                              onClick={() => setConfirmAccessId(p.id)}
+                              disabled={accessBusy}
+                              title="Inscribir en el curso de Tiendup por su correo"
+                              className="flex items-center gap-1.5 rounded-md border border-neutral-200 px-3 py-2 text-[13px] font-medium text-neutral-700 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                            >
+                              <KeyRound className="h-3.5 w-3.5" strokeWidth={1.75} />
+                              Dar acceso al curso
+                            </button>
+                            <button
+                              onClick={() => setConfirmMarkId(p.id)}
+                              disabled={accessBusy}
+                              title="Marcar como que ya tiene acceso (sin inscribir en Tiendup)"
+                              className="rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                            >
+                              Ya tiene acceso
+                            </button>
+                          </>
                         ))}
                       <button
                         onClick={() => void setStatus(p.id, "pending")}
