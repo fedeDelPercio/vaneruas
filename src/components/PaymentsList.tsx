@@ -554,20 +554,22 @@ export function PaymentsList() {
   // estado actual (pendientes / validados / etc.); el filtro por evento se
   // aplica solo a lo que se muestra. Las revisiones de título sueltas no tienen
   // evento, así que solo aparecen en "Todos".
-  const congresoCount = items?.filter((p) => eventKind(p.eventSlug) === "congreso").length ?? 0;
-  const masterclassCount = items?.filter((p) => eventKind(p.eventSlug) === "masterclass").length ?? 0;
+  // "Falta acceso": masterclass validada, con mail, a la que todavía no se le
+  // dio el acceso al curso. En esa vista los contadores por evento tienen que
+  // reflejar lo que realmente falta, no el total de masterclass del estado (si
+  // no, el chip muestra 291 cuando en la lista hay 5).
+  const needsAccess = (p: PaymentItem) =>
+    eventKind(p.eventSlug) === "masterclass" &&
+    Boolean(p.contactEmail) &&
+    !p.courseAccessGrantedAt;
+  const countBase =
+    filter === "sin-acceso" ? (items ?? []).filter(needsAccess) : (items ?? []);
+  const congresoCount = countBase.filter((p) => eventKind(p.eventSlug) === "congreso").length;
+  const masterclassCount = countBase.filter((p) => eventKind(p.eventSlug) === "masterclass").length;
   const hasEvents = congresoCount > 0 || masterclassCount > 0;
-  const visibleItems = (items ?? [])
-    .filter((p) => eventFilter === "all" || eventKind(p.eventSlug) === eventFilter)
-    // "Falta acceso": masterclass validada, con mail, a la que todavía no se le
-    // dio el acceso al curso.
-    .filter(
-      (p) =>
-        filter !== "sin-acceso" ||
-        (eventKind(p.eventSlug) === "masterclass" &&
-          Boolean(p.contactEmail) &&
-          !p.courseAccessGrantedAt),
-    );
+  const visibleItems = countBase.filter(
+    (p) => eventFilter === "all" || eventKind(p.eventSlug) === eventFilter,
+  );
   const visibleTitleReviews =
     eventFilter === "all" && filter !== "sin-acceso" ? titleReviews : [];
 
