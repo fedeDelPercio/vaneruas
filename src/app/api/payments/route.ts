@@ -13,7 +13,13 @@ export const dynamic = "force-dynamic";
 // cliente lo enforce RLS via el JWT con claim client_slug.
 // ===========================================================================
 
-const MAX_ITEMS = 300;
+// Tope de registros que trae la lista. OJO: la query ordena por created_at
+// ASCENDENTE (cola de trabajo: primero quien envió antes), así que si el total
+// supera este tope se descartan los MÁS NUEVOS silenciosamente. Con 548 pagos
+// (324 validados) el tope viejo de 300 tapaba los comprobantes recientes en
+// "Todos" y "Falta acceso". Subido a 2000 para dar aire. Fix de fondo pendiente:
+// paginar en vez de un tope fijo.
+const MAX_ITEMS = 2000;
 
 /** Un título profesional que la contacta mandó para acreditarse. */
 export interface TitleSubmission {
