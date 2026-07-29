@@ -173,6 +173,14 @@ registra el pago y el equipo lo valida manualmente. Una vez verificado, se le
 confirma a la persona que el pago fue aprobado y que va a recibir por correo el
 detalle para su acceso.
 
+- El acceso se envía **por correo electrónico** una vez confirmado el pago. En
+  el caso de las masterclass, el correo incluye el **link del grupo de WhatsApp**
+  del curso.
+- Es muy común que ese correo caiga en **spam, correo no deseado o promociones**:
+  siempre conviene revisar esas carpetas antes de dar por hecho que no llegó.
+- Si pagó por transferencia y el equipo todavía no confirmó el pago, el correo
+  con el acceso todavía NO se envió: hay que aguardar a la confirmación.
+
 # Datos de contacto
 
 - **Horario de atención del equipo:** TODO.
