@@ -95,8 +95,9 @@ export function timeContextBlock(tc: TimeContext): string {
       ? "Estás DENTRO del horario comercial (Lun a Vie, 9 a 18 hs)."
       : "Estás FUERA del horario comercial (Lun a Vie, 9 a 18 hs).",
     "",
-    `CUÁNDO SE CONTACTA EL EQUIPO: si derivás la conversación al equipo, el`,
-    `contacto se ofrece para "${tc.followUpTiming}". Usá exactamente ese valor,`,
-    "no lo recalcules vos: ya está resuelto acá.",
+    "CUÁNDO SE CONTACTA EL EQUIPO: si derivás la conversación al equipo, NO le",
+    "digas a la persona un día ni un horario en que la van a contactar (puede",
+    "haber demora según la carga). Ofrecé el contacto SIN fecha: que el equipo",
+    'le responde "a la brevedad".',
   ].join("\n");
 }

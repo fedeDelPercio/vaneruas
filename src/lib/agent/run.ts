@@ -36,11 +36,10 @@ import type { Json } from "@/lib/supabase/types";
 // agotaron las iteraciones del evaluator, igual le confirmamos que Santino
 // lo va a contactar, con el timing ya resuelto (por la tarde / mañana / el
 // lunes). Tono positivo de cierre, no de "no pude resolver".
-function handoffFallbackNotice(followUpTiming: string): string {
-  return (
-    "Buenísimo. Nuestro equipo se va a estar contactando con vos " +
-    `${followUpTiming} para ayudarte con más detalle`
-  );
+function handoffFallbackNotice(): string {
+  // Sin fecha ni horario: cuando hay mucha demanda el contacto puede tardar más
+  // de lo que diríamos ("mañana" / "el lunes"), así que no comprometemos cuándo.
+  return "Buenísimo. Nuestro equipo se va a estar contactando con vos a la brevedad para ayudarte con más detalle";
 }
 
 // Garantía determinística (requisito CRÍTICO del producto): cuando se deriva al
@@ -249,7 +248,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
         traceId,
         assistantMessage: handoffText
           ? ensureTeamHandoffAssurance(handoffText)
-          : handoffFallbackNotice(timeContext.followUpTiming),
+          : handoffFallbackNotice(),
         status: "escalated",
         escalationReason: category,
         escalationIsNew,
@@ -328,7 +327,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
   });
   return {
     traceId,
-    assistantMessage: handoffFallbackNotice(timeContext.followUpTiming),
+    assistantMessage: handoffFallbackNotice(),
     status: "escalated",
     escalationReason: category,
     escalationIsNew,
