@@ -111,6 +111,10 @@ const serverSchema = z.object({
   OPENROUTER_API_KEY: z.string().min(1).optional(),
   OPENROUTER_MODEL_PRIMARY: z.string().default("anthropic/claude-sonnet-4.5"),
   OPENROUTER_MODEL_FALLBACK: z.string().default("openai/gpt-4o"),
+  // Modelo liviano en OpenRouter para las llamadas que piden un modelo tier
+  // Haiku (el evaluator). Sin esto, la cascada pisaba el evaluator con el
+  // PRIMARY (Sonnet, ~3x mas caro) en cada validacion.
+  OPENROUTER_MODEL_LIGHT: z.string().default("anthropic/claude-haiku-4.5"),
   // Proveedor primario del camino conversacional. Normalmente "anthropic"
   // (Anthropic directo, y OpenRouter solo como fallback ante caída). Se puede
   // forzar "openrouter" para SALTEAR Anthropic y responder siempre por
@@ -164,6 +168,7 @@ export function serverEnv(): ServerEnv {
     OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
     OPENROUTER_MODEL_PRIMARY: process.env.OPENROUTER_MODEL_PRIMARY,
     OPENROUTER_MODEL_FALLBACK: process.env.OPENROUTER_MODEL_FALLBACK,
+    OPENROUTER_MODEL_LIGHT: process.env.OPENROUTER_MODEL_LIGHT,
     LLM_PRIMARY_PROVIDER: process.env.LLM_PRIMARY_PROVIDER,
     MESSAGE_DEBOUNCE_SECONDS: process.env.MESSAGE_DEBOUNCE_SECONDS,
     GMAIL_USER: process.env.GMAIL_USER,

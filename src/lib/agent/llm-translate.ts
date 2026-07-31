@@ -44,6 +44,8 @@ export interface OpenAIBody {
   messages: { role: string; content: string }[];
   tools?: unknown[];
   tool_choice?: unknown;
+  /** Prompt caching de OpenRouter (solo modelos Anthropic; ver toOpenAIBody). */
+  cache_control?: { type: "ephemeral" };
 }
 
 /** Arma el body OpenAI (para OpenRouter) a partir de los params Anthropic. */
@@ -58,6 +60,15 @@ export function toOpenAIBody(
   };
   if (params.tools?.length) body.tools = toOpenAITools(params.tools as Tool[]);
   if (params.tool_choice) body.tool_choice = toOpenAIToolChoice(params.tool_choice);
+  // Prompt caching: para modelos Claude, OpenRouter NO cachea solo (a diferencia
+  // de los modelos OpenAI). Con el cache_control top-level, OpenRouter aplica
+  // los breakpoints automáticamente sobre el contenido cacheable (el system
+  // prompt grande del orquestador/evaluator): los re-hits cobran ~0.1x el input.
+  // Sin esto, el system completo (~miles de tokens) se paga entero en CADA
+  // llamada, que es lo que disparó el gasto.
+  if (model.startsWith("anthropic/")) {
+    body.cache_control = { type: "ephemeral" };
+  }
   return body;
 }
 

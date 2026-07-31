@@ -93,7 +93,15 @@ export async function createConversationMessage(
   }
 
   // 2 + 3. Cascada de modelos en OpenRouter (Claude primero, último recurso después).
-  const cascade = [env.OPENROUTER_MODEL_PRIMARY, env.OPENROUTER_MODEL_FALLBACK].filter(
+  // Respeta el "tier" del modelo pedido: si el caller pidió un modelo Haiku (el
+  // evaluator), va al slug liviano; si no, al primario. Antes la cascada pisaba
+  // TODO con el primario (Sonnet), y el evaluator (que corre en cada respuesta)
+  // salía ~3x más caro de lo diseñado.
+  const isLightTier = /haiku/i.test(params.model);
+  const primarySlug = isLightTier
+    ? env.OPENROUTER_MODEL_LIGHT
+    : env.OPENROUTER_MODEL_PRIMARY;
+  const cascade = [primarySlug, env.OPENROUTER_MODEL_FALLBACK].filter(
     (m): m is string => Boolean(m && m.trim()),
   );
   if (cascade.length === 0) {
