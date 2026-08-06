@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { clientEnv } from "@/lib/env";
+import { ghlContactsWithPauseTag } from "@/lib/providers/ghl";
 
 export const dynamic = "force-dynamic";
 
@@ -52,17 +54,48 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Modo inválido (AI | HUMAN)" }, { status: 400 });
   }
   const { mode } = parsed.data;
-
   const sb = getSupabaseServerClient();
-  const { data, error } = await sb
+
+  let query = sb
     .from("conversations")
     .update({ mode, updated_at: new Date().toISOString() })
     .eq("source", "whatsapp")
-    .neq("mode", mode)
-    .select("id");
+    .neq("mode", mode);
 
+  // Al ENCENDER la IA respetamos a quienes el equipo marcó a mano en GHL con el
+  // tag de pausa: esos siguen en atención humana. (Al APAGAR no hace falta:
+  // apagar es más restrictivo y aplica a todos.)
+  let excluded = 0;
+  let ghlWarning: string | null = null;
+  if (mode === "AI") {
+    const loc = clientEnv.NEXT_PUBLIC_GHL_LOCATION_ID;
+    const paused = loc ? await ghlContactsWithPauseTag(loc) : null;
+    if (paused === null) {
+      // No pudimos consultar GHL. Encendemos igual (el equipo puede volver a
+      // pausar), pero lo avisamos: puede haber contactos marcados que queden
+      // con la IA activa.
+      ghlWarning =
+        "No se pudo consultar GoHighLevel: puede que se haya activado la IA en contactos marcados como humano";
+    } else if (paused.length) {
+      excluded = paused.length;
+      // PostgREST: excluir por lista de external_id (contact_id de GHL).
+      query = query.not(
+        "external_id",
+        "in",
+        `(${paused.map((id) => `"${id}"`).join(",")})`,
+      );
+    }
+  }
+
+  const { data, error } = await query.select("id");
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  return NextResponse.json({ ok: true, mode, updated: data?.length ?? 0 });
+  return NextResponse.json({
+    ok: true,
+    mode,
+    updated: data?.length ?? 0,
+    excluded,
+    warning: ghlWarning,
+  });
 }

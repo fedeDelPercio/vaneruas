@@ -14,6 +14,7 @@ export function AgentModeToggle() {
   const [mode, setMode] = useState<Mode | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -38,7 +39,20 @@ export function AgentModeToggle() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ mode: next }),
       });
-      if (r.ok) setMode(next);
+      if (r.ok) {
+        const j = (await r.json()) as {
+          updated?: number;
+          excluded?: number;
+          warning?: string | null;
+        };
+        setMode(next);
+        if (j.warning) setResult(j.warning);
+        else if (next === "AI" && (j.excluded ?? 0) > 0) {
+          setResult(
+            `IA activada. ${j.excluded} contacto(s) siguen en atención humana porque están marcados así en GoHighLevel`,
+          );
+        } else setResult(null);
+      }
     } catch {
       // idem
     } finally {
@@ -53,6 +67,19 @@ export function AgentModeToggle() {
 
   return (
     <div className="relative">
+      {result && (
+        <div className="absolute right-0 top-full z-[60] mt-2 w-72 rounded-lg border border-neutral-200 bg-white p-3 shadow-soft dark:border-neutral-800 dark:bg-neutral-900 dark:shadow-soft-dark">
+          <p className="text-[12px] leading-relaxed text-neutral-600 dark:text-neutral-400">
+            {result}
+          </p>
+          <button
+            onClick={() => setResult(null)}
+            className="mt-2 text-[12px] text-neutral-500 underline-offset-2 hover:underline dark:text-neutral-400"
+          >
+            Entendido
+          </button>
+        </div>
+      )}
       <button
         onClick={() => setConfirming((v) => !v)}
         title={
@@ -81,7 +108,7 @@ export function AgentModeToggle() {
             <p className="text-[12px] leading-relaxed text-neutral-600 dark:text-neutral-400">
               {isAI
                 ? "Pausar la IA en todas las conversaciones. Valentina deja de responder y atiende el equipo"
-                : "Activar la IA en todas las conversaciones. Valentina vuelve a responder los mensajes nuevos"}
+                : "Activar la IA en todas las conversaciones. Valentina vuelve a responder los mensajes nuevos. Los contactos marcados como humano en GoHighLevel quedan como están"}
             </p>
             <div className="mt-3 flex items-center justify-end gap-1">
               <button

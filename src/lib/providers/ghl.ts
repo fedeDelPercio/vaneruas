@@ -144,6 +144,65 @@ interface GhlRawMessage {
   dateAdded?: string;
 }
 
+/**
+ * Contactos que HOY tienen el tag de pausa en GHL ("la atiende un humano").
+ *
+ * Lo usa el switch global de IA: al ENCENDER la IA para todos, hay que
+ * respetar a quienes el equipo marcó a mano en GHL (un reclamo abierto, una
+ * gestión delicada), porque el tag no se consulta al responder — GHL solo nos
+ * avisa cuando el tag CAMBIA, así que sin esto quedarían encendidos.
+ *
+ * El search de GHL exige el nombre EXACTO del tag (con emoji incluido); el
+ * `GHL_PAUSE_TAG` que usa el webhook es un substring en minúscula, no sirve
+ * acá. Por eso el valor exacto va aparte, en `GHL_PAUSE_TAG_EXACT`.
+ *
+ * Devuelve `null` si no se pudo consultar (sin token, error de red o de API):
+ * el caller decide qué hacer, para no confundir "nadie pausado" con "no sé".
+ */
+export async function ghlContactsWithPauseTag(
+  locationId: string,
+): Promise<string[] | null> {
+  if (!process.env.GHL_API_KEY) return null;
+  const tag = (process.env.GHL_PAUSE_TAG_EXACT ?? "🙋 humano").trim();
+  if (!tag) return null;
+  try {
+    const ids: string[] = [];
+    // Paginado por el cursor que devuelve GHL (searchAfter).
+    let searchAfter: unknown[] | undefined;
+    for (let page = 0; page < 20; page++) {
+      const body: Record<string, unknown> = {
+        locationId,
+        pageLimit: 100,
+        filters: [{ field: "tags", operator: "eq", value: tag }],
+      };
+      if (searchAfter) body.searchAfter = searchAfter;
+      const res = await fetch(`${GHL_BASE}/contacts/search`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.GHL_API_KEY}`,
+          Version: "2021-07-28",
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+      });
+      if (!res.ok) return ids.length ? ids : null;
+      const data = (await res.json()) as {
+        contacts?: { id?: string; searchAfter?: unknown[] }[];
+      };
+      const rows = data.contacts ?? [];
+      for (const c of rows) if (c.id) ids.push(c.id);
+      if (rows.length < 100) break;
+      searchAfter = rows[rows.length - 1]?.searchAfter;
+      if (!searchAfter) break;
+    }
+    return ids;
+  } catch {
+    return null;
+  }
+}
+
 export interface GhlContact {
   email: string | null;
   firstName: string | null;
