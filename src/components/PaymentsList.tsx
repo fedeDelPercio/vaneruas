@@ -1239,7 +1239,7 @@ export function PaymentsList() {
                   key={tr.conversation?.id ?? tr.submissions[0]?.id}
                   className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"
                 >
-                  <div className="flex items-start justify-between gap-2 pb-3">
+                  <div className="flex items-start justify-between gap-2 pb-1">
                     <p className="truncate text-[15px] font-medium tracking-tight-er text-neutral-900 dark:text-neutral-50">
                       {tr.conversation?.displayName ?? "Contacta sin nombre"}
                     </p>
@@ -1248,6 +1248,12 @@ export function PaymentsList() {
                       Sin comprobante
                     </span>
                   </div>
+                  {/* Cuándo llegó: sin esto no se distingue lo nuevo de lo viejo. */}
+                  {tr.createdAt && (
+                    <p className="pb-3 font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+                      Recibido {fmtDateTime(tr.createdAt)}
+                    </p>
+                  )}
 
                   {tr.conversation?.phone && (
                     <div className="-mt-1 mb-3">
