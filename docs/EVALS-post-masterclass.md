@@ -132,13 +132,17 @@ Para cada caso: lo que escribe la clienta y lo que responde Valentina. **Deriva 
 
 **Valentina responde:**
 
-> Hola! El PDF de la clase ya se compartió al finalizar la masterclass por el grupo de WhatsApp, y desde ahí lo podés descargar 📄
+> Hola! Sí, el PDF de la clase ya se compartió al finalizar la misma por el grupo de WhatsApp, y desde ahí se puede descargar 📄
 >
-> Si no estás en el grupo de WhatsApp y por eso no lo tenés, le paso tu consulta al equipo para que te lo hagan llegar a la brevedad ✨
->
-> Estás en el grupo o necesitás que te lo enviemos?
+> Estás en el grupo?
 
 **Deriva al equipo:** no hace falta, lo resuelve sola
+
+**Turno siguiente — si responde que NO está en el grupo:**
+
+> No, no estoy en el grupo de WhatsApp
+
+Ahí sí deriva al equipo (`escalado_manual`) para que se lo hagan llegar, avisándole a la clienta que el equipo la contacta a la brevedad.
 
 ---
 
