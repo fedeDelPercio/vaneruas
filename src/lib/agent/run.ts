@@ -463,6 +463,8 @@ async function logOrchestratorStep(
         } as Json,
         input_tokens: orch.inputTokens,
         output_tokens: orch.outputTokens,
+        cache_read_tokens: orch.cacheReadTokens,
+        cache_write_tokens: orch.cacheWriteTokens,
         latency_ms: orch.latencyMs,
         error: null,
       });

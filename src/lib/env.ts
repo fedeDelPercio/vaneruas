@@ -75,7 +75,14 @@ const serverSchema = z.object({
   ANTHROPIC_API_KEY: z.string().min(1, "ANTHROPIC_API_KEY es obligatoria"),
   ANTHROPIC_MODEL_ORCHESTRATOR: z.string().default("claude-sonnet-4-6"),
   ANTHROPIC_MODEL_SUBAGENT: z.string().default("claude-haiku-4-5"),
-  ANTHROPIC_MODEL_EVALUATOR: z.string().default("claude-haiku-4-5"),
+  // Evaluator en Sonnet, no Haiku. Haiku aplicaba el criterio de grounding de
+  // forma demasiado literal y rechazaba respuestas correctas por diferencias de
+  // redacción (omitir el año de una fecha, "asistente con IA" vs "asistente
+  // IA"), lo que derivaba conversaciones que el agente sabía responder. El
+  // costo extra se compensa con el prompt caching de la KB (ver evaluator.ts) y
+  // con las regeneraciones que se ahorran: cada rechazo dispara 3 corridas del
+  // orquestador, que es el modelo caro.
+  ANTHROPIC_MODEL_EVALUATOR: z.string().default("claude-sonnet-4-5"),
   // Modelo para OCR de comprobantes (Claude vision). Sonnet tiene buena
   // lectura de documentos; se puede sobre-escribir por env si hace falta.
   ANTHROPIC_MODEL_VISION: z.string().default("claude-sonnet-4-6"),

@@ -9,8 +9,13 @@ import "server-only";
 // ===========================================================================
 
 export interface TokenTotals {
+  /** Total de entrada: tokens frescos + leídos del cache + escritos al cache. */
   inputTokens: number;
   outputTokens: number;
+  /** Parte de `inputTokens` que salió del prompt cache (se cobra 0.1x). */
+  cacheReadTokens: number;
+  /** Parte de `inputTokens` que se escribió al prompt cache (se cobra 1.25x). */
+  cacheWriteTokens: number;
 }
 
 function num(value: unknown): number {
@@ -24,11 +29,14 @@ function num(value: unknown): number {
  */
 export function usageToTotals(usage: unknown): TokenTotals {
   const u = (usage ?? {}) as Record<string, unknown>;
-  const inputTokens =
-    num(u.input_tokens) +
-    num(u.cache_read_input_tokens) +
-    num(u.cache_creation_input_tokens);
-  return { inputTokens, outputTokens: num(u.output_tokens) };
+  const cacheReadTokens = num(u.cache_read_input_tokens);
+  const cacheWriteTokens = num(u.cache_creation_input_tokens);
+  return {
+    inputTokens: num(u.input_tokens) + cacheReadTokens + cacheWriteTokens,
+    outputTokens: num(u.output_tokens),
+    cacheReadTokens,
+    cacheWriteTokens,
+  };
 }
 
 /** Suma dos pares de totales (util para acumular a lo largo de iteraciones). */
@@ -36,5 +44,7 @@ export function addTotals(a: TokenTotals, b: TokenTotals): TokenTotals {
   return {
     inputTokens: a.inputTokens + b.inputTokens,
     outputTokens: a.outputTokens + b.outputTokens,
+    cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens,
+    cacheWriteTokens: a.cacheWriteTokens + b.cacheWriteTokens,
   };
 }

@@ -160,6 +160,8 @@ export async function runOrchestrator(params: {
       responseText: sanitizeStyle(responseText.trim()),
       inputTokens: totals.inputTokens,
       outputTokens: totals.outputTokens,
+      cacheReadTokens: totals.cacheReadTokens,
+      cacheWriteTokens: totals.cacheWriteTokens,
       latencyMs: Date.now() - startedAt,
       // Si respondió el fallback, lo dejamos visible en el trace.
       model: response.provider === "anthropic" ? model : `openrouter:${response.model}`,

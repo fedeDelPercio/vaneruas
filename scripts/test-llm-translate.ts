@@ -41,8 +41,15 @@ function ok(name: string, cond: boolean, extra?: unknown) {
   const body = toOpenAIBody(params, "anthropic/claude-sonnet-4.5");
   ok("orq: modelo override", body.model === "anthropic/claude-sonnet-4.5");
   ok("orq: max_tokens", body.max_tokens === 2048);
-  ok("orq: system juntado como 1er mensaje", body.messages[0]?.role === "system" &&
-    body.messages[0]?.content === "Sos el agente.\n\nContexto dinámico.", body.messages[0]);
+  // El system del orquestador tiene un breakpoint de cache: se preserva como
+  // array de partes (si se aplanara a string, el cache nunca pegaría).
+  const sys = body.messages[0]?.content;
+  ok("orq: system como partes con breakpoint", body.messages[0]?.role === "system" &&
+    Array.isArray(sys) && sys.length === 2 &&
+    sys[0]?.text === "Sos el agente." && Boolean(sys[0]?.cache_control) &&
+    sys[1]?.text === "Contexto dinámico." && sys[1]?.cache_control === undefined, sys);
+  ok("orq: sin cache_control top-level si hay breakpoint", body.cache_control === undefined,
+    body.cache_control);
   ok("orq: 3 mensajes + system = 4", body.messages.length === 4, body.messages.length);
   ok("orq: user/assistant en orden", body.messages[1]?.role === "user" &&
     body.messages[3]?.role === "user" && body.messages[3]?.content === "info del congreso");
@@ -72,11 +79,34 @@ function ok(name: string, cond: boolean, extra?: unknown) {
     ],
     tool_choice: { type: "tool", name: "evaluation_result" },
   };
+  // Modelo NO Anthropic (último recurso): cache_control no aplica, se aplana.
   const body = toOpenAIBody(params, "openai/gpt-4o");
-  ok("eval: content array juntado", body.messages[1]?.content === "parte variable\nbase de conocimiento",
+  ok("eval/gpt: content aplanado a string", body.messages[1]?.content === "parte variable\nbase de conocimiento",
     body.messages[1]);
+  ok("eval/gpt: sin cache_control top-level", body.cache_control === undefined, body.cache_control);
   ok("eval: tool_choice forzado a function", JSON.stringify(body.tool_choice) ===
     JSON.stringify({ type: "function", function: { name: "evaluation_result" } }), body.tool_choice);
+
+  // Mismo request contra Claude: el breakpoint se preserva.
+  const claude = toOpenAIBody(params, "anthropic/claude-sonnet-4.5");
+  const parts = claude.messages[1]?.content;
+  ok("eval/claude: breakpoint preservado", Array.isArray(parts) && parts.length === 2 &&
+    parts[0]?.cache_control === undefined && Boolean(parts[1]?.cache_control), parts);
+}
+
+// --- 2b. Sin breakpoints y modelo Anthropic → cache_control top-level -------
+{
+  const body = toOpenAIBody(
+    {
+      model: "claude-sonnet-4-5",
+      max_tokens: 128,
+      system: "Sos el agente.",
+      messages: [{ role: "user", content: "hola" }],
+    },
+    "anthropic/claude-sonnet-4.5",
+  );
+  ok("sin breakpoints: cache_control top-level como red de seguridad",
+    JSON.stringify(body.cache_control) === JSON.stringify({ type: "ephemeral" }), body.cache_control);
 }
 
 // --- 3. Response OpenAI con texto puro → bloque text ------------------------

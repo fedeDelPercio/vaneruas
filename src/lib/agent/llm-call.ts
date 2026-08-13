@@ -93,10 +93,11 @@ export async function createConversationMessage(
   }
 
   // 2 + 3. Cascada de modelos en OpenRouter (Claude primero, último recurso después).
-  // Respeta el "tier" del modelo pedido: si el caller pidió un modelo Haiku (el
-  // evaluator), va al slug liviano; si no, al primario. Antes la cascada pisaba
-  // TODO con el primario (Sonnet), y el evaluator (que corre en cada respuesta)
-  // salía ~3x más caro de lo diseñado.
+  // Respeta el "tier" del modelo pedido: si el caller pide un modelo Haiku, va al
+  // slug liviano; si no, al primario. Hoy tanto el orquestador como el evaluator
+  // corren en Sonnet, así que el tier liviano no se usa; se deja porque el mapeo
+  // es por modelo pedido, no por rol, y evita que un futuro caller en Haiku
+  // termine pagando Sonnet sin darse cuenta.
   const isLightTier = /haiku/i.test(params.model);
   const primarySlug = isLightTier
     ? env.OPENROUTER_MODEL_LIGHT

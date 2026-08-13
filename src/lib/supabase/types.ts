@@ -479,6 +479,8 @@ export type Database = {
           output: Json | null;
           input_tokens: number;
           output_tokens: number;
+          cache_read_tokens: number | null;
+          cache_write_tokens: number | null;
           latency_ms: number;
           error: string | null;
           client_slug: string;
@@ -497,6 +499,8 @@ export type Database = {
           output?: Json | null;
           input_tokens?: number;
           output_tokens?: number;
+          cache_read_tokens?: number | null;
+          cache_write_tokens?: number | null;
           latency_ms?: number;
           error?: string | null;
           client_slug?: string;
@@ -515,6 +519,8 @@ export type Database = {
           output?: Json | null;
           input_tokens?: number;
           output_tokens?: number;
+          cache_read_tokens?: number | null;
+          cache_write_tokens?: number | null;
           latency_ms?: number;
           error?: string | null;
           client_slug?: string;

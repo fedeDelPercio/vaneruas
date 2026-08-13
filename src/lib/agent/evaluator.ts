@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { serverEnv } from "@/lib/env";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { getTimeContext } from "./business-hours";
 import { createConversationMessage } from "./llm-call";
 import { loadPrompt } from "./prompts";
 import { usageToTotals } from "./hooks/token-tracker";
@@ -26,6 +27,53 @@ import type { Json } from "@/lib/supabase/types";
 // ===========================================================================
 
 const EVALUATOR_MAX_TOKENS = 512;
+
+/** Cuántos mensajes previos se le muestran al evaluator (los más recientes). */
+const HISTORY_WINDOW = 10;
+
+/**
+ * Fecha de hoy para el evaluator. Sin esto rechazaba respuestas correctas por
+ * no poder verificar plazos ("la grabación está disponible hasta el viernes 21":
+ * sin saber qué día es, no puede saber si eso ya venció, y rechazaba por las
+ * dudas). El orquestador siempre tuvo este contexto; el evaluator no.
+ */
+function timeContextForEvaluator(): string {
+  const tc = getTimeContext();
+  return [
+    "=== Fecha de hoy ===",
+    `Hoy es ${tc.dayName} ${tc.localTime} (hora de Argentina). Usala para juzgar`,
+    "si un plazo de la base de conocimiento ya venció o sigue vigente.",
+  ].join("\n");
+}
+
+/**
+ * Conversación previa. El evaluator antes validaba a ciegas (solo veía el
+ * último mensaje) y rechazaba como "suposición sin fundamento" cosas que el
+ * cliente había dicho tres mensajes antes: si escribe "no logro verlo" después
+ * de diez mensajes hablando de la masterclass, el asesor NO está inventando el
+ * contexto. Esa era la causa más común de rechazo falso.
+ */
+function historyBlock(history: HistoryMessage[]): string {
+  const recent = history.slice(-HISTORY_WINDOW);
+  if (!recent.length) {
+    return "=== Conversación previa ===\n(no hay mensajes previos, es el primer contacto)";
+  }
+  const lines = recent.map((m) => {
+    const who =
+      m.role === "user"
+        ? "Cliente"
+        : m.role === "assistant"
+          ? "Asesor"
+          : m.role === "human"
+            ? "Equipo (humano)"
+            : "Sistema";
+    return `${who}: ${m.content}`;
+  });
+  return [
+    "=== Conversación previa (contexto: lo que ya se dijo ANTES de este turno) ===",
+    ...lines,
+  ].join("\n");
+}
 
 const evaluationSchema = z.object({
   pass: z.boolean(),
@@ -74,6 +122,7 @@ export async function evaluateResponse(params: {
   ctx: RunContext;
   userMessage: string;
   assistantResponse: string;
+  /** Conversación previa. Se le muestra al evaluator (ver `historyBlock`). */
   history: HistoryMessage[];
   // Catálogo de eventos en vivo (tabla `events`). DEBE incluirse en la KB del
   // evaluator: si no, cuando el orquestador responde con precios/fechas de un
@@ -91,28 +140,36 @@ export async function evaluateResponse(params: {
   const abortController = new AbortController();
   const timeout = setTimeout(() => abortController.abort(), env.AGENT_TIMEOUT_MS);
 
-  // El user message va como array de blocks para habilitar prompt caching del
-  // KB, que es lo mas grande (~500 lineas) y constante entre validaciones.
+  // ORDEN IMPORTANTE. El prompt caching es por PREFIJO: todo lo que viene
+  // después del primer token que cambia deja de poder reusarse. Por eso lo
+  // estable (la KB, ~4k tokens) va PRIMERO y lo que cambia en cada validación
+  // (historial, mensaje, respuesta propuesta) va DESPUÉS. Antes estaba al
+  // revés y la KB se pagaba entera en cada llamada, que es el grueso del gasto
+  // del evaluator.
+  const kbPart =
+    "=== BASE DE CONOCIMIENTO (única fuente válida para afirmaciones de producto) ===\n" +
+    loadPrompt("knowledge-base") +
+    (params.eventsBlock.trim() ? `\n\n${params.eventsBlock.trim()}` : "");
+
   const variablePart = [
     "Validá la siguiente respuesta del asesor ANTES de que llegue al cliente.",
     "",
-    "=== Mensaje del cliente ===",
+    timeContextForEvaluator(),
+    "",
+    historyBlock(params.history),
+    "",
+    "=== Mensaje del cliente (el que se está respondiendo ahora) ===",
     params.userMessage,
     "",
     "=== Respuesta propuesta por el asesor ===",
     params.assistantResponse || "(respuesta vacía)",
     "",
+    "Devolvé tu veredicto invocando la tool `evaluation_result`.",
   ].join("\n");
-  const kbPart =
-    "=== BASE DE CONOCIMIENTO (única fuente válida para afirmaciones de producto) ===\n" +
-    loadPrompt("knowledge-base") +
-    (params.eventsBlock.trim() ? `\n\n${params.eventsBlock.trim()}` : "");
-  const closingPart = "\nDevolvé tu veredicto invocando la tool `evaluation_result`.";
 
   const userContent: TextBlockParam[] = [
-    { type: "text", text: variablePart },
     { type: "text", text: kbPart, cache_control: { type: "ephemeral" } },
-    { type: "text", text: closingPart },
+    { type: "text", text: variablePart },
   ];
 
   let evaluation: EvaluationResult;
@@ -198,6 +255,8 @@ export async function evaluateResponse(params: {
         output: evaluation as unknown as Json,
         input_tokens: totals.inputTokens,
         output_tokens: totals.outputTokens,
+        cache_read_tokens: totals.cacheReadTokens,
+        cache_write_tokens: totals.cacheWriteTokens,
         latency_ms: Date.now() - startedAt,
         error: null,
       });

@@ -44,8 +44,12 @@ export interface AgentRunResult {
 export interface OrchestratorResult {
   /** Texto de la respuesta final propuesta por el orquestador. */
   responseText: string;
+  /** Total de entrada (incluye lo leído/escrito en el prompt cache). */
   inputTokens: number;
   outputTokens: number;
+  /** Desglose del cache, para medir el ahorro real (ver token-tracker). */
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   latencyMs: number;
   /** Modelo concreto que uso el SDK. */
   model: string;
