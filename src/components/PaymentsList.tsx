@@ -172,6 +172,65 @@ function statusBadge(status: PaymentItem["status"]): { label: string; cls: strin
  * no se reordenan ni faltan entre una card y otra, y validar es siempre igual
  * (el ojo encuentra cada campo en el mismo lugar).
  */
+/**
+ * Cruz para descartar una card que no correspondía (una captura de pantalla que
+ * se coló, una imagen que no era comprobante ni título). El filtro automático
+ * saca la mayoría, pero siempre puede pasar alguna: esto la saca de la cola sin
+ * borrar nada, queda registrada como descartada.
+ *
+ * Pide confirmación en el lugar: un clic al lado del badge de estado es muy
+ * fácil de errar.
+ */
+function DismissButton({
+  busy,
+  confirming,
+  onAskConfirm,
+  onCancel,
+  onConfirm,
+}: {
+  busy: boolean;
+  confirming: boolean;
+  onAskConfirm: () => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (confirming) {
+    return (
+      <span className="flex items-center gap-1">
+        <span className="text-[11.5px] tracking-tight-er text-neutral-500 dark:text-neutral-400">
+          Descartar?
+        </span>
+        <button
+          onClick={onConfirm}
+          disabled={busy}
+          title="Sacarlo de la cola: no era un comprobante ni un título"
+          className="rounded-md px-2 py-1 text-[12px] font-medium text-red-700 transition hover:bg-red-600/[0.08] disabled:opacity-40 dark:text-red-300"
+        >
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} /> : "Sí"}
+        </button>
+        <button
+          onClick={onCancel}
+          disabled={busy}
+          className="rounded-md px-2 py-1 text-[12px] text-neutral-500 transition hover:bg-neutral-100 disabled:opacity-40 dark:text-neutral-400 dark:hover:bg-neutral-800"
+        >
+          No
+        </button>
+      </span>
+    );
+  }
+  return (
+    <button
+      onClick={onAskConfirm}
+      disabled={busy}
+      title="Descartar: esta imagen no correspondía"
+      aria-label="Descartar"
+      className="rounded-md p-1 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600 disabled:opacity-40 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
+    >
+      <X className="h-3.5 w-3.5" strokeWidth={1.75} />
+    </button>
+  );
+}
+
 function Field({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
@@ -377,6 +436,9 @@ export function PaymentsList() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [busyTitleId, setBusyTitleId] = useState<string | null>(null);
   const [confirmForceId, setConfirmForceId] = useState<string | null>(null);
+  // Card cuya cruz de "descartar" está pidiendo confirmación (id del pago o de
+  // la primera imagen de la card de título).
+  const [confirmDismiss, setConfirmDismiss] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const filterRef = useRef(filter);
   filterRef.current = filter;
@@ -569,6 +631,70 @@ export function PaymentsList() {
       await load(filterRef.current);
     } catch {
       setError("Error de red al actualizar el título");
+    } finally {
+      setBusyTitleId(null);
+    }
+  }
+
+  const DISMISS_NOTE = "Descartado por el equipo: la imagen no era un comprobante ni un título";
+
+  /** Descarta un comprobante que no correspondía (queda como rechazado). */
+  async function dismissPayment(id: string) {
+    setBusyId(id);
+    try {
+      const r = await fetch(`/api/payments/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          status: "rejected",
+          note: DISMISS_NOTE,
+          validatedBy: profile?.id ?? null,
+        }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        setError(j.error ?? "No se pudo descartar el comprobante");
+        return;
+      }
+      setConfirmDismiss(null);
+      await load(filterRef.current);
+    } catch {
+      setError("Error de red al descartar");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  /**
+   * Descarta una card de título a revisar. Una card agrupa todas las imágenes
+   * de la misma conversación, así que las marca revisadas a todas: si no,
+   * la card volvería a aparecer con las que quedaron sueltas.
+   */
+  async function dismissTitleReview(tr: TitleReview) {
+    const ids = tr.submissions.map((s) => s.id);
+    if (!ids.length) return;
+    setBusyTitleId(ids[0]!);
+    try {
+      for (const titleId of ids) {
+        const r = await fetch(`/api/titles/${titleId}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            action: "reject",
+            note: DISMISS_NOTE,
+            reviewedBy: profile?.id ?? null,
+          }),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          setError(j.error ?? "No se pudo descartar");
+          return;
+        }
+      }
+      setConfirmDismiss(null);
+      await load(filterRef.current);
+    } catch {
+      setError("Error de red al descartar");
     } finally {
       setBusyTitleId(null);
     }
@@ -916,6 +1042,17 @@ export function PaymentsList() {
                         >
                           {badge.label}
                         </span>
+                        {/* Descartar: para lo que no era un comprobante y se
+                            filtró igual (una captura, una foto suelta). */}
+                        {isPending && (
+                          <DismissButton
+                            busy={busy}
+                            confirming={confirmDismiss === p.id}
+                            onAskConfirm={() => setConfirmDismiss(p.id)}
+                            onCancel={() => setConfirmDismiss(null)}
+                            onConfirm={() => void dismissPayment(p.id)}
+                          />
+                        )}
                       </div>
                     </div>
 
@@ -1243,10 +1380,20 @@ export function PaymentsList() {
                     <p className="truncate text-[15px] font-medium tracking-tight-er text-neutral-900 dark:text-neutral-50">
                       {tr.conversation?.displayName ?? "Contacta sin nombre"}
                     </p>
-                    <span className="flex shrink-0 items-center gap-1 badge-pill border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400">
-                      <GraduationCap className="h-3 w-3 text-warn" strokeWidth={1.75} />
-                      Sin comprobante
-                    </span>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <span className="flex items-center gap-1 badge-pill border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400">
+                        <GraduationCap className="h-3 w-3 text-warn" strokeWidth={1.75} />
+                        Sin comprobante
+                      </span>
+                      {/* Descartar la card entera: la imagen no era un título. */}
+                      <DismissButton
+                        busy={busyTitleId === tr.submissions[0]?.id}
+                        confirming={confirmDismiss === tr.submissions[0]?.id}
+                        onAskConfirm={() => setConfirmDismiss(tr.submissions[0]?.id ?? null)}
+                        onCancel={() => setConfirmDismiss(null)}
+                        onConfirm={() => void dismissTitleReview(tr)}
+                      />
+                    </div>
                   </div>
                   {/* Cuándo llegó: sin esto no se distingue lo nuevo de lo viejo. */}
                   {tr.createdAt && (

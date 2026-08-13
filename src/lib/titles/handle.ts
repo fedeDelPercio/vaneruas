@@ -168,20 +168,31 @@ export async function handleAttachmentIntake(
   // Sin texto que aclare: imagen suelta no reconocida. Puede ser un título
   // borroso, así que la dejamos registrada para que el equipo la mire y le
   // pedimos que aclare qué necesita.
-  await supabase.from("professional_titles").insert({
-    conversation_id: args.conversationId,
-    message_id: args.messageId,
-    file_path: args.attachmentPath,
-    file_type: args.attachmentType,
-    holder_name: cls?.holder_name ?? null,
-    title_name: cls?.title_name ?? null,
-    institution: cls?.institution ?? null,
-    confidence: cls?.confidence ?? null,
-    extraction: (cls as unknown as Json) ?? null,
-    is_valid: false,
-    validation_note:
-      cls?.note ?? "La IA no reconoció la imagen como título, revisar a mano",
-  });
+  //
+  // PERO no todo lo no reconocido merece una card en Aprobaciones. Cuando la
+  // clasificación dice "otro" con confianza ALTA, la IA no está dudando: vio
+  // claramente algo que no es un documento (capturas del sitio, del temario,
+  // de un chat, fotos de la pantalla de la compu). Eso ensuciaba el panel con
+  // filas que el equipo tenía que descartar a mano una por una. Solo dejamos
+  // para revisión lo que la IA no pudo resolver (confianza media o baja), que
+  // es donde de verdad puede haber un título mal fotografiado.
+  const claramenteNoEsDocumento = cls?.kind === "otro" && cls.confidence === "alta";
+  if (!claramenteNoEsDocumento) {
+    await supabase.from("professional_titles").insert({
+      conversation_id: args.conversationId,
+      message_id: args.messageId,
+      file_path: args.attachmentPath,
+      file_type: args.attachmentType,
+      holder_name: cls?.holder_name ?? null,
+      title_name: cls?.title_name ?? null,
+      institution: cls?.institution ?? null,
+      confidence: cls?.confidence ?? null,
+      extraction: (cls as unknown as Json) ?? null,
+      is_valid: false,
+      validation_note:
+        cls?.note ?? "La IA no reconoció la imagen como título, revisar a mano",
+    });
+  }
   await insertAssistant(
     args.conversationId,
     "No pude reconocer esa imagen, me mandás el comprobante de pago o tu título o certificado de alumno del rubro según lo que necesites resolver?",

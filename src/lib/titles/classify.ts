@@ -59,7 +59,8 @@ const SCHEMA = {
     confidence: {
       type: "string",
       enum: ["alta", "media", "baja"],
-      description: "Confianza global en la clasificación y, si aplica, en la validez del título.",
+      description:
+        "Confianza global en la clasificación y, si aplica, en la validez del título. Usá 'alta' cuando estés seguro de lo que ves, incluido el caso de una captura de pantalla o foto que claramente NO es un documento (kind='otro'). Reservá 'media' o 'baja' para lo genuinamente ambiguo: una imagen borrosa, recortada o ilegible que PODRÍA ser un título o un comprobante mal fotografiado.",
     },
     note: {
       type: ["string", "null"],
