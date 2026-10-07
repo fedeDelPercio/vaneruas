@@ -1,4 +1,4 @@
-// Evals del Congreso contra el prompt REAL de producción (orquestador + base de
+// Evals del agente contra el prompt REAL de producción (orquestador + base de
 // conocimiento + ficha del evento en vivo desde la tabla `events`) y con las
 // mismas tools, así se ve cuándo deriva de verdad.
 //
@@ -8,7 +8,7 @@
 //   NEXT_PUBLIC_SUPABASE_URL=$(grep '^NEXT_PUBLIC_SUPABASE_URL=' .env.local | cut -d= -f2) \
 //   SUPABASE_SERVICE_ROLE_KEY=$(grep '^SUPABASE_SERVICE_ROLE_KEY=' .env.local | cut -d= -f2) \
 //   OPENROUTER_API_KEY=$(grep '^OPENROUTER_API_KEY=' .env.local | cut -d= -f2) \
-//     npx tsx scripts/evals-congreso.ts
+//     npx tsx scripts/evals-agente.ts
 import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 import {
@@ -41,14 +41,12 @@ interface Caso {
 }
 
 const CASOS: Caso[] = [
-  { n: "Grupo de WhatsApp", m: "Nunca me llego el link del grupo de whatsapp del congreso, me lo pasas?", espera: "DERIVA. No decir que el congreso no tiene grupo" },
-  { n: "Ir un solo dia", m: "Puedo ir solo el domingo? El sabado no me da", espera: "DERIVA, no lo tenemos" },
-  { n: "Valija en los stands", m: "Puedo ir con una valijita para guardar lo que compre en los stands?", espera: "DERIVA, no lo tenemos" },
-  { n: "Notebook", m: "Puedo llevar la notebook para tomar apuntes?", espera: "DERIVA, no lo tenemos" },
-  { n: "Silla de ruedas", m: "Mi mama va en silla de ruedas, el lugar es accesible?", espera: "DERIVA, no lo tenemos" },
-  { n: "Mate (sin inventar el motivo)", m: "Se puede llevar mate?", espera: "No, sin atribuir la razon a nadie" },
-  { n: "Saldo GOLD (control, no debe romperse)", m: "Hola! Tengo la entrada GOLD, cuanto tengo que llevar manana?", espera: "$300.000 efectivo o $375.000 otros medios" },
-  { n: "Perdio el mail (control)", m: "Me robaron el celular y no tengo la confirmacion, puedo entrar igual?", espera: "Si, alcanza nombre y apellido" },
+  { n: "Manda comprobante de peelings", m: "Hola buenas noches! Envio comprobante de la masterclass de peelings de verano. Sofia Lioni, chopimetica@gmail.com", espera: "Lo recibe normal. NUNCA decir que no hay inscripciones abiertas" },
+  { n: "Quiere anotarse", m: "Hola! Me quiero anotar a la masterclass de peelings de verano, todavia puedo?", espera: "Si, inscripciones abiertas" },
+  { n: "Pregunta el precio", m: "Cuanto sale la masterclass de peelings de verano?", espera: "Deriva, no inventa precio" },
+  { n: "Pregunta la fecha", m: "Que dia es la masterclass de peelings de verano?", espera: "Deriva, no inventa fecha" },
+  { n: "Afirma una fecha (no debe confirmarla)", m: "Es para la masterclass de peeling de verano que se dicta el 28/11 no?", espera: "NO confirma el 28/11 como oficial, deriva" },
+  { n: "Control: grabacion masterclass vieja", m: "Puedo ver todavia la grabacion de higiene facial?", espera: "Vencio el 21/08" },
 ];
 
 async function eventsBlock(): Promise<string> {

@@ -290,10 +290,13 @@ darlas vos, no hace falta derivar (salvo donde se aclara).
 
 # Inscripciones abiertas
 
-- **Por el momento NO hay clases con inscripciones abiertas.** Si preguntan por
-  próximos cursos o quieren anotarse a algo, contales que por ahora no hay
-  inscripciones abiertas y que las novedades y lanzamientos se anuncian por
-  Instagram: **@vanesaruasformacionprofesional**. No prometas fechas ni cursos
+- **Mirá primero EVENTOS VIGENTES.** Si ahí figura una masterclass, **esa clase
+  SÍ tiene inscripciones abiertas**: ofrecela y seguí el flujo normal. Esta
+  sección describe qué hacer cuando NO hay ninguna, no al revés.
+- **Si EVENTOS VIGENTES no tiene ninguna masterclass**, entonces sí: no hay
+  inscripciones abiertas. Contales que por ahora no hay nada abierto y que las
+  novedades y lanzamientos se anuncian por Instagram:
+  **@vanesaruasformacionprofesional**. No prometas fechas ni cursos
   futuros que no figuren en EVENTOS VIGENTES. No compartas links de compra ni
   la landing de un evento cerrado.
 - **Esto NO aplica a quien ya compró.** Si la persona manda un comprobante,
