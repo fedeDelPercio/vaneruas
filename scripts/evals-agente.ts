@@ -41,11 +41,14 @@ interface Caso {
 }
 
 const CASOS: Caso[] = [
-  { n: "Manda comprobante de peelings", m: "Hola buenas noches! Envio comprobante de la masterclass de peelings de verano. Sofia Lioni, chopimetica@gmail.com", espera: "Lo recibe normal. NUNCA decir que no hay inscripciones abiertas" },
-  { n: "Quiere anotarse", m: "Hola! Me quiero anotar a la masterclass de peelings de verano, todavia puedo?", espera: "Si, inscripciones abiertas" },
-  { n: "Pregunta el precio", m: "Cuanto sale la masterclass de peelings de verano?", espera: "Deriva, no inventa precio" },
-  { n: "Pregunta la fecha", m: "Que dia es la masterclass de peelings de verano?", espera: "Deriva, no inventa fecha" },
-  { n: "Afirma una fecha (no debe confirmarla)", m: "Es para la masterclass de peeling de verano que se dicta el 28/11 no?", espera: "NO confirma el 28/11 como oficial, deriva" },
+  { n: "Precio", m: "Hola! Cuanto sale la masterclass de peelings de verano?", espera: "$110.000 transferencia / $150.000 en 3 cuotas / USD 90 PayPal" },
+  { n: "Fecha y horario", m: "Que dia y a que hora es la masterclass de peelings?", espera: "Sabado 28/11 de 16 a 21 hs" },
+  { n: "Quiere anotarse", m: "Me quiero anotar a peelings de verano, como hago?", espera: "Comparte la landing" },
+  { n: "Queda grabada?", m: "Si no puedo entrar en vivo queda grabada? Cuanto tiempo la puedo ver?", espera: "Si, Zoom en vivo, grabacion 20 dias" },
+  { n: "Hasta cuando me puedo anotar", m: "Hasta cuando hay tiempo de inscribirse?", espera: "Miercoles 25/11 21 hs" },
+  { n: "Manda comprobante", m: "Hola! Envio comprobante de la masterclass de peelings de verano. Sofia Lioni, chopimetica@gmail.com", espera: "Lo recibe normal" },
+  { n: "Hasta cuando el precio promo (no confirmado)", m: "Los $110.000 hasta cuando rigen? Despues sube?", espera: "Deriva, no lo sabemos" },
+  { n: "Grupo de WhatsApp (no confirmado)", m: "Hay grupo de whatsapp para la masterclass?", espera: "Deriva, no lo sabemos" },
   { n: "Control: grabacion masterclass vieja", m: "Puedo ver todavia la grabacion de higiene facial?", espera: "Vencio el 21/08" },
 ];
 
@@ -87,7 +90,7 @@ async function eventsBlock(): Promise<string> {
 
 async function main() {
   const eventos = await eventsBlock();
-  console.log(`# Evals del Congreso\n\nModelo ${MODEL} · ahora simulado: ${AHORA}\n`);
+  console.log(`# Evals del agente\n\nModelo ${MODEL} · ahora simulado: ${AHORA}\n`);
 
   for (const c of CASOS) {
     const params: MessageCreateParamsNonStreaming = {

@@ -31,8 +31,17 @@ export const KNOWN_COMPROBANTE_EVENTS: KnownComprobanteEvent[] = [
   {
     slug: "masterclass-higiene-facial-dermaplaning",
     label: "Masterclass Higiene Facial Profunda + Dermaplaning",
-    shortLabel: "Masterclass",
+    // Hay más de una masterclass: el badge dice cuál, no solo "Masterclass".
+    shortLabel: "Higiene facial",
     amount: 105000,
+  },
+  {
+    slug: "masterclass-peelings-verano",
+    label: "Masterclass Peelings de Verano Masterizado",
+    shortLabel: "Peelings",
+    // Precio por transferencia (el de tarjeta, $150.000, va por Mercado Pago y
+    // no manda comprobante por WhatsApp).
+    amount: 110000,
   },
 ];
 
@@ -46,15 +55,18 @@ export function matchEventByAmount(
 }
 
 // Evento por default cuando el monto NO matchea (típicamente porque el OCR de
-// visión no pudo leer el comprobante y `amount` viene null). El Congreso está
-// archivado/agotado desde el 24/06, así que la única venta activa por
-// transferencia es la Masterclass: por eso un comprobante sin monto legible se
-// asume masterclass. Esto destraba el botón "Dar acceso al curso" en el panel
-// sin depender de un backfill manual cada vez. OJO: si en el futuro se abre otra
-// venta por transferencia con otro precio, revisar este default (o el agente
-// terminaría etiquetando mal los comprobantes ilegibles).
-export const DEFAULT_COMPROBANTE_EVENT_SLUG =
-  "masterclass-higiene-facial-dermaplaning";
+// visión no pudo leer el comprobante y `amount` viene null). Tiene que apuntar
+// SIEMPRE a la venta abierta del momento: un comprobante ilegible es, casi con
+// certeza, de lo que se está vendiendo hoy.
+//
+// Hoy esa venta es la Masterclass de Peelings de Verano (28/11/2026). El
+// Congreso ya pasó y la masterclass de Higiene Facial cerró en agosto.
+//
+// OJO: esto hay que actualizarlo en CADA lanzamiento nuevo. La noche del
+// lanzamiento de Peelings entraron 63 comprobantes en 40 minutos, todos sin
+// monto legible, y quedaron etiquetados como la masterclass de agosto: el botón
+// "Dar acceso al curso" los habría inscripto al curso equivocado en Tiendup.
+export const DEFAULT_COMPROBANTE_EVENT_SLUG = "masterclass-peelings-verano";
 
 /**
  * Slug de evento para GUARDAR en payment_validations. Usa el match por monto y,
