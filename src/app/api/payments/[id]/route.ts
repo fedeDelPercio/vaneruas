@@ -5,17 +5,18 @@ import { deliverAssistantToWhatsApp } from "@/lib/whatsapp-delivery";
 
 export const dynamic = "force-dynamic";
 
-// Confirmación que recibe la profesional cuando su pago queda aprobado. Le
-// pedimos el correo para darle el acceso (lo vamos a usar para el alta en
-// Tiendup en un paso siguiente). Voz de Valentina (Vanesa Rúas Formación
-// Profesional): cálida, con un emoji, sin punto final.
-const PAYMENT_APPROVED_ASK_EMAIL =
-  "Buenísimo, tu pago quedó verificado ✅ Para enviarte el acceso necesito tu correo electrónico, me lo compartís?";
-// Cuando ya tenemos el correo (clienta registrada en GHL o lo compartió antes),
-// no se lo volvemos a pedir: solo confirmamos. El envío del acceso todavía no es
-// automático, así que se promete "en breve", no como algo ya enviado.
-const PAYMENT_APPROVED_HAS_EMAIL =
-  "Buenísimo, tu pago quedó verificado ✅ En breve te enviamos el acceso a tu correo, cualquier cosa quedamos en contacto 🙌";
+// Confirmación que recibe la profesional cuando su pago queda aprobado. Voz de
+// Valentina (Vanesa Rúas Formación Profesional): cálida, con un emoji, sin
+// punto final.
+//
+// Es UNA sola para todos los casos, por pedido del equipo. Antes, cuando no
+// teníamos el correo en la ficha, se lo pedíamos acá ("para enviarte el acceso
+// necesito tu correo"). Dejó de tener sentido: la gente ya manda su correo
+// junto con el comprobante y lo deja en la inscripción, así que volver a
+// pedirlo confundía. El envío del acceso todavía no es automático, por eso se
+// promete "en breve" y no como algo ya enviado.
+const PAYMENT_APPROVED =
+  "Buenísimo, tu pago quedó verificado ✅ En breve te enviamos el acceso a tu correo, cualquier cosa quedamos en contacto 🙌🏻";
 
 // ===========================================================================
 // PATCH /api/payments/[id]
@@ -116,16 +117,7 @@ export async function PATCH(
     prev?.conversation_id
   ) {
     try {
-      // ¿Ya tenemos el correo? (clienta registrada en GHL o lo compartió antes).
-      // Si lo tenemos, no se lo volvemos a pedir.
-      const { data: conv } = await sb
-        .from("conversations")
-        .select("contact_email")
-        .eq("id", prev.conversation_id)
-        .maybeSingle();
-      const message = conv?.contact_email?.trim()
-        ? PAYMENT_APPROVED_HAS_EMAIL
-        : PAYMENT_APPROVED_ASK_EMAIL;
+      const message = PAYMENT_APPROVED;
 
       const { data: inserted } = await sb
         .from("messages")
