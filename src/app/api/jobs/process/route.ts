@@ -114,6 +114,11 @@ async function processJob(job: AgentJob): Promise<void> {
     attachMsg.attachment_type &&
     isAllowedComprobanteType(attachMsg.attachment_type)
   ) {
+    const { data: convForEmail } = await supabase
+      .from("conversations")
+      .select("source, external_id")
+      .eq("id", job.conversation_id)
+      .maybeSingle();
     // Gate de título profesional: si la contacta no está registrada y no
     // acreditó su título, se le pide antes de mandar el comprobante a aprobar.
     // Registradas / con título validado → flujo de comprobante normal.
@@ -125,6 +130,15 @@ async function processJob(job: AgentJob): Promise<void> {
       caption: attachMsg.content,
     });
     if (handled) {
+      // El correo que viene en el mismo mensaje que el comprobante (el patrón
+      // más común: "Nombre · mail · Masterclass" + la foto) se guarda ACÁ
+      // porque este camino corta el job y nunca llega al `captureContactEmail`
+      // de más abajo. Sin esto, el pago se aprueba y no tenemos a dónde
+      // mandarle el acceso, aunque la persona lo haya escrito.
+      await captureContactEmail(job.conversation_id, attachMsg.content, {
+        externalId: convForEmail?.external_id ?? null,
+        source: convForEmail?.source ?? null,
+      });
       await supabase
         .from("agent_jobs")
         .update({ status: "completed", completed_at: new Date().toISOString() })
