@@ -43,3 +43,6 @@ Thumbs.db
 # Bot de WhatsApp (Baileys) — sesion auth y archivos runtime
 /auth/
 /data/
+
+# Informes de conversaciones: tienen datos personales de clientas reales
+informes/
