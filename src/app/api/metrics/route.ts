@@ -57,6 +57,24 @@ export interface MetricsResponse {
   daily: { date: string; mensajes: number; comprobantes: number }[];
 }
 
+// PostgREST corta en 1000 filas por request. Toda query que traiga FILAS (no
+// un count) tiene que paginar o el dashboard miente: con 3000 mensajes en el
+// periodo veiamos solo los primeros 1000, asi que la contencion salia hundida
+// (el numerador de conversaciones se truncaba y el de derivaciones no).
+const PAGE = 1000;
+async function fetchAll<T>(
+  build: (from: number, to: number) => PromiseLike<{ data: T[] | null }>,
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data } = await build(from, from + PAGE - 1);
+    if (!data?.length) break;
+    out.push(...data);
+    if (data.length < PAGE) break;
+  }
+  return out;
+}
+
 export async function GET(req: NextRequest) {
   const sb = getSupabaseServerClient();
   const period = req.nextUrl.searchParams.get("period") ?? "30d";
@@ -87,11 +105,13 @@ export async function GET(req: NextRequest) {
 
   // --- Derivaciones por categoría (traemos solo la columna y agrupamos en JS).
   const categoriesP = (async () => {
-    let q = sb.from("agent_notifications").select("category");
-    if (since) q = q.gte("created_at", since);
-    const { data } = await q;
+    const data = await fetchAll<{ category: string | null }>((from, to) => {
+      let q = sb.from("agent_notifications").select("category").order("created_at");
+      if (since) q = q.gte("created_at", since);
+      return q.range(from, to);
+    });
     const counts = new Map<string, number>();
-    for (const r of data ?? []) {
+    for (const r of data) {
       const c = (r.category as string | null) ?? "(sin categoría)";
       counts.set(c, (counts.get(c) ?? 0) + 1);
     }
@@ -102,14 +122,16 @@ export async function GET(req: NextRequest) {
 
   // --- Tiempo medio de validación (recepción -> validación), validados en el período.
   const validationP = (async () => {
-    let q = sb
-      .from("payment_validations")
-      .select("created_at, validated_at")
-      .eq("status", "validated")
-      .not("validated_at", "is", null);
-    if (since) q = q.gte("validated_at", since);
-    const { data } = await q;
-    const rows = data ?? [];
+    const rows = await fetchAll<{ created_at: string; validated_at: string }>((from, to) => {
+      let q = sb
+        .from("payment_validations")
+        .select("created_at, validated_at")
+        .eq("status", "validated")
+        .not("validated_at", "is", null)
+        .order("validated_at");
+      if (since) q = q.gte("validated_at", since);
+      return q.range(from, to);
+    });
     if (!rows.length) return { avgMs: null as number | null, count: 0 };
     let total = 0;
     for (const r of rows) {
@@ -122,12 +144,15 @@ export async function GET(req: NextRequest) {
 
   // --- Comprobantes pendientes (para el backlog; sin filtro de período).
   const pendingP = (async () => {
-    const { data } = await sb
-      .from("payment_validations")
-      .select("id, created_at, sender_name, amount")
-      .eq("status", "pending")
-      .order("created_at", { ascending: true });
-    return (data ?? []).map((r) => ({
+    const data = await fetchAll<Record<string, unknown>>((from, to) =>
+      sb
+        .from("payment_validations")
+        .select("id, created_at, sender_name, amount")
+        .eq("status", "pending")
+        .order("created_at", { ascending: true })
+        .range(from, to),
+    );
+    return data.map((r) => ({
       id: r.id as string,
       createdAt: r.created_at as string,
       senderName: (r.sender_name as string | null) ?? null,
@@ -138,29 +163,36 @@ export async function GET(req: NextRequest) {
   // --- Filas para la serie diaria + contención. De mensajes traemos también
   //     conversation_id para contar conversaciones distintas (excluye carteles
   //     de sistema). De comprobantes solo el timestamp para la serie diaria.
-  const msgRowsP = (async () => {
-    let q = sb.from("messages").select("created_at, conversation_id").neq("role", "system");
-    if (since) q = q.gte("created_at", since);
-    const { data } = await q;
-    return data ?? [];
-  })();
+  const msgRowsP = fetchAll<{ created_at: string; conversation_id: string | null }>(
+    (from, to) => {
+      let q = sb
+        .from("messages")
+        .select("created_at, conversation_id")
+        .neq("role", "system")
+        .order("created_at");
+      if (since) q = q.gte("created_at", since);
+      return q.range(from, to);
+    },
+  );
   const payTimestampsP = (async () => {
-    let q = sb.from("payment_validations").select("created_at");
-    if (since) q = q.gte("created_at", since);
-    const { data } = await q;
-    return (data ?? []).map((r) => r.created_at as string);
+    const data = await fetchAll<{ created_at: string }>((from, to) => {
+      let q = sb.from("payment_validations").select("created_at").order("created_at");
+      if (since) q = q.gte("created_at", since);
+      return q.range(from, to);
+    });
+    return data.map((r) => r.created_at);
   })();
   // Conversaciones que necesitaron al equipo: derivaciones NO-comprobante
   // (la IA no supo/pudo). Los comprobantes (validacion_pago) NO cuentan.
-  const intervConvP = (async () => {
+  const intervConvP = fetchAll<{ conversation_id: string | null }>((from, to) => {
     let q = sb
       .from("agent_notifications")
       .select("conversation_id")
-      .neq("category", "validacion_pago");
+      .neq("category", "validacion_pago")
+      .order("created_at");
     if (since) q = q.gte("created_at", since);
-    const { data } = await q;
-    return data ?? [];
-  })();
+    return q.range(from, to);
+  });
 
   const [byCategory, assistant, human, user, funnel, validation, pending, msgRows, payTs, intervRows] =
     await Promise.all([
