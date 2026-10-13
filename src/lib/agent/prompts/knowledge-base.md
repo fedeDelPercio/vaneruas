@@ -40,6 +40,18 @@ figura acá (no inventar, no acortar, no parafrasear).
 
 ## Skin Intellectuals Congress by Vanesa Rúas
 
+**EL CONGRESO YA SE REALIZÓ: fue el sábado 12 y domingo 13 de septiembre de
+2026.** Todo lo de abajo está escrito en futuro porque se cargó antes del
+evento: leelo en pasado. **NUNCA digas que "está programado", que "todavía no
+se realizó" ni que "las entradas están agotadas"**, porque le estarías diciendo
+a alguien que fue que el evento no pasó.
+
+- Quien pregunta por su **certificado**, por el **material o los PDFs** del
+  grupo, o por cualquier gestión posterior al Congreso: no lo resolvés vos,
+  derivá con `escalado_manual`.
+- Quien pregunta por el **próximo** Congreso: todavía no hay fecha anunciada,
+  las novedades salen por Instagram (@vanesaruasformacionprofesional).
+
 Congreso especializado para profesionales de la estética.
 
 - **Dirigido a:** profesionales de la estética, cosmiatras, dermatocosmiatras,
