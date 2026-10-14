@@ -7,6 +7,7 @@ import {
   splitFullName,
   listEnrolled,
   findExistingEnrollment,
+  fixDominioDeCorreo,
 } from "@/lib/tiendup/client";
 
 export const dynamic = "force-dynamic";
@@ -92,7 +93,12 @@ export async function PATCH(
         .maybeSingle()
     : { data: null };
 
-  const email = conv?.contact_email?.trim();
+  const rawEmail = conv?.contact_email?.trim();
+  // Typos de dominio (".con" por ".com") se corrigen antes de buscar e inscribir:
+  // si no, no matchean con el inscripto real y crean un cliente duplicado.
+  const { email, fixed: emailFixed } = rawEmail
+    ? fixDominioDeCorreo(rawEmail)
+    : { email: "", fixed: false };
   if (!email) {
     return NextResponse.json(
       { error: "Todavía no tenemos el correo del contacto para darle el acceso" },
@@ -117,7 +123,13 @@ export async function PATCH(
       })
       .eq("id", id);
     return NextResponse.json(
-      { ok: true, alreadyEnrolled: true, email, message: "Ya estaba inscripta en el curso" },
+      {
+        ok: true,
+        alreadyEnrolled: true,
+        email,
+        emailFixed,
+        message: "Ya estaba inscripta en el curso",
+      },
       { status: 200 },
     );
   }
@@ -155,7 +167,7 @@ export async function PATCH(
         updated_at: new Date().toISOString(),
       })
       .eq("id", id);
-    return NextResponse.json({ ok: true, email }, { status: 200 });
+    return NextResponse.json({ ok: true, email, emailFixed }, { status: 200 });
   }
 
   await sb

@@ -17,9 +17,10 @@ const DEFAULT_BASE_URL = "https://vanesaruas.public-api.tiendup.com";
 const TIMEOUT_MS = 20000;
 
 // Mapeo evento (event_slug de payment_validations) → id de curso en Tiendup.
-// Por ahora la única masterclass con curso es "Higiene Facial + Dermaplaning".
+// Los ids salen de GET /learning/courses (los trae con su slug y su estado).
 const TIENDUP_COURSE_BY_EVENT_SLUG: Record<string, number> = {
   "masterclass-higiene-facial-dermaplaning": 519060,
+  "masterclass-peelings-verano": 554178,
 };
 
 /** Id de curso de Tiendup para un event_slug de comprobante, o null si no mapea. */
@@ -100,6 +101,40 @@ export interface TiendupEnrolled {
   name: string | null;
   lastName: string | null;
   email: string | null;
+}
+
+// Dominios mal tipeados que vemos seguido en los correos dictados por WhatsApp.
+// Solo correcciones INEQUÍVOCAS: si hay la menor duda, el correo se deja como
+// vino (inscribir con un mail equivocado crea un cliente basura en Tiendup y la
+// persona real se queda sin acceso).
+const TYPOS_DE_DOMINIO: Record<string, string> = {
+  "gmail.con": "gmail.com",
+  "gmail.cmo": "gmail.com",
+  "gmail.om": "gmail.com",
+  "gmail.co": "gmail.com",
+  "gmial.com": "gmail.com",
+  "gmai.com": "gmail.com",
+  "hotmail.con": "hotmail.com",
+  "hotmail.cmo": "hotmail.com",
+  "hotmail.om": "hotmail.com",
+  "hotmial.com": "hotmail.com",
+  "outlook.con": "outlook.com",
+  "yahoo.con": "yahoo.com",
+  "icloud.con": "icloud.com",
+};
+
+/**
+ * Corrige errores de tipeo obvios en el dominio del correo. Devuelve el correo
+ * corregido y si hubo cambio, para poder avisarlo en el panel en vez de
+ * inscribir en silencio con otro mail.
+ */
+export function fixDominioDeCorreo(email: string): { email: string; fixed: boolean } {
+  const at = email.lastIndexOf("@");
+  if (at < 1) return { email, fixed: false };
+  const user = email.slice(0, at);
+  const dom = email.slice(at + 1).toLowerCase();
+  const fix = TYPOS_DE_DOMINIO[dom];
+  return fix ? { email: `${user}@${fix}`, fixed: true } : { email, fixed: false };
 }
 
 /** normaliza para comparar: minúsculas, sin acentos, solo alfanumérico. */
