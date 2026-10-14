@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useProfile } from "./ProfileProvider";
+import { DISMISS_NOTE } from "@/lib/payments/dismiss";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ghlConversationUrl } from "@/lib/ghl-link";
 import { ContactStrip } from "./ContactStrip";
@@ -635,8 +636,6 @@ export function PaymentsList() {
       setBusyTitleId(null);
     }
   }
-
-  const DISMISS_NOTE = "Descartado por el equipo: la imagen no era un comprobante ni un título";
 
   /** Descarta un comprobante que no correspondía (queda como rechazado). */
   async function dismissPayment(id: string) {

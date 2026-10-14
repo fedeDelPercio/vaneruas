@@ -4,10 +4,17 @@
     {
       "path": "/api/jobs/process",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/jobs/import-human",
+      "schedule": "*/5 * * * *"
     }
   ],
   "functions": {
     "src/app/api/jobs/process/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/jobs/import-human/route.ts": {
       "maxDuration": 300
     }
   }

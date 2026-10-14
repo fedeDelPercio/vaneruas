@@ -4,9 +4,12 @@ import { Pie, PieChart, ResponsiveContainer } from "recharts";
 import { useIsDark } from "./useIsDark";
 
 // Donut del estado de los comprobantes: el número del centro es el % de
-// comprobantes confirmados (validados) sobre el total recibido. Dos porciones:
-// validados (dorado de marca) y el resto (neutro). El desglose
-// pendientes/rechazados vive en el embudo, acá solo importa el % confirmado.
+// validados sobre los comprobantes REALES, es decir sin contar las imágenes que
+// no eran un comprobante (capturas, títulos sueltos). Si se cuentan, el
+// indicador se hunde y se lee como si los pagos estuvieran fallando: con 260
+// imágenes y 114 descartes daba 56% confirmados cuando el número real es 99%.
+// Dos porciones: validados (dorado de marca) y el resto (neutro). El desglose
+// pendientes/rechazados vive en el embudo.
 
 const PAL = {
   light: { ok: "#d97706", rest: "#d4d4d4", bg: "#ffffff" },
@@ -16,17 +19,22 @@ const PAL = {
 export function PaymentDonut({
   received,
   validated,
+  descartados = 0,
 }: {
+  /** Todas las imágenes que entraron a Aprobaciones. */
   received: number;
   validated: number;
+  /** Las que no eran un comprobante. Salen del denominador. */
+  descartados?: number;
 }) {
   const dark = useIsDark();
   const c = dark ? PAL.dark : PAL.light;
-  const pct = received === 0 ? null : Math.round((validated / received) * 100);
-  const rest = Math.max(0, received - validated);
+  const reales = Math.max(0, received - descartados);
+  const pct = reales === 0 ? null : Math.round((validated / reales) * 100);
+  const rest = Math.max(0, reales - validated);
 
   const data =
-    received === 0
+    reales === 0
       ? [{ key: "none", value: 1, fill: c.rest }]
       : [
           { key: "validated", value: validated, fill: c.ok },
@@ -75,9 +83,28 @@ export function PaymentDonut({
           <span className="flex-1 text-neutral-700 dark:text-neutral-300">Validados</span>
           <span className="font-mono text-neutral-500">{validated}</span>
         </div>
+        <div className="flex items-center gap-2 text-[12.5px]">
+          <span
+            aria-hidden
+            className="h-2.5 w-2.5 shrink-0 rounded-full"
+            style={{ backgroundColor: c.rest }}
+          />
+          <span className="flex-1 text-neutral-700 dark:text-neutral-300">
+            Comprobantes del período
+          </span>
+          <span className="font-mono text-neutral-500">{reales}</span>
+        </div>
         <p className="pt-1.5 text-[11px] leading-relaxed text-neutral-500 dark:text-neutral-500">
-          % de comprobantes confirmados sobre el total recibido en el período. El
-          desglose de pendientes y rechazados está en el embudo.
+          % de comprobantes confirmados en el período.
+          {descartados > 0 ? (
+            <>
+              {" "}
+              Quedan afuera {descartados}{" "}
+              {descartados === 1 ? "imagen que no era" : "imágenes que no eran"} un
+              comprobante (capturas, títulos sueltos).
+            </>
+          ) : null}{" "}
+          El desglose de pendientes y rechazados está en el embudo.
         </p>
       </div>
     </div>

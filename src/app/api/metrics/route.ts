@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { esDescartado } from "@/lib/payments/dismiss";
 
 export const dynamic = "force-dynamic";
 
@@ -42,10 +43,14 @@ export interface MetricsResponse {
     pctAI: number | null;
   };
   paymentFunnel: {
+    /** Todas las imágenes que entraron a Aprobaciones. */
     received: number;
     pending: number;
     validated: number;
+    /** Rechazados de verdad: eran un pago y no sirvió. */
     rejected: number;
+    /** No eran un comprobante (capturas, títulos sueltos). Ver lib/payments/dismiss. */
+    descartados: number;
   };
   validation: { avgMs: number | null; count: number };
   pending: {
@@ -54,7 +59,21 @@ export interface MetricsResponse {
     senderName: string | null;
     amount: number | null;
   }[];
-  daily: { date: string; mensajes: number; comprobantes: number }[];
+  daily: { date: string; mensajes: number; comprobantes: number; equipo: number }[];
+  // Evolución del reparto IA / equipo, por semana y por mes. Va aparte del
+  // período seleccionado a propósito: es una serie de tendencia, no una foto.
+  share: { semanal: SharePoint[]; mensual: SharePoint[] };
+}
+
+export interface SharePoint {
+  /** Clave ordenable (inicio del bucket, YYYY-MM-DD). */
+  periodo: string;
+  /** Etiqueta corta para el eje ("6 oct", "octubre"). */
+  label: string;
+  ia: number;
+  equipo: number;
+  /** % de salientes que escribió la IA. null si no hubo salientes. */
+  pct: number | null;
 }
 
 // PostgREST corta en 1000 filas por request. Toda query que traiga FILAS (no
@@ -71,6 +90,69 @@ async function fetchAll<T>(
     if (!data?.length) break;
     out.push(...data);
     if (data.length < PAGE) break;
+  }
+  return out;
+}
+
+// Argentina es UTC-3 todo el año: el día "del negocio" arranca a las 03:00 UTC.
+const AR_OFFSET_MS = 3 * 3_600_000;
+const DAY_MS = 86_400_000;
+
+/** Fecha YYYY-MM-DD en hora de Argentina. */
+function arDay(d: Date): string {
+  return new Date(d.getTime() - AR_OFFSET_MS).toISOString().slice(0, 10);
+}
+/** Instante UTC del arranque de ese día en Argentina. */
+function arStart(day: string): string {
+  return `${day}T03:00:00.000Z`;
+}
+
+interface Bucket {
+  periodo: string;
+  label: string;
+  desde: string;
+  hasta: string;
+}
+
+/** Las últimas `n` semanas (arrancan lunes), de la más vieja a la más nueva. */
+function bucketsSemanales(n: number): Bucket[] {
+  const hoy = new Date(`${arDay(new Date())}T00:00:00.000Z`);
+  // getUTCDay: 0 = domingo. Retrocedemos al lunes de esta semana.
+  const haciaLunes = (hoy.getUTCDay() + 6) % 7;
+  const lunesActual = new Date(hoy.getTime() - haciaLunes * DAY_MS);
+  const out: Bucket[] = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const ini = new Date(lunesActual.getTime() - i * 7 * DAY_MS);
+    const fin = new Date(ini.getTime() + 7 * DAY_MS);
+    const periodo = ini.toISOString().slice(0, 10);
+    out.push({
+      periodo,
+      label: new Date(`${periodo}T12:00:00Z`).toLocaleDateString("es-AR", {
+        day: "numeric",
+        month: "short",
+        timeZone: "UTC",
+      }),
+      desde: arStart(periodo),
+      hasta: arStart(fin.toISOString().slice(0, 10)),
+    });
+  }
+  return out;
+}
+
+/** Los últimos `n` meses calendario, del más viejo al más nuevo. */
+function bucketsMensuales(n: number): Bucket[] {
+  const hoy = new Date(`${arDay(new Date())}T00:00:00.000Z`);
+  const out: Bucket[] = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const ini = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth() - i, 1));
+    const fin = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth() - i + 1, 1));
+    const periodo = ini.toISOString().slice(0, 10);
+    out.push({
+      periodo,
+      label: ini.toLocaleDateString("es-AR", { month: "short", timeZone: "UTC" }),
+      desde: arStart(periodo),
+      hasta: arStart(fin.toISOString().slice(0, 10)),
+    });
   }
   return out;
 }
@@ -94,14 +176,88 @@ export async function GET(req: NextRequest) {
     return count ?? 0;
   };
 
-  // --- Conteos de comprobantes por estado (recibidos en el período).
-  const countPayments = async (status?: string): Promise<number> => {
-    let q = sb.from("payment_validations").select("*", { count: "exact", head: true });
-    if (status) q = q.eq("status", status);
-    if (since) q = q.gte("created_at", since);
-    const { count } = await q;
+  // --- Reparto IA / equipo por bucket. Se resuelve con counts (head:true), que
+  //     no traen filas y por lo tanto no sufren el tope de 1000.
+  const countRole = async (role: string, desde: string, hasta: string): Promise<number> => {
+    const { count } = await sb
+      .from("messages")
+      .select("*", { count: "exact", head: true })
+      .eq("role", role)
+      .gte("created_at", desde)
+      .lt("created_at", hasta);
     return count ?? 0;
   };
+  // Desde cuándo tenemos mensajes del equipo. Antes de esa fecha el importador
+  // de GHL todavía no llegó, así que un bucket viejo mostraría 100% IA cuando
+  // en realidad no sabemos nada. Esos buckets van como "sin datos".
+  const { data: primerHumano } = await sb
+    .from("messages")
+    .select("created_at")
+    .eq("role", "human")
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  // Se toma el arranque del DÍA del primer mensaje humano: el importador cubre
+  // el día entero, aunque el primer mensaje que haya encontrado sea del mediodía.
+  const coberturaDesde = primerHumano?.created_at
+    ? new Date(arStart(arDay(new Date(primerHumano.created_at)))).getTime()
+    : null;
+
+  const shareDe = async (buckets: Bucket[]): Promise<SharePoint[]> =>
+    Promise.all(
+      buckets.map(async (b) => {
+        const [ia, equipo] = await Promise.all([
+          countRole("assistant", b.desde, b.hasta),
+          countRole("human", b.desde, b.hasta),
+        ]);
+        const tot = ia + equipo;
+        // Solo se informa un bucket cubierto ENTERO por el importador. Si
+        // arranca antes, el conteo del equipo está incompleto y el % saldría
+        // inflado (agosto marcaba 95% con un solo día de datos reales).
+        const sinCobertura =
+          coberturaDesde === null || new Date(b.desde).getTime() < coberturaDesde;
+        return {
+          periodo: b.periodo,
+          label: b.label,
+          ia,
+          equipo,
+          pct: tot === 0 || sinCobertura ? null : Math.round((ia / tot) * 100),
+        };
+      }),
+    );
+  const shareP = (async () => ({
+    semanal: await shareDe(bucketsSemanales(12)),
+    mensual: await shareDe(bucketsMensuales(6)),
+  }))();
+
+  // --- Comprobantes del período. Se traen las filas (no counts) porque hay que
+  //     separar los RECHAZADOS de los DESCARTADOS, y eso no se puede filtrar en
+  //     la query: ambos quedan como status="rejected".
+  const funnelP = (async () => {
+    const rows = await fetchAll<{
+      status: string;
+      validation_note: string | null;
+      amount: number | string | null;
+    }>((from, to) => {
+      let q = sb
+        .from("payment_validations")
+        .select("status, validation_note, amount")
+        .order("created_at");
+      if (since) q = q.gte("created_at", since);
+      return q.range(from, to);
+    });
+    let pending = 0;
+    let validated = 0;
+    let rejected = 0;
+    let descartados = 0;
+    for (const r of rows) {
+      if (r.status === "pending") pending++;
+      else if (r.status === "validated") validated++;
+      else if (esDescartado(r)) descartados++;
+      else rejected++;
+    }
+    return { received: rows.length, pending, validated, rejected, descartados };
+  })();
 
   // --- Derivaciones por categoría (traemos solo la columna y agrupamos en JS).
   const categoriesP = (async () => {
@@ -163,17 +319,19 @@ export async function GET(req: NextRequest) {
   // --- Filas para la serie diaria + contención. De mensajes traemos también
   //     conversation_id para contar conversaciones distintas (excluye carteles
   //     de sistema). De comprobantes solo el timestamp para la serie diaria.
-  const msgRowsP = fetchAll<{ created_at: string; conversation_id: string | null }>(
-    (from, to) => {
+  const msgRowsP = fetchAll<{
+    created_at: string;
+    conversation_id: string | null;
+    role: string;
+  }>((from, to) => {
       let q = sb
         .from("messages")
-        .select("created_at, conversation_id")
+        .select("created_at, conversation_id, role")
         .neq("role", "system")
         .order("created_at");
       if (since) q = q.gte("created_at", since);
       return q.range(from, to);
-    },
-  );
+  });
   const payTimestampsP = (async () => {
     const data = await fetchAll<{ created_at: string }>((from, to) => {
       let q = sb.from("payment_validations").select("created_at").order("created_at");
@@ -194,26 +352,21 @@ export async function GET(req: NextRequest) {
     return q.range(from, to);
   });
 
-  const [byCategory, assistant, human, user, funnel, validation, pending, msgRows, payTs, intervRows] =
+  const [byCategory, assistant, human, user, funnel, validation, pending, msgRows, payTs, intervRows, share] =
     await Promise.all([
       categoriesP,
       countMessages("assistant"),
       countMessages("human"),
       countMessages("user"),
-      Promise.all([
-        countPayments(),
-        countPayments("pending"),
-        countPayments("validated"),
-        countPayments("rejected"),
-      ]),
+      funnelP,
       validationP,
       pendingP,
       msgRowsP,
       payTimestampsP,
       intervConvP,
+      shareP,
     ]);
 
-  const [received, pendingCount, validated, rejected] = funnel;
 
   // Contención a nivel conversación. total = conversaciones con actividad en el
   // período (∪ las que tienen derivación). teamIntervention = conversaciones
@@ -233,6 +386,7 @@ export async function GET(req: NextRequest) {
   const pctAI = total === 0 ? null : Math.round((aiHandled / total) * 100);
 
   const msgTs = msgRows.map((r) => r.created_at as string);
+  const equipoTs = msgRows.filter((r) => r.role === "human").map((r) => r.created_at);
 
   const body: MetricsResponse = {
     period,
@@ -240,10 +394,11 @@ export async function GET(req: NextRequest) {
     byCategory,
     messages: { assistant, human, user },
     containment: { total, aiHandled, teamIntervention, pctAI },
-    paymentFunnel: { received, pending: pendingCount, validated, rejected },
+    paymentFunnel: funnel,
     validation,
     pending,
-    daily: buildDailySeries(msgTs, payTs, days),
+    daily: buildDailySeries(msgTs, payTs, equipoTs, days),
+    share,
   };
 
   return NextResponse.json(body);
@@ -255,8 +410,9 @@ export async function GET(req: NextRequest) {
 function buildDailySeries(
   msgTs: string[],
   payTs: string[],
+  equipoTs: string[],
   days: number | null,
-): { date: string; mensajes: number; comprobantes: number }[] {
+): { date: string; mensajes: number; comprobantes: number; equipo: number }[] {
   const DAY = 86_400_000;
   const key = (d: Date) => d.toISOString().slice(0, 10);
   const bucket = (arr: string[]) => {
@@ -269,6 +425,7 @@ function buildDailySeries(
   };
   const msgBy = bucket(msgTs);
   const payBy = bucket(payTs);
+  const eqBy = bucket(equipoTs);
   const todayKey = key(new Date());
 
   let start: Date;
@@ -279,11 +436,16 @@ function buildDailySeries(
     start = times.length ? new Date(times.reduce((a, b) => Math.min(a, b))) : new Date();
   }
 
-  const out: { date: string; mensajes: number; comprobantes: number }[] = [];
+  const out: { date: string; mensajes: number; comprobantes: number; equipo: number }[] = [];
   let cur = new Date(`${key(start)}T00:00:00.000Z`);
   for (let i = 0; i < 400; i++) {
     const k = key(cur);
-    out.push({ date: k, mensajes: msgBy.get(k) ?? 0, comprobantes: payBy.get(k) ?? 0 });
+    out.push({
+      date: k,
+      mensajes: msgBy.get(k) ?? 0,
+      comprobantes: payBy.get(k) ?? 0,
+      equipo: eqBy.get(k) ?? 0,
+    });
     if (k === todayKey) break;
     cur = new Date(cur.getTime() + DAY);
   }

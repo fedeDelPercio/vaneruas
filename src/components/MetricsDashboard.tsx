@@ -6,6 +6,8 @@ import type { MetricsResponse } from "@/app/api/metrics/route";
 import { DailyActivityChart } from "./DailyActivityChart";
 import { PaymentDonut } from "./PaymentDonut";
 import { CategoryBarChart } from "./CategoryBarChart";
+import { TeamActivityChart } from "./TeamActivityChart";
+import { AiShareChart } from "./AiShareChart";
 
 // Dashboard de métricas del cliente. Lee /api/metrics y presenta:
 //  - mensajes respondidos por IA vs humano,
@@ -187,8 +189,12 @@ export function MetricsDashboard() {
             />
             <Stat
               label="Comprobantes recibidos"
-              value={String(data.paymentFunnel.received)}
-              hint={`${data.paymentFunnel.pending} pendientes`}
+              value={String(data.paymentFunnel.received - data.paymentFunnel.descartados)}
+              hint={
+                data.paymentFunnel.descartados > 0
+                  ? `${data.paymentFunnel.pending} pendientes · ${data.paymentFunnel.descartados} descartados`
+                  : `${data.paymentFunnel.pending} pendientes`
+              }
             />
             <Stat
               label="Tiempo medio de validación"
@@ -220,6 +226,20 @@ export function MetricsDashboard() {
             )}
           </Section>
 
+          {/* Mensajes escritos por el equipo (no por la IA) */}
+          <Section title="Mensajes escritos por el equipo">
+            {data.daily.length === 0 ? (
+              <Empty>No hay actividad en este período.</Empty>
+            ) : (
+              <TeamActivityChart data={data.daily} />
+            )}
+          </Section>
+
+          {/* Evolución del reparto IA / equipo */}
+          <Section title="Evolución del % respondido por la IA">
+            <AiShareChart semanal={data.share.semanal} mensual={data.share.mensual} />
+          </Section>
+
           {/* Comprobantes confirmados (donut) */}
           <Section title="Comprobantes confirmados">
             {data.paymentFunnel.received === 0 ? (
@@ -228,6 +248,7 @@ export function MetricsDashboard() {
               <PaymentDonut
                 received={data.paymentFunnel.received}
                 validated={data.paymentFunnel.validated}
+                descartados={data.paymentFunnel.descartados}
               />
             )}
           </Section>
@@ -263,6 +284,7 @@ export function MetricsDashboard() {
                 <FunnelRow label="Pendientes" count={data.paymentFunnel.pending} total={data.paymentFunnel.received} dot="neutral" />
                 <FunnelRow label="Validados" count={data.paymentFunnel.validated} total={data.paymentFunnel.received} dot="ok" />
                 <FunnelRow label="Rechazados" count={data.paymentFunnel.rejected} total={data.paymentFunnel.received} dot="red" />
+                <FunnelRow label="Descartados" count={data.paymentFunnel.descartados} total={data.paymentFunnel.received} dot="neutral" />
               </div>
             )}
           </Section>
