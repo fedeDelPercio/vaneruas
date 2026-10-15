@@ -25,7 +25,7 @@ import { DISMISS_NOTE } from "@/lib/payments/dismiss";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ghlConversationUrl } from "@/lib/ghl-link";
 import { ContactStrip } from "./ContactStrip";
-import { eventBySlug } from "@/lib/payments/event-match";
+import { eventBySlug, accesoVigenteDeEvento } from "@/lib/payments/event-match";
 import { recipientMismatches } from "@/lib/payments/recipient";
 import type {
   PaymentItem,
@@ -717,6 +717,9 @@ export function PaymentsList() {
   // no, el chip muestra 291 cuando en la lista hay 5).
   const needsAccess = (p: PaymentItem) =>
     eventKind(p.eventSlug) === "masterclass" &&
+    // Masterclass ya dictada y con la grabación vencida: no hay acceso que dar,
+    // así que no es trabajo pendiente y no ensucia la worklist.
+    accesoVigenteDeEvento(p.eventSlug) &&
     Boolean(p.contactEmail) &&
     !p.courseAccessGrantedAt;
   const countBase =

@@ -19,6 +19,16 @@ export interface KnownComprobanteEvent {
   shortLabel: string;
   /** Monto exacto del comprobante esperado, en ARS. */
   amount: number;
+  /**
+   * ¿Todavía tiene sentido dar el acceso al curso de este evento?
+   *
+   * Una masterclass que ya se dictó y cuya grabación venció no tiene nada que
+   * entregar: inscribir a alguien ahí no le sirve de nada y solo ensucia la
+   * worklist de "Falta acceso". Los eventos cerrados quedan en false y salen de
+   * esa lista (el botón sigue disponible en Validados y Todos, por si hiciera
+   * falta a mano).
+   */
+  accesoVigente?: boolean;
 }
 
 export const KNOWN_COMPROBANTE_EVENTS: KnownComprobanteEvent[] = [
@@ -34,6 +44,9 @@ export const KNOWN_COMPROBANTE_EVENTS: KnownComprobanteEvent[] = [
     // Hay más de una masterclass: el badge dice cuál, no solo "Masterclass".
     shortLabel: "Higiene facial",
     amount: 105000,
+    // Se dictó el 1/8/2026 y la grabación venció el 21/8. En Tiendup el curso
+    // quedó en borrador: no hay acceso que dar.
+    accesoVigente: false,
   },
   {
     slug: "masterclass-peelings-verano",
@@ -42,8 +55,19 @@ export const KNOWN_COMPROBANTE_EVENTS: KnownComprobanteEvent[] = [
     // Precio por transferencia (el de tarjeta, $150.000, va por Mercado Pago y
     // no manda comprobante por WhatsApp).
     amount: 110000,
+    accesoVigente: true,
   },
 ];
+
+/**
+ * ¿Para este evento todavía se entrega acceso al curso? Default true: un evento
+ * nuevo entrega hasta que alguien lo cierre explícitamente.
+ */
+export function accesoVigenteDeEvento(slug: string | null | undefined): boolean {
+  if (!slug) return false;
+  const ev = KNOWN_COMPROBANTE_EVENTS.find((e) => e.slug === slug);
+  return ev ? ev.accesoVigente !== false : false;
+}
 
 /** Identifica el evento de un comprobante por su monto exacto, o null. */
 export function matchEventByAmount(
