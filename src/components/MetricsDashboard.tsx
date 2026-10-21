@@ -186,10 +186,14 @@ export function MetricsDashboard() {
                 es por CONVERSACIÓN: cuántas se resolvieron sin que el equipo
                 tuviera que entrar. La del gráfico de abajo es por MENSAJE. */}
             <Stat
-              label="Conversaciones que resolvió la IA"
+              label="Conversaciones que resolvió la IA sola"
               value={aiPct === null ? "—" : String(aiPct)}
               unit={aiPct === null ? undefined : "%"}
-              hint={`${data.containment.aiHandled} de ${data.containment.total}, sin pasar al equipo`}
+              hint={
+                data.containment.cubierto
+                  ? `${data.containment.aiHandled} de ${data.containment.total}, sin derivar y sin que escriba el equipo`
+                  : `${data.containment.aiHandled} de ${data.containment.total} · el tramo viejo no tiene registro de los mensajes del equipo, el número queda alto`
+              }
             />
             <Stat
               label="Comprobantes recibidos"

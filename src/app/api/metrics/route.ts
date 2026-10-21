@@ -33,14 +33,22 @@ export interface MetricsResponse {
   since: string | null;
   byCategory: { category: string; count: number }[];
   messages: { assistant: number; human: number; user: number };
-  // Contención: a nivel conversación, cuántas resolvió la IA sola vs cuántas
-  // necesitaron al equipo (derivación NO-comprobante: "la IA no supo/pudo,
-  // salvo certificados"). pctAI = aiHandled / total.
+  // Contención a nivel conversación: cuántas resolvió la IA SOLA.
+  //
+  // "Sola" = sin derivación al equipo Y sin que ninguna persona del equipo
+  // haya escrito en el chat. Antes solo se miraba la derivación, y eso inflaba
+  // el número: el equipo entra seguido a conversaciones que el agente nunca
+  // derivó (44% de las conversaciones de la última semana), así que el panel
+  // las contaba como resueltas por la IA.
   containment: {
     total: number;
     aiHandled: number;
     teamIntervention: number;
     pctAI: number | null;
+    /** Desde cuándo tenemos registro de los mensajes del equipo. */
+    coberturaDesde: string | null;
+    /** false si el período empieza antes de esa fecha: el número queda alto. */
+    cubierto: boolean;
   };
   paymentFunnel: {
     /** Todas las imágenes que entraron a Aprobaciones. */
@@ -380,10 +388,18 @@ export async function GET(req: NextRequest) {
       totalConvSet.add(r.conversation_id as string);
     }
   }
+  // El equipo escribiendo cuenta como intervención aunque el agente no haya
+  // derivado: es el caso más frecuente y el que faltaba contar.
+  for (const r of msgRows) {
+    if (r.role === "human" && r.conversation_id) intervConvSet.add(r.conversation_id);
+  }
   const total = totalConvSet.size;
   const teamIntervention = intervConvSet.size;
   const aiHandled = total - teamIntervention;
   const pctAI = total === 0 ? null : Math.round((aiHandled / total) * 100);
+  // Si el período arranca antes de que el importador tuviera cobertura, no
+  // sabemos qué escribió el equipo en ese tramo y el número queda inflado.
+  const cubierto = coberturaDesde !== null && (!since || new Date(since).getTime() >= coberturaDesde);
 
   const msgTs = msgRows.map((r) => r.created_at as string);
   const equipoTs = msgRows.filter((r) => r.role === "human").map((r) => r.created_at);
@@ -393,7 +409,14 @@ export async function GET(req: NextRequest) {
     since,
     byCategory,
     messages: { assistant, human, user },
-    containment: { total, aiHandled, teamIntervention, pctAI },
+    containment: {
+      total,
+      aiHandled,
+      teamIntervention,
+      pctAI,
+      coberturaDesde: coberturaDesde ? new Date(coberturaDesde).toISOString() : null,
+      cubierto,
+    },
     paymentFunnel: funnel,
     validation,
     pending,
