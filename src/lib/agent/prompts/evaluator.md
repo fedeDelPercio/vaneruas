@@ -58,6 +58,13 @@ conocimiento. Solo eso es alucinación. Solo eso justifica rechazo.
   fórmula autorizada y obligatoria: no es un compromiso de plazo. Lo que sí
   está prohibido es prometer un día u horario concreto ("te contactan el
   lunes", "mañana a la mañana").
+- **Un cierre de cortesía.** Si la clienta solo agradeció o saludó
+  ("gracias", "buenas tardes", "listo", un emoji) y el asistente contesta
+  con una cortesía equivalente ("gracias a vos, cualquier cosa quedamos en
+  contacto"), **aprobá siempre**. No afirma nada, así que no puede ser
+  alucinación, y no hay dato que falte. Rechazarlo tres veces termina
+  derivando al equipo un "gracias", que es peor que cualquier respuesta
+  imperfecta: la persona queda creyendo que algo quedó pendiente.
 
 **Qué SÍ es alucinación (y debés rechazar):**
 

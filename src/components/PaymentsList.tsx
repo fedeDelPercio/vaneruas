@@ -721,12 +721,16 @@ export function PaymentsList() {
   // dio el acceso al curso. En esa vista los contadores por evento tienen que
   // reflejar lo que realmente falta, no el total de masterclass del estado (si
   // no, el chip muestra 291 cuando en la lista hay 5).
+  // Falta acceso = masterclass abierta, pago validado y acceso sin dar. El
+  // correo NO se exige acá: si no lo tenemos, igual es trabajo pendiente (hay
+  // que pedírselo), y esconderlo hacía que esas inscriptas desaparecieran del
+  // panel sin que nadie se enterara.
   const needsAccess = (p: PaymentItem) =>
     eventKind(p.eventSlug) === "masterclass" &&
     // Masterclass ya dictada y con la grabación vencida: no hay acceso que dar,
     // así que no es trabajo pendiente y no ensucia la worklist.
     accesoVigenteDeEvento(p.eventSlug) &&
-    Boolean(p.contactEmail) &&
+    p.status === "validated" &&
     !p.courseAccessGrantedAt;
   const countBase =
     filter === "sin-acceso" ? (items ?? []).filter(needsAccess) : (items ?? []);
@@ -960,11 +964,13 @@ export function PaymentsList() {
                   const isPending = p.status === "pending";
                   const busy = busyId === p.id;
                   const accessBusy = busyAccessId === p.id;
-                  // Acceso al curso (Tiendup): solo masterclass validada con mail.
-                  const canGrantAccess =
-                    p.status === "validated" &&
-                    eventKind(p.eventSlug) === "masterclass" &&
-                    Boolean(p.contactEmail);
+                  // Acceso al curso (Tiendup): masterclass validada. Sin correo
+                  // no se puede inscribir, pero la tarjeta igual se muestra con
+                  // el aviso, porque pedirle el correo ES la tarea pendiente.
+                  const esMasterclassValidada =
+                    p.status === "validated" && eventKind(p.eventSlug) === "masterclass";
+                  const faltaCorreo = esMasterclassValidada && !p.contactEmail;
+                  const canGrantAccess = esMasterclassValidada && Boolean(p.contactEmail);
                   // ¿El destinatario del comprobante no coincide con la cuenta de Vane?
                   const recipientWarn = recipientMismatches(p.recipientName, p.recipientTaxId);
                   const recipientWarnLabels = recipientWarn.map((w) => (w === "cuit" ? "CUIT" : "nombre"));
@@ -1304,6 +1310,12 @@ export function PaymentsList() {
                     </>
                   ) : (
                     <>
+                      {faltaCorreo && !p.courseAccessGrantedAt && (
+                        <span className="flex items-center gap-1.5 text-[12px] text-warn">
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+                          Falta el correo para darle el acceso, hay que pedírselo
+                        </span>
+                      )}
                       {canGrantAccess &&
                         (p.courseAccessGrantedAt ? (
                           <span className="flex items-center gap-1.5 text-[12px] text-ok">
