@@ -440,6 +440,11 @@ export function PaymentsList() {
   // Card cuya cruz de "descartar" está pidiendo confirmación (id del pago o de
   // la primera imagen de la card de título).
   const [confirmDismiss, setConfirmDismiss] = useState<string | null>(null);
+  // Rechazar es destructivo y silencioso: la tarjeta desaparece de Pendientes.
+  // Sin confirmación, dos clicks seguidos en la misma posición (la lista se
+  // reordena después de cada acción) rechazan comprobantes buenos. Pasó el
+  // 20/10 con dos pagos de $110.000, con 2 segundos de diferencia.
+  const [confirmReject, setConfirmReject] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const filterRef = useRef(filter);
   filterRef.current = filter;
@@ -455,6 +460,7 @@ export function PaymentsList() {
         return;
       }
       setError(null);
+      setConfirmReject(null);
       setItems(j.items as PaymentItem[]);
       setTitleReviews((j.titleReviews as TitleReview[]) ?? []);
       setStats((j.stats as PaymentStats) ?? null);
@@ -1151,18 +1157,44 @@ export function PaymentsList() {
                         <GraduationCap className="h-3.5 w-3.5 text-warn" strokeWidth={1.75} />
                         Validá el título para habilitar, o forzá la aprobación
                       </span>
-                      <button
-                        onClick={() => void setStatus(p.id, "rejected")}
-                        disabled={busy}
-                        className="flex items-center gap-1.5 rounded-md bg-red-600 px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        {busy ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
-                        ) : (
+                      {confirmReject === p.id ? (
+                        <>
+                          <span className="text-[12px] text-neutral-600 dark:text-neutral-300">
+                            Rechazar este comprobante?
+                          </span>
+                          <button
+                            onClick={() => setConfirmReject(null)}
+                            disabled={busy}
+                            className="rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            onClick={() => {
+                              setConfirmReject(null);
+                              void setStatus(p.id, "rejected");
+                            }}
+                            disabled={busy}
+                            className="flex items-center gap-1.5 rounded-md bg-red-600 px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            {busy ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
+                            ) : (
+                              <X className="h-3.5 w-3.5" strokeWidth={2} />
+                            )}
+                            Confirmar rechazo
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmReject(p.id)}
+                          disabled={busy}
+                          className="flex items-center gap-1.5 rounded-md border border-red-600/40 px-3.5 py-2 text-[13px] font-medium text-red-700 transition hover:bg-red-600/[0.06] disabled:cursor-not-allowed disabled:opacity-40 dark:text-red-300"
+                        >
                           <X className="h-3.5 w-3.5" strokeWidth={2} />
-                        )}
-                        Rechazar
-                      </button>
+                          Rechazar
+                        </button>
+                      )}
                       {confirmForceId === p.id ? (
                         <>
                           <span className="text-[12px] text-neutral-500 dark:text-neutral-400">
@@ -1219,18 +1251,44 @@ export function PaymentsList() {
                         placeholder="Nota (opcional)"
                         className="w-40 rounded-md border border-neutral-200 bg-white px-3 py-2 text-[13px] outline-none transition placeholder:text-neutral-400 focus:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder:text-neutral-500 dark:focus:border-neutral-600"
                       />
-                      <button
-                        onClick={() => void setStatus(p.id, "rejected")}
-                        disabled={busy}
-                        className="flex items-center gap-1.5 rounded-md bg-red-600 px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        {busy ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
-                        ) : (
+                      {confirmReject === p.id ? (
+                        <>
+                          <span className="text-[12px] text-neutral-600 dark:text-neutral-300">
+                            Rechazar este comprobante?
+                          </span>
+                          <button
+                            onClick={() => setConfirmReject(null)}
+                            disabled={busy}
+                            className="rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            onClick={() => {
+                              setConfirmReject(null);
+                              void setStatus(p.id, "rejected");
+                            }}
+                            disabled={busy}
+                            className="flex items-center gap-1.5 rounded-md bg-red-600 px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            {busy ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
+                            ) : (
+                              <X className="h-3.5 w-3.5" strokeWidth={2} />
+                            )}
+                            Confirmar rechazo
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmReject(p.id)}
+                          disabled={busy}
+                          className="flex items-center gap-1.5 rounded-md border border-red-600/40 px-3.5 py-2 text-[13px] font-medium text-red-700 transition hover:bg-red-600/[0.06] disabled:cursor-not-allowed disabled:opacity-40 dark:text-red-300"
+                        >
                           <X className="h-3.5 w-3.5" strokeWidth={2} />
-                        )}
-                        Rechazar
-                      </button>
+                          Rechazar
+                        </button>
+                      )}
                       <button
                         onClick={() => void setStatus(p.id, "validated")}
                         disabled={busy}

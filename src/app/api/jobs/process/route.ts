@@ -331,14 +331,47 @@ const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
  * conversations.contact_email (lo último que mande pisa lo anterior). Best-
  * effort: cualquier error se loguea y no interrumpe el procesamiento del job.
  */
+/** Últimos mensajes de la contacta que se miran buscando un correo perdido. */
+const EMAIL_LOOKBACK = 15;
+
 async function captureContactEmail(
   conversationId: string,
   content: string | null,
   opts: { externalId: string | null; source: string | null },
 ): Promise<void> {
-  const match = content?.match(EMAIL_RE);
-  if (!match) return;
-  const email = match[0].toLowerCase();
+  let email = content?.match(EMAIL_RE)?.[0]?.toLowerCase() ?? null;
+
+  // Rescate: el correo puede haber llegado en un mensaje ANTERIOR del mismo
+  // turno. Pasa seguido: la contacta escribe "Nombre + mail" y un segundo
+  // después manda la foto del comprobante o del título; el debounce reancla el
+  // turno al adjunto y este camino solo ve el texto del adjunto, que viene
+  // vacío. El correo quedaba perdido y el pago se aprobaba sin tener a dónde
+  // mandar el acceso. Solo se busca si todavía NO tenemos correo, para no pisar
+  // uno bueno con otro viejo que la contacta ya corrigió.
+  if (!email) {
+    const sb = getSupabaseServerClient();
+    const { data: conv } = await sb
+      .from("conversations")
+      .select("contact_email")
+      .eq("id", conversationId)
+      .maybeSingle();
+    if (conv?.contact_email) return;
+    const { data: previos } = await sb
+      .from("messages")
+      .select("content")
+      .eq("conversation_id", conversationId)
+      .eq("role", "user")
+      .order("created_at", { ascending: false })
+      .limit(EMAIL_LOOKBACK);
+    for (const m of previos ?? []) {
+      const hit = m.content?.match(EMAIL_RE)?.[0];
+      if (hit) {
+        email = hit.toLowerCase();
+        break;
+      }
+    }
+  }
+  if (!email) return;
   try {
     await getSupabaseServerClient()
       .from("conversations")
