@@ -34,9 +34,10 @@ interface TooltipProps {
   escala?: Escala;
   /** Clave del último bucket: está a mitad de camino, no es comparable. */
   enCurso?: string;
+  unidad?: "mensajes" | "conversaciones";
 }
 
-function Box({ active, payload, escala, enCurso }: TooltipProps) {
+function Box({ active, payload, escala, enCurso, unidad }: TooltipProps) {
   const p = payload?.[0]?.payload;
   if (!active || !p) return null;
   return (
@@ -46,11 +47,20 @@ function Box({ active, payload, escala, enCurso }: TooltipProps) {
         {p.periodo === enCurso ? " · en curso" : ""}
       </p>
       <p className="mt-1 text-[15px] font-medium tracking-tight-er text-neutral-900 dark:text-neutral-50">
-        {p.pct === null ? "sin datos" : `${p.pct}% IA`}
+        {p.pct === null ? "sin datos" : `${p.pct}% ${unidad === "conversaciones" ? "sola" : "IA"}`}
       </p>
       <p className="mt-0.5 text-[11.5px] text-neutral-600 dark:text-neutral-300">
-        <span className="font-mono">{p.ia}</span> mensajes de la IA ·{" "}
-        <span className="font-mono">{p.equipo}</span> del equipo
+        {unidad === "conversaciones" ? (
+          <>
+            <span className="font-mono">{p.ia}</span> resueltas por la IA ·{" "}
+            <span className="font-mono">{p.equipo}</span> con el equipo
+          </>
+        ) : (
+          <>
+            <span className="font-mono">{p.ia}</span> mensajes de la IA ·{" "}
+            <span className="font-mono">{p.equipo}</span> del equipo
+          </>
+        )}
       </p>
     </div>
   );
@@ -59,9 +69,12 @@ function Box({ active, payload, escala, enCurso }: TooltipProps) {
 export function AiShareChart({
   semanal,
   mensual,
+  unidad = "mensajes",
 }: {
   semanal: SharePoint[];
   mensual: SharePoint[];
+  /** Qué cuenta la serie. Cambia la leyenda y el tooltip, no el cálculo. */
+  unidad?: "mensajes" | "conversaciones";
 }) {
   const dark = useIsDark();
   const c = dark ? PALETTE.dark : PALETTE.light;
@@ -85,7 +98,10 @@ export function AiShareChart({
             "Sin datos en el tramo"
           ) : (
             <>
-              % de los mensajes salientes que escribió la IA · promedio del tramo{" "}
+              {unidad === "mensajes"
+                ? "% de los mensajes salientes que escribió la IA"
+                : "% de las conversaciones que resolvió la IA sola"}{" "}
+              · promedio del tramo{" "}
               <span className="font-mono text-neutral-900 dark:text-neutral-50">{promedio}%</span>
             </>
           )}
@@ -139,7 +155,7 @@ export function AiShareChart({
             )}
             <Tooltip
               cursor={{ stroke: c.grid, strokeWidth: 1 }}
-              content={<Box escala={escala} enCurso={data.at(-1)?.periodo} />}
+              content={<Box escala={escala} enCurso={data.at(-1)?.periodo} unidad={unidad} />}
             />
             <Area
               dataKey="pct"

@@ -244,6 +244,14 @@ export function MetricsDashboard() {
           </Section>
 
           {/* Evolución del reparto IA / equipo */}
+          <Section title="Conversaciones que resolvió la IA sola, semana a semana">
+            <AiShareChart
+              semanal={data.shareConversaciones.semanal}
+              mensual={data.shareConversaciones.mensual}
+              unidad="conversaciones"
+            />
+          </Section>
+
           <Section title="Mensajes escritos por la IA, semana a semana">
             <AiShareChart semanal={data.share.semanal} mensual={data.share.mensual} />
           </Section>

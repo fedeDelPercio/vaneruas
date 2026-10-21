@@ -71,6 +71,9 @@ export interface MetricsResponse {
   // Evolución del reparto IA / equipo, por semana y por mes. Va aparte del
   // período seleccionado a propósito: es una serie de tendencia, no una foto.
   share: { semanal: SharePoint[]; mensual: SharePoint[] };
+  // Lo mismo pero a nivel CONVERSACIÓN: cuántas resolvió la IA sola. Es el
+  // indicador de autonomía; el de arriba es de volumen de trabajo.
+  shareConversaciones: { semanal: SharePoint[]; mensual: SharePoint[] };
 }
 
 export interface SharePoint {
@@ -238,6 +241,67 @@ export async function GET(req: NextRequest) {
     mensual: await shareDe(bucketsMensuales(6)),
   }))();
 
+  // Autonomía por conversación, semana a semana. Necesita filas (hay que contar
+  // conversaciones DISTINTAS), no counts, así que se trae una sola vez el tramo
+  // de las 12 semanas y se bucketea en memoria. Solo user + human: el mensaje
+  // de la clienta marca la conversación como activa y el del equipo marca la
+  // intervención; los de la IA no hacen falta para este cálculo.
+  const shareConvP = (async () => {
+    const semanas = bucketsSemanales(12);
+    const meses = bucketsMensuales(6);
+    const spanDesde = semanas[0]!.desde;
+    const filas = await fetchAll<{
+      conversation_id: string | null;
+      role: string;
+      created_at: string;
+    }>((from, to) =>
+      sb
+        .from("messages")
+        .select("conversation_id, role, created_at")
+        .in("role", ["user", "human"])
+        .gte("created_at", spanDesde)
+        .order("created_at")
+        .range(from, to),
+    );
+    const derivaciones = await fetchAll<{ conversation_id: string | null; created_at: string }>(
+      (from, to) =>
+        sb
+          .from("agent_notifications")
+          .select("conversation_id, created_at")
+          .neq("category", "validacion_pago")
+          .gte("created_at", spanDesde)
+          .order("created_at")
+          .range(from, to),
+    );
+    const arma = (bs: Bucket[]): SharePoint[] =>
+      bs.map((b) => {
+        const dentro = (t: string) => t >= b.desde && t < b.hasta;
+        const activas = new Set<string>();
+        const conEquipo = new Set<string>();
+        for (const f of filas) {
+          if (!f.conversation_id || !dentro(f.created_at)) continue;
+          activas.add(f.conversation_id);
+          if (f.role === "human") conEquipo.add(f.conversation_id);
+        }
+        for (const d of derivaciones) {
+          if (!d.conversation_id || !dentro(d.created_at)) continue;
+          activas.add(d.conversation_id);
+          conEquipo.add(d.conversation_id);
+        }
+        const sinCobertura =
+          coberturaDesde === null || new Date(b.desde).getTime() < coberturaDesde;
+        const sola = activas.size - conEquipo.size;
+        return {
+          periodo: b.periodo,
+          label: b.label,
+          ia: sola,
+          equipo: conEquipo.size,
+          pct: activas.size === 0 || sinCobertura ? null : Math.round((sola / activas.size) * 100),
+        };
+      });
+    return { semanal: arma(semanas), mensual: arma(meses) };
+  })();
+
   // --- Comprobantes del período. Se traen las filas (no counts) porque hay que
   //     separar los RECHAZADOS de los DESCARTADOS, y eso no se puede filtrar en
   //     la query: ambos quedan como status="rejected".
@@ -360,7 +424,7 @@ export async function GET(req: NextRequest) {
     return q.range(from, to);
   });
 
-  const [byCategory, assistant, human, user, funnel, validation, pending, msgRows, payTs, intervRows, share] =
+  const [byCategory, assistant, human, user, funnel, validation, pending, msgRows, payTs, intervRows, share, shareConversaciones] =
     await Promise.all([
       categoriesP,
       countMessages("assistant"),
@@ -373,6 +437,7 @@ export async function GET(req: NextRequest) {
       payTimestampsP,
       intervConvP,
       shareP,
+      shareConvP,
     ]);
 
 
@@ -422,6 +487,7 @@ export async function GET(req: NextRequest) {
     pending,
     daily: buildDailySeries(msgTs, payTs, equipoTs, days),
     share,
+    shareConversaciones,
   };
 
   return NextResponse.json(body);
