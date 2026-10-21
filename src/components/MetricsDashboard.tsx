@@ -181,11 +181,15 @@ export function MetricsDashboard() {
         <div className="space-y-3">
           {/* Fila de stats */}
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {/* Dos métricas distintas conviven en este panel y antes se llamaban
+                igual ("respondido por IA"), así que no cerraban entre sí. Esta
+                es por CONVERSACIÓN: cuántas se resolvieron sin que el equipo
+                tuviera que entrar. La del gráfico de abajo es por MENSAJE. */}
             <Stat
-              label="Respondido por IA"
+              label="Conversaciones que resolvió la IA"
               value={aiPct === null ? "—" : String(aiPct)}
               unit={aiPct === null ? undefined : "%"}
-              hint={`${data.containment.aiHandled} de ${data.containment.total} conversaciones`}
+              hint={`${data.containment.aiHandled} de ${data.containment.total}, sin pasar al equipo`}
             />
             <Stat
               label="Comprobantes recibidos"
@@ -227,7 +231,7 @@ export function MetricsDashboard() {
           </Section>
 
           {/* Mensajes escritos por el equipo (no por la IA) */}
-          <Section title="Mensajes escritos por el equipo">
+          <Section title="Mensajes escritos por el equipo, día a día">
             {data.daily.length === 0 ? (
               <Empty>No hay actividad en este período.</Empty>
             ) : (
@@ -236,7 +240,7 @@ export function MetricsDashboard() {
           </Section>
 
           {/* Evolución del reparto IA / equipo */}
-          <Section title="Evolución del % respondido por la IA">
+          <Section title="Mensajes escritos por la IA, semana a semana">
             <AiShareChart semanal={data.share.semanal} mensual={data.share.mensual} />
           </Section>
 

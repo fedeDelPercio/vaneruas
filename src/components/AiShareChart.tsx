@@ -32,21 +32,24 @@ interface TooltipProps {
   active?: boolean;
   payload?: { payload?: SharePoint }[];
   escala?: Escala;
+  /** Clave del último bucket: está a mitad de camino, no es comparable. */
+  enCurso?: string;
 }
 
-function Box({ active, payload, escala }: TooltipProps) {
+function Box({ active, payload, escala, enCurso }: TooltipProps) {
   const p = payload?.[0]?.payload;
   if (!active || !p) return null;
   return (
     <div className="rounded-md border border-neutral-200 bg-white px-3 py-2 shadow-soft dark:border-neutral-800 dark:bg-neutral-900 dark:shadow-soft-dark">
       <p className="font-mono text-[10px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
         {escala === "mensual" ? p.label : `semana del ${p.label}`}
+        {p.periodo === enCurso ? " · en curso" : ""}
       </p>
       <p className="mt-1 text-[15px] font-medium tracking-tight-er text-neutral-900 dark:text-neutral-50">
         {p.pct === null ? "sin datos" : `${p.pct}% IA`}
       </p>
       <p className="mt-0.5 text-[11.5px] text-neutral-600 dark:text-neutral-300">
-        <span className="font-mono">{p.ia}</span> de la IA ·{" "}
+        <span className="font-mono">{p.ia}</span> mensajes de la IA ·{" "}
         <span className="font-mono">{p.equipo}</span> del equipo
       </p>
     </div>
@@ -82,7 +85,7 @@ export function AiShareChart({
             "Sin datos en el tramo"
           ) : (
             <>
-              Promedio del tramo{" "}
+              % de los mensajes salientes que escribió la IA · promedio del tramo{" "}
               <span className="font-mono text-neutral-900 dark:text-neutral-50">{promedio}%</span>
             </>
           )}
@@ -136,7 +139,7 @@ export function AiShareChart({
             )}
             <Tooltip
               cursor={{ stroke: c.grid, strokeWidth: 1 }}
-              content={<Box escala={escala} />}
+              content={<Box escala={escala} enCurso={data.at(-1)?.periodo} />}
             />
             <Area
               dataKey="pct"
