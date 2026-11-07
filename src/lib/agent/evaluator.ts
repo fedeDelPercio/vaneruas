@@ -43,6 +43,9 @@ function timeContextForEvaluator(): string {
     "=== Fecha de hoy ===",
     `Hoy es ${tc.dayName} ${tc.localTime} (hora de Argentina). Usala para juzgar`,
     "si un plazo de la base de conocimiento ya venció o sigue vigente.",
+    // Los mismos plazos resueltos que ve el orquestador, para que no se
+    // contradigan sobre si algo ya cerró.
+    ...(tc.plazos ? ["", tc.plazos] : []),
   ].join("\n");
 }
 

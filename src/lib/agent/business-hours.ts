@@ -8,6 +8,8 @@
 // de horario, aviso de re-contacto al día siguiente, etc).
 // ===========================================================================
 
+import { plazosBlock } from "./plazos";
+
 const TZ = "America/Argentina/Buenos_Aires";
 const BUSINESS_START_HOUR = 9;
 const BUSINESS_END_HOUR = 18; // exclusivo: 18:00 ya es fuera de horario
@@ -37,6 +39,8 @@ export interface TimeContext {
    * "viernes a la mañana" con "el lunes".
    */
   followUpTiming: string;
+  /** Plazos con fecha fija ya resueltos contra `now` (ver plazos.ts). */
+  plazos: string;
 }
 
 /**
@@ -83,6 +87,7 @@ export function getTimeContext(now: Date = new Date()): TimeContext {
     dayName: weekday,
     isBusinessHours,
     followUpTiming: computeFollowUpTiming(dayIdx, hour),
+    plazos: plazosBlock(now),
   };
 }
 
@@ -99,5 +104,6 @@ export function timeContextBlock(tc: TimeContext): string {
     "digas a la persona un día ni un horario en que la van a contactar (puede",
     "haber demora según la carga). Ofrecé el contacto SIN fecha: que el equipo",
     'le responde "a la brevedad".',
+    ...(tc.plazos ? ["", tc.plazos] : []),
   ].join("\n");
 }

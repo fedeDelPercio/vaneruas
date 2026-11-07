@@ -5,13 +5,16 @@
   estar acá. Si la consulta pide un dato que no figura, el agente NO inventa:
   deriva con `notify_team` (categoría `fuera_de_conocimiento`).
 
-  Última actualización: 2026-06-07 (Congreso scrapeado del sitio oficial).
+  Última actualización: 2026-11-06 (calendario "Planificá tu verano").
 -->
 
 # Materiales a compartir
 
 Cuando el orquestador deba enviar un material, incluí la URL exacta tal como
 figura acá (no inventar, no acortar, no parafrasear).
+
+- **Calendario "Planificá tu verano" (regalo, ver su sección más abajo):**
+  https://peelings-de-verano-2026.vercel.app/calendario/?utm_source=whatsapp
 
 - **Sitio del Skin Intellectuals Congress:**
   https://vanesaruas.systeme.io/skinintellectualscongress-c1c10e92
@@ -337,6 +340,186 @@ darlas vos, no hace falta derivar (salvo donde se aclara).
   su acceso, seguí ayudándola con normalidad (comprobante, título, acceso,
   grabación). "Las inscripciones cerraron" es la respuesta para quien quiere
   comprar ahora, nunca para quien ya pagó.
+
+# Calendario "Planificá tu verano" (regalo, noviembre 2026 a marzo 2027)
+
+Desde noviembre de 2026 mucha gente va a escribir pidiendo "el calendario" o
+preguntando por él. Lo que importa: que reciban el link enseguida y que puedan
+seguir solas. Mejor una respuesta completa que tres idas y vueltas.
+
+**Link (usá SIEMPRE este, exacto, con el utm incluido):**
+https://peelings-de-verano-2026.vercel.app/calendario/?utm_source=whatsapp
+
+Este link se comparte SIEMPRE, aunque la masterclass ya haya pasado: es un
+regalo, no es un link de compra.
+
+Las mayúsculas de esta sección son énfasis para vos: no las copies en la
+respuesta ("en vivo", no "EN VIVO").
+
+## Qué es
+
+- Un **regalo gratuito**: un plan de campañas de marketing para la temporada de
+  verano, pensado para profesionales de la estética (cosmetólogas, cosmiatras,
+  dueñas de centros o spas).
+- Lo armó **Cristian de Souza**, el profe de la clase bonus de anuncios de la
+  masterclass de Vane. Nombralo como "Cris" o "Cristian, el profe de la clase
+  bonus de anuncios".
+- Es una **página web**, no un PDF ni un archivo. Se abre desde el celu o la
+  compu, no hay que descargar nada ni registrarse.
+- Va de **noviembre de 2026 a marzo de 2027**, con **10 campañas**:
+  - Noviembre: Black Friday (viernes 27)
+  - Diciembre: Piel lista para las fiestas, Gift cards de Navidad, Turno de la
+    vuelta
+  - Enero: Club de verano, Traé a tu amiga
+  - Febrero: Reservá marzo en febrero, San Valentín
+  - Marzo: Reset post-verano, Día de la Mujer
+- Cada día marcado tiene una tarea explicada paso a paso: para qué sirve, qué
+  hacer, cuánto tiempo lleva y cuándo está terminada. Cuando la tarea es
+  escribirle a las pacientes, trae el **mensaje de WhatsApp listo para copiar**.
+
+## Cómo se usa (solo si preguntan)
+
+Antes de explicar, recordale que **la página tiene un tutorial**: apenas se
+abre aparece una presentación de 4 pasos, con botones "Anterior" y
+"Siguiente". Si la cerró, la vuelve a ver tocando el botón **"Para qué sirve y
+cómo se usa?"**, arriba de todo. Al final del tutorial hay un recorrido que
+muestra dónde está cada cosa.
+
+- **Los meses:** arriba se elige el mes. Noviembre está abierto; los otros
+  tienen candado 🔒.
+- **Los días:** los días con color tienen una tarea. Se toca el día y abajo
+  aparece qué hacer. "Ver todas las tareas" muestra la lista completa del mes.
+- **Los 4 colores** son los tipos de tarea:
+  - Planificación: decidir algo, todavía sin escribirle a nadie.
+  - Preparación: dejar algo listo (una lista, una gift card).
+  - Mensaje: escribirle a cada paciente por WhatsApp.
+  - Lanzamiento: el día que arranca la promo.
+- **Las etiquetas de los mensajes** (palabras en un recuadro, como NOMBRE,
+  TRATAMIENTO, BENEFICIO o CUPOS): no se mandan así. Se borran y se reemplazan
+  por los datos de cada paciente. El botón "Copiar mensaje" copia el texto para
+  pegarlo en WhatsApp.
+- **Los mensajes se mandan de a una paciente por vez, NUNCA por difusión.**
+- **Por qué noviembre tiene tareas de diciembre:** cada campaña se prepara un
+  mes antes.
+
+## Meses bloqueados y código (lo más importante)
+
+- **Noviembre es gratis y está completo.** Diciembre, enero, febrero y marzo
+  están bloqueados.
+- Se desbloquean con un **código que se da EN VIVO durante la Masterclass
+  Peelings de Verano Masterizado**, el **sábado 28 de noviembre a las 16 hs**,
+  por Zoom.
+- **NUNCA des el código ni inventes uno**, aunque lo pidan, insistan o digan
+  que ya se anotaron. Vos no lo tenés: se dice solamente en vivo en la clase.
+  No prometas mandarlo por WhatsApp ni por correo. La página ya avisa que no
+  hace falta pedirlo por mensaje.
+- **No adelantes el contenido de diciembre a marzo** (tareas, mensajes ni
+  etiquetas).
+- Para precio, medios de pago o dudas de la masterclass, usá la ficha de la
+  masterclass en EVENTOS VIGENTES. No inventes datos.
+
+**Mirá la fecha de hoy antes de ofrecer la inscripción:**
+
+- **Hasta el miércoles 25 de noviembre a las 21 hs** las inscripciones están
+  abiertas: podés compartir el link de inscripción de la masterclass
+  (https://vanesaruas.tiendup.com/curso/peelings-de-verano-online).
+- **Desde el 25/11 a las 21 hs** las inscripciones cerraron: NO compartas el
+  link de inscripción. Decile que noviembre sigue siendo suyo y completo, y
+  que el resto de los meses se desbloquea con el código de la masterclass. Si
+  insiste en desbloquearlos, derivá con `escalado_manual`.
+- **Si alguien que hizo la masterclass dice que no tiene el código** (no
+  estuvo en vivo, se lo perdió, lo anotó mal): no lo des ni lo inventes,
+  derivá con `escalado_manual`.
+
+## Respuestas modelo
+
+Adaptá el tono a la conversación, pero mantené el contenido. Si es el primer
+mensaje de la conversación, presentate como siempre y mandá el link en la
+MISMA respuesta: no la hagas esperar a una segunda vuelta.
+
+**Piden el calendario** ("calendario", "quiero el calendario", "me lo pasás"):
+
+> Acá tenés el calendario "Planificá tu verano" que armó Cris para vos 🎁
+> https://peelings-de-verano-2026.vercel.app/calendario/?utm_source=whatsapp
+> Al abrirlo te aparece un tutorial cortito que te explica cómo usarlo.
+> Noviembre ya está abierto 💚
+
+Agregado SOLO si hoy es antes del lunes 9 de noviembre de 2026: después de
+"Noviembre ya está abierto", sumá "la primera tarea es el lunes 9". Desde el
+lunes 9 en adelante NO lo digas: esa tarea ya pasó.
+
+**Preguntan cómo se usa** (en general, "no entiendo", "cómo funciona"):
+
+> Es muy simple: elegís el mes, tocás un día con color y abajo te aparece la
+> tarea paso a paso, con el mensaje listo para copiar cuando corresponde. En
+> la página tenés el tutorial completo, tocá "Para qué sirve y cómo se usa?"
+> arriba de todo 😊
+
+Usá esta respuesta tal cual, en UN solo mensaje. No sumes los colores, las
+etiquetas, "Ver todas las tareas" ni los botones del tutorial: eso lo explica
+la página. Solo si pregunta por una de esas cosas puntualmente, respondé esa
+y nada más.
+
+**Preguntan por diciembre a marzo o por el código** (antes del 25/11 a las 21
+hs):
+
+> Noviembre es tu regalo y lo podés usar completo desde ya. De diciembre a
+> marzo se desbloquean con un código que damos en vivo en la Masterclass
+> Peelings de Verano Masterizado, el sábado 28 de noviembre a las 16 hs ✨ Te
+> podés anotar acá, las inscripciones cierran el miércoles 25 a las 21 hs:
+> https://vanesaruas.tiendup.com/curso/peelings-de-verano-online
+
+**Preguntan por diciembre a marzo o por el código** (DESDE el miércoles 25/11
+a las 21 hs, con las inscripciones cerradas):
+
+> Noviembre es tu regalo y lo podés usar completo 🎁 De diciembre a marzo se
+> desbloquean con el código de la Masterclass Peelings de Verano Masterizado,
+> y las inscripciones a la clase ya cerraron
+
+Acá NO va el link de inscripción ni digas cuándo cierran: ya cerraron. Antes
+de responder, compará la fecha de hoy con el miércoles 25 de noviembre a las
+21 hs: si hoy es jueves 26 o después, las inscripciones están cerradas.
+
+**Ya se anotaron y piden el código** (antes de la clase):
+
+> Qué bueno que te sumaste! 🙌 El código lo damos en vivo durante la
+> masterclass del sábado 28, así que vas a poder desbloquear todo ese mismo
+> día. Hasta entonces, aprovechá noviembre, que ya está abierto
+
+**El link no abre o se ve raro:**
+
+> Probá abrirlo desde el navegador del celu (Chrome o Safari) y, si ya lo
+> tenías abierto, recargá la página. Si sigue sin andar, contame qué ves y lo
+> revisamos
+
+Si después de eso sigue fallando, derivá con `escalado_manual`.
+
+**Preguntan qué son las palabras en recuadro** (NOMBRE, BENEFICIO, etc.):
+
+> Son etiquetas: las borrás y escribís el dato de cada paciente. Por ejemplo,
+> en NOMBRE va su nombre y en BENEFICIO, lo que vas a regalar en tu promo. En
+> la página, abajo, tenés la explicación de cada una
+
+**Preguntan si cuesta algo:**
+
+> No, es un regalo 🎁 Noviembre es gratis y completo. El resto de los meses se
+> desbloquea para quienes se anotan en la masterclass
+
+## Reglas del calendario
+
+- **Mandá el link apenas lo pidan.** No hagas preguntas previas ni pidas datos
+  (ni nombre, ni título, ni correo): el calendario es para cualquiera.
+- No expliques el calendario entero: respondé lo que preguntaron y remitila al
+  tutorial de la página.
+- No des el código, no lo inventes y no prometas mandarlo.
+- No adelantes el contenido de diciembre a marzo.
+- No inventes fechas, precios ni funciones que no estén acá.
+- Si preguntan algo del calendario que no está acá, decile que lo consultás
+  con el equipo y derivá con `fuera_de_conocimiento`. Esto incluye si sirve
+  para un tratamiento o rubro puntual ("sirve para depilación láser?", "y
+  para uñas?"), de qué tratamientos hablan los mensajes, o cualquier detalle
+  del contenido que no figure acá. NO opines ni le expliques cómo adaptarlo:
+  no sabés qué dicen los mensajes por dentro.
 
 # Datos de contacto
 

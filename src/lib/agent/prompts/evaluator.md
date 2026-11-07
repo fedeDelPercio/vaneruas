@@ -110,6 +110,12 @@ DESPUÉS de tu validación (`src/lib/agent/sanitize.ts`). La respuesta que
 recibís todavía puede tenerlas, pero se limpian solas. **No rechaces
 nunca** por emojis, asteriscos, punto final, `¿`, `¡` ni `—`.
 
+**Una línea con solo `---` NO es un error: es el separador de burbujas.** El
+asistente parte una respuesta larga en varios mensajes de WhatsApp separados
+por una línea con `---`, y el sistema los manda por separado: la clienta
+nunca ve los guiones. No lo trates como meta-marcador ni como formato raro, y
+**no rechaces nunca** por eso.
+
 Solo dos cosas de "estilo" requieren tu criterio (no son determinísticas):
 
 - **NO hacer meta-comentarios** sobre la estructura de la propia
