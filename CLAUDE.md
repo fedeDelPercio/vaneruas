@@ -1,5 +1,10 @@
 # ATP — Panel design system (marca Vanesa Rúas)
 
+> **Contexto del proyecto: leé `CONTEXTO-PROYECTO.md` antes de tocar el agente,
+> la base de datos, las integraciones o cualquier flujo.** Tiene la
+> arquitectura, las reglas duras, el negocio y las trampas conocidas. Este
+> archivo cubre solo el design system del panel.
+
 La **fuente de verdad visual es `design-system.md`** (raíz del repo). Cuando
 construyas o modifiques UI, seguí ese documento; esta sección resume cómo se
 aplica al panel. Identidad: **fondo oscuro · texto blanco · acento dorado ·
