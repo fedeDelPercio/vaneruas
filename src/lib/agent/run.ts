@@ -455,7 +455,8 @@ async function logOrchestratorStep(
         step_name: "orchestrator",
         iteration: ctx.iteration,
         model: orch.model,
-        provider: "anthropic",
+        // El orquestador marca con "openrouter:" el modelo que respondió por ahí.
+        provider: orch.model.startsWith("openrouter:") ? "openrouter" : "anthropic",
         input: null,
         output: {
           responseText: orch.responseText,
@@ -465,6 +466,7 @@ async function logOrchestratorStep(
         output_tokens: orch.outputTokens,
         cache_read_tokens: orch.cacheReadTokens,
         cache_write_tokens: orch.cacheWriteTokens,
+        cost_usd: orch.costUsd,
         latency_ms: orch.latencyMs,
         error: null,
       });

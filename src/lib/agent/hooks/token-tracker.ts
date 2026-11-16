@@ -39,6 +39,16 @@ export function usageToTotals(usage: unknown): TokenTotals {
   };
 }
 
+/**
+ * Lo que cobró el proveedor por la llamada, en USD (`usage.cost` de
+ * OpenRouter). null si no vino, por ejemplo con Anthropic directo: ausente no
+ * es cero, y el informe mensual estima esas llamadas con las tarifas de lista.
+ */
+export function reportedCost(usage: unknown): number | null {
+  const cost = (usage as { cost?: unknown } | null)?.cost;
+  return typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? cost : null;
+}
+
 /** Suma dos pares de totales (util para acumular a lo largo de iteraciones). */
 export function addTotals(a: TokenTotals, b: TokenTotals): TokenTotals {
   return {

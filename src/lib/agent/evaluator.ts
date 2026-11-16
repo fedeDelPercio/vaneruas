@@ -8,7 +8,7 @@ import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { getTimeContext } from "./business-hours";
 import { createConversationMessage } from "./llm-call";
 import { loadPrompt } from "./prompts";
-import { usageToTotals } from "./hooks/token-tracker";
+import { reportedCost, usageToTotals } from "./hooks/token-tracker";
 import type { EvaluationResult, HistoryMessage, RunContext } from "./types";
 import type { Json } from "@/lib/supabase/types";
 
@@ -260,6 +260,7 @@ export async function evaluateResponse(params: {
         output_tokens: totals.outputTokens,
         cache_read_tokens: totals.cacheReadTokens,
         cache_write_tokens: totals.cacheWriteTokens,
+        cost_usd: reportedCost(usage),
         latency_ms: Date.now() - startedAt,
         error: null,
       });

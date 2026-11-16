@@ -51,6 +51,8 @@ export interface OrchestratorResult {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   latencyMs: number;
+  /** Lo que cobró OpenRouter por la llamada (USD); null si no lo informó. */
+  costUsd: number | null;
   /** Modelo concreto que uso el SDK. */
   model: string;
   /** Senial de notificacion (si el orquestador invoco notify_team). */

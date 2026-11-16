@@ -150,6 +150,25 @@ function ok(name: string, cond: boolean, extra?: unknown) {
   ok("resp tool malformado: input = {}", JSON.stringify(tb?.input) === "{}", tb?.input);
 }
 
+// --- 5b. Costo: se pide en el request y se lee de la respuesta ----------------
+{
+  const body = toOpenAIBody(
+    { model: "claude-sonnet-4-5", max_tokens: 64, messages: [{ role: "user", content: "hola" }] },
+    "anthropic/claude-sonnet-4.5",
+  );
+  ok("costo: el body pide usage.include", body.usage?.include === true, body.usage);
+  const conCosto = fromOpenAIResponse({
+    choices: [{ message: { content: "hola" } }],
+    usage: { prompt_tokens: 100, completion_tokens: 10, cost: 0.0123 },
+  });
+  ok("costo: usage.cost llega al usage normalizado", conCosto.usage.cost === 0.0123, conCosto.usage);
+  const sinCosto = fromOpenAIResponse({
+    choices: [{ message: { content: "hola" } }],
+    usage: { prompt_tokens: 100, completion_tokens: 10 },
+  });
+  ok("costo: si no viene, no se inventa", !("cost" in sinCosto.usage), sinCosto.usage);
+}
+
 // --- 6. isFallbackWorthy: 5xx/429/red sí; 4xx no ----------------------------
 {
   ok("fallback: 500 sí", isFallbackWorthy({ status: 500 }));

@@ -481,6 +481,7 @@ export type Database = {
           output_tokens: number;
           cache_read_tokens: number | null;
           cache_write_tokens: number | null;
+          cost_usd: number | null;
           latency_ms: number;
           error: string | null;
           client_slug: string;
@@ -501,6 +502,7 @@ export type Database = {
           output_tokens?: number;
           cache_read_tokens?: number | null;
           cache_write_tokens?: number | null;
+          cost_usd?: number | null;
           latency_ms?: number;
           error?: string | null;
           client_slug?: string;
@@ -521,6 +523,7 @@ export type Database = {
           output_tokens?: number;
           cache_read_tokens?: number | null;
           cache_write_tokens?: number | null;
+          cost_usd?: number | null;
           latency_ms?: number;
           error?: string | null;
           client_slug?: string;

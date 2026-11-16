@@ -17,7 +17,7 @@ import {
   applyRegistrarNombre,
   type RegistrarNombreArgs,
 } from "./tools";
-import { usageToTotals } from "./hooks/token-tracker";
+import { reportedCost, usageToTotals } from "./hooks/token-tracker";
 import { type TimeContext } from "./business-hours";
 import { buildSystemPrompt, buildMessages } from "./prompt-builder";
 import { sanitizeStyle } from "./sanitize";
@@ -163,6 +163,7 @@ export async function runOrchestrator(params: {
       cacheReadTokens: totals.cacheReadTokens,
       cacheWriteTokens: totals.cacheWriteTokens,
       latencyMs: Date.now() - startedAt,
+      costUsd: reportedCost(response.usage),
       // Si respondió el fallback, lo dejamos visible en el trace.
       model: response.provider === "anthropic" ? model : `openrouter:${response.model}`,
       notification: ctx.notification,

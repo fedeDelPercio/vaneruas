@@ -25,6 +25,12 @@ export interface LlmUsage {
   output_tokens?: number;
   cache_read_input_tokens?: number;
   cache_creation_input_tokens?: number;
+  /**
+   * Lo que COBRÓ OpenRouter por la llamada, en USD (`usage.cost`, viene porque
+   * el request pide `usage: { include: true }`). Anthropic directo no lo manda:
+   * ausente no es cero, es "no sabemos".
+   */
+  cost?: number;
 }
 
 export interface OpenAIResponse {
@@ -47,6 +53,8 @@ export interface OpenAIResponse {
       cached_tokens?: number;
       cache_write_tokens?: number;
     };
+    /** Costo de la llamada en USD (con `usage: { include: true }`). */
+    cost?: number;
   };
 }
 
@@ -71,6 +79,8 @@ export interface OpenAIBody {
   tool_choice?: unknown;
   /** Prompt caching automático de OpenRouter (ver toOpenAIBody). */
   cache_control?: { type: "ephemeral" };
+  /** Pide que la respuesta traiga el costo (`usage.cost`). */
+  usage?: { include: boolean };
 }
 
 /** Arma el body OpenAI (para OpenRouter) a partir de los params Anthropic. */
@@ -93,6 +103,9 @@ export function toOpenAIBody(
     model,
     max_tokens: params.max_tokens,
     messages,
+    // Que OpenRouter devuelva lo que cobró por esta llamada: va al trace
+    // (agent_trace_steps.cost_usd) y de ahí al costo del mes.
+    usage: { include: true },
   };
   if (params.tools?.length) body.tools = toOpenAITools(params.tools as Tool[]);
   if (params.tool_choice) body.tool_choice = toOpenAIToolChoice(params.tool_choice);
@@ -246,6 +259,7 @@ export function fromOpenAIResponse(
       ? Math.max(0, promptTokens - cacheRead - cacheWrite)
       : undefined;
 
+  const cost = json.usage?.cost;
   return {
     content,
     usage: {
@@ -253,6 +267,7 @@ export function fromOpenAIResponse(
       output_tokens: json.usage?.completion_tokens,
       cache_read_input_tokens: cacheRead,
       cache_creation_input_tokens: cacheWrite,
+      ...(typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? { cost } : {}),
     },
     stop_reason: choice?.finish_reason ?? null,
   };
