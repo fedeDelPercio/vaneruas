@@ -263,7 +263,8 @@ Roles y rutas del panel: `ROLE_ACCESS` en `src/lib/profile.ts`.
 | Ruta | Qué es |
 |---|---|
 | `/wa` | Bandeja de WhatsApp: lista paginada con buscador y filtros (Todas, Intervención, Con el equipo), chat visto desde el equipo (tomar la conversación y escribirle a la clienta) y ficha del contacto con sus eventos, donde se ven y se aprueban o rechazan comprobantes y títulos. Componentes en `src/components/wa/`, rutas en `src/app/api/wa/` |
-| `/payments` (Aprobaciones) | Validar comprobantes. Pestaña **"Falta acceso"** = worklist de masterclass validadas sin acceso a Tiendup (incluye a quien no dejó correo, con aviso) |
+| `/payments` (Aprobaciones) | Validar comprobantes. Pestaña **"Falta acceso"** = worklist de masterclass validadas sin acceso a Tiendup (incluye a quien no dejó correo, con aviso). `?filter=sin-acceso` abre directo en esa pestaña |
+| `/revision` (Revisión) | Vista consolidada para aprobar: cola de comprobantes pendientes (incluidos los retenidos por título) y títulos para revisar, con indicador de derivación abierta; al medio el chat de WhatsApp (`WaChatPanel`); a la derecha el archivo con Aprobar / Rechazar (`FileReviewPanel`, mismas PATCH que Aprobaciones), derivaciones abiertas y estado del acceso a Tiendup (ficha de /wa). `?id=` = comprobante o título seleccionado. Tras cada acción pasa solo al siguiente. Sin endpoints propios: `GET /api/payments?with=interventions` |
 | `/interventions` (Derivaciones) | Lo que Valentina pasó al equipo (excluye comprobantes y certificados) |
 | `/certificados` | Reclamos de certificados (`reclamo_certificado`) |
 | `/agendar` | Contactas que mandaron comprobante y faltan agendar en GHL / grupos |

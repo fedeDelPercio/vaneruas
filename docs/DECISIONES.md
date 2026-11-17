@@ -7,6 +7,69 @@ decidió, por qué, qué se descartó y qué costo o pendiente deja.
 
 ---
 
+## 17/11/2026 · Panel consolidado de revisión (`/revision`)
+
+**Qué entró**
+
+- Ruta `/revision` ("Revisión" en el nav, al lado de Aprobaciones, mismos roles
+  y mismo contador). Tres columnas en desktop: cola de pendientes, chat de
+  WhatsApp de esa persona y, a la derecha, el archivo con Aprobar / Rechazar,
+  sus derivaciones abiertas y el estado del acceso a Tiendup. En mobile, tres
+  pestañas. El ítem seleccionado va en `?id=` (id del comprobante o del
+  título).
+- `FileReviewPanel`: el contenido de `FileReviewModal` extraído a un componente
+  compartido (el modal de la ficha de /wa lo envuelve; /revision lo usa en
+  línea).
+- `GET /api/payments?with=interventions` (opcional) y
+  `loadOpenTeamNotificationCounts` en `src/lib/interventions.ts`.
+- La ficha (`GET /api/wa/contact/[id]`) suma `access.error`: el motivo del
+  último intento de alta en Tiendup que no salió.
+- Aprobaciones acepta `?filter=sin-acceso` para abrir directo en "Falta
+  acceso".
+
+**D-32 · Reutilizar en vez de endpoints nuevos.** La cola sale de la misma
+respuesta de `GET /api/payments` que Aprobaciones (pendientes, retenidos por
+título y títulos para revisar, con la búsqueda server-side de `?q=`), el chat
+es `WaChatPanel` tal cual (composer y modo incluidos, con la allowlist y el
+modo que ya respeta; no se agregó ningún envío) y la columna derecha usa la
+ficha de /wa. Las acciones son las mismas `PATCH /api/payments/[id]` y
+`PATCH /api/titles/[id]`, así que el alta automática, el cierre de
+notificaciones de pago y los avisos por WhatsApp se comportan igual que desde
+Aprobaciones. Descartado: un endpoint `/api/revision` propio (duplicaba la
+lógica de duplicados, retenciones y títulos de `/api/payments`).
+
+**D-33 · Un archivo por ítem.** En Aprobaciones los títulos sin revisar van
+dentro de la tarjeta del comprobante; acá cada comprobante y cada título es un
+ítem propio, porque la columna derecha muestra un solo archivo con sus dos
+botones. Orden: el más antiguo primero (cola de trabajo, como Aprobaciones).
+Tras aprobar o rechazar se recarga la cola y se pasa al siguiente de la cola
+anterior que siga pendiente (también si otra persona lo resolvió desde otra
+pantalla).
+
+**D-34 · El indicador de intervención no cuenta `validacion_pago`.** Con el
+criterio de `loadInterventionConversationIds` (el del filtro de /wa), todo
+comprobante pendiente cuenta como intervención: en esta cola marcaría a todos y
+no diría nada. Acá cuenta solo derivaciones del agente, reclamos de
+certificado y altas de Tiendup que no salieron (lo mismo que muestra la ficha).
+La consulta filtra por `client_slug` explícito además de RLS y solo corre con
+`?with=interventions`, así Aprobaciones no paga ese costo.
+
+**D-35 · Realtime con filtro `client_slug`.** La cola escucha
+`payment_validations`, `professional_titles` y `agent_notifications` con
+`client_slug=eq.<slug>` (como los mensajes en /wa) y agrupa ráfagas con una
+espera de 800 ms. La ficha de la derecha se vuelve a pedir con cada recarga de
+la cola, sin canal propio.
+
+### Pendientes que deja esta entrega
+
+- Probar `/revision` contra datos reales (el build y los chequeos corrieron con
+  env dummy, sin red).
+- La cola recarga `GET /api/payments?status=pending` completo en cada cambio
+  (igual que Aprobaciones): si se vuelve lento, es el mismo punto que H-25.
+- Las URLs firmadas de los archivos duran 5 minutos: si alguien deja un ítem
+  abierto más tiempo sin que entre ningún cambio, "Abrir" puede fallar hasta la
+  próxima recarga.
+
 ## 17/11/2026 · Interruptor del alta automática en Tiendup en el panel
 
 **Qué entró**
