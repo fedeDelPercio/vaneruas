@@ -52,8 +52,10 @@ presencial.
 6. **El alta en Tiendup es automática solo por el camino ya acordado.** Desde
    el 17/11/2026, por pedido explícito de Federico, un pago de masterclass
    validado, con el título OK y correo válido se da de alta solo
-   (`src/lib/tiendup/auto-enroll.ts`, flag `TIENDUP_AUTO_ENROLL`, prendido por
-   defecto). Usa la misma lógica que el botón y nunca fuerza: si la persona
+   (`src/lib/tiendup/auto-enroll.ts`). Se prende y apaga desde el panel
+   (Aprobaciones → Falta acceso, interruptor guardado en
+   `agent_settings.auto_send.tiendup_auto_enroll`); si no hay valor en la base
+   manda la env `TIENDUP_AUTO_ENROLL`, y si tampoco, prendido. Usa la misma lógica que el botón y nunca fuerza: si la persona
    figura con otro correo, falta el correo o Tiendup falla, deja una
    notificación al equipo. No sumes otras inscripciones automáticas (otros
    cursos, forzar con otro correo) sin que Federico lo pida.
@@ -236,7 +238,7 @@ cliente". No es un bug del agente.
 ## 6. Base de datos
 
 Proyecto Supabase compartido, schema `public`, migraciones en
-`supabase/migrations/` (001 a 032). No hay MCP de Supabase siempre disponible:
+`supabase/migrations/` (001 a 033). No hay MCP de Supabase siempre disponible:
 para leer o escribir datos se usan scripts con service role.
 
 | Tabla | Para qué |
@@ -248,6 +250,7 @@ para leer o escribir datos se usan scripts con service role.
 | `agent_notifications` | Derivaciones al equipo (`category`, `reason`, `summary`, `resolved_at`/`resolved_by`). Las de sistema de Tiendup van como `escalado_manual` con `reason` que empieza con `tiendup_` |
 | `payment_validations` | Comprobantes: monto leído por OCR, `event_slug`, `status` (`pending`/`validated`/`rejected`), `awaiting_title`, `course_access_granted_at`, `delivery_failed` |
 | `professional_titles` | Títulos enviados para el gate |
+| `agent_settings` | Settings por tenant (una fila por `client_slug`, RLS `tenant_isolation`). Ya existía en el Supabase compartido; `033_agent_settings.sql` solo la documenta. Este panel usa `auto_send.tiendup_auto_enroll` (+ `_updated_by` / `_updated_at`) para el interruptor del alta automática. La fila se crea con upsert desde el panel con el cliente JWT; al escribir se mergea el jsonb para no pisar otras keys |
 | `events` | Masterclasses y congreso: precios, fechas, `details` (ficha en vivo), `status` (`borrador`/`activo`/`archivado`) |
 | `profiles` | Usuarios del panel con rol `dev` / `client` / `asesor` |
 
@@ -302,7 +305,11 @@ Aprobaciones, detalles que importan:
   correo con formato válido y el listado de inscriptos completo, nunca
   fuerza). Lo que no puede resolver abre una notificación `escalado_manual`
   ("Alta en Tiendup pendiente: motivo") que se resuelve sola cuando el alta
-  sale bien.
+  sale bien. Interruptor "Alta automática en Tiendup" arriba de la pestaña
+  Falta acceso (`TiendupAutoEnrollToggle`, `/api/settings/tiendup-auto-enroll`):
+  dev y client lo cambian (prender pide confirmación), asesor lo ve en solo
+  lectura. Se lee en cada ejecución, sin cache; si la tabla falla se cae a la
+  env.
 - **"Dar acceso al curso"** (respaldo manual, `grantCourseAccess` en
   `src/lib/tiendup/grant.ts`) inscribe en Tiendup por correo. Antes chequea el
   listado real de inscriptos por correo y por nombre; si la persona figura con

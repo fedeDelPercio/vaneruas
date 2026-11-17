@@ -7,6 +7,50 @@ decidió, por qué, qué se descartó y qué costo o pendiente deja.
 
 ---
 
+## 17/11/2026 · Interruptor del alta automática en Tiendup en el panel
+
+**Qué entró**
+
+- Interruptor "Alta automática en Tiendup" en Aprobaciones → Falta acceso, con
+  estado, fuente y quién/cuándo lo cambió. Dev y client lo cambian; asesor lo
+  ve en solo lectura.
+- `GET/PATCH /api/settings/tiendup-auto-enroll` y migración
+  `033_agent_settings.sql` (documental, no hace falta correrla).
+
+**D-28 · Reutilizar `agent_settings` en vez de una tabla nueva.** La tabla ya
+existe en el Supabase compartido (una fila por tenant, RLS por `client_slug`,
+jsonb `auto_send`). El flag va en `auto_send.tiendup_auto_enroll`, sin cambio
+de esquema. Quién/cuándo van dentro del jsonb
+(`tiendup_auto_enroll_updated_by` / `_updated_at`) porque `updated_by` /
+`updated_at` de la fila son de cualquier setting. La migración 033 solo la
+documenta (idempotente) para que el repo sea reproducible. Descartado: una
+columna nueva o una tabla `panel_settings` propia (migración a aplicar en una
+base compartida con otros paneles).
+
+**D-29 · Prioridad base > env > prendido, sin cache.** El panel manda cuando
+hay valor; la env `TIENDUP_AUTO_ENROLL` queda como respaldo (y como estado
+inicial antes de que alguien toque el interruptor). Si la lectura falla (tabla
+inexistente, red, RLS) se loguea una sola vez y se cae a la env: el alta nunca
+se rompe por el setting. Sin cache para que apagarlo frene la próxima alta al
+instante; el costo es una query chica por disparo. Siempre con el cliente JWT
+(RLS), nunca service role.
+
+**D-30 · Confirmación solo al prender.** Prender impacta a todos los pagos que
+estén esperando acceso; apagar es la acción segura y va directo. Optimistic
+update con rollback si el PATCH falla.
+
+**D-31 · Auth del interruptor por perfil (fase 1).** Igual que el resto del
+panel: el `profileId` viaja desde el navegador y el rol se lee de `profiles`.
+Es el mismo nivel de confianza que hoy (no hay auth real); cuando la haya, esta
+ruta tiene que leer la sesión.
+
+### Pendientes que deja esta entrega
+
+- Probar el interruptor en producción (la fila de vanesaruas en
+  `agent_settings` se crea con el primer cambio).
+
+---
+
 ## 17/11/2026 · Alta automática en Tiendup, pedido del correo y filtro de intervención
 
 **Qué entró**
@@ -85,7 +129,8 @@ correr.
 
 - Correr (o no) el SQL de limpieza histórica.
 - Probar en producción el alta automática con un caso real antes de confiar
-  en ella; mientras tanto se puede apagar con `TIENDUP_AUTO_ENROLL=false`.
+  en ella; mientras tanto se puede apagar desde el panel (o con
+  `TIENDUP_AUTO_ENROLL=false` si no hay valor en la base).
 - El texto de comprobante dice "No hace falta que vuelvas a escribir" y, si
   falta el correo, a continuación se lo pedimos. Confirmar con el cliente.
 
