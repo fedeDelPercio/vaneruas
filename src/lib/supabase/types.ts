@@ -18,6 +18,30 @@ export type Database = {
   };
   public: {
     Tables: {
+      agent_settings: {
+        Row: {
+          client_slug: string;
+          models: Json | null;
+          auto_send: Json | null;
+          updated_at: string | null;
+          updated_by: string | null;
+        };
+        Insert: {
+          client_slug?: string;
+          models?: Json | null;
+          auto_send?: Json | null;
+          updated_at?: string | null;
+          updated_by?: string | null;
+        };
+        Update: {
+          client_slug?: string;
+          models?: Json | null;
+          auto_send?: Json | null;
+          updated_at?: string | null;
+          updated_by?: string | null;
+        };
+        Relationships: [];
+      };
       profiles: {
         Row: { id: string; name: string; role: string; client_slug: string; created_at: string };
         Insert: { id?: string; name: string; role?: string; client_slug?: string; created_at?: string };

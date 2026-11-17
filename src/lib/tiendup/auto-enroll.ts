@@ -10,6 +10,8 @@ import {
   openEnrollmentPendingNotification,
   type GrantOutcome,
 } from "./grant";
+import type { AutoEnrollResolution } from "./auto-enroll-flag";
+import { getTiendupAutoEnrollSetting } from "./auto-enroll-setting";
 
 // ===========================================================================
 // Alta automática en Tiendup.
@@ -30,15 +32,18 @@ import {
 // Falta acceso queda como respaldo. Nunca lanza: quien la llama no puede
 // fallar por Tiendup.
 //
-// Flag: TIENDUP_AUTO_ENROLL. Prendido por defecto; se apaga con "false", "0",
-// "off" o "no".
+// Flag: interruptor del panel (/payments → Falta acceso), guardado en
+// agent_settings.auto_send.tiendup_auto_enroll. Si no hay valor en la base,
+// manda la env TIENDUP_AUTO_ENROLL ("false", "0", "off" o "no" apaga); si
+// tampoco está, prendido. Se lee en cada ejecución (sin cache).
 // ===========================================================================
 
 type Db = SupabaseClient<Database>;
 
-export function tiendupAutoEnrollEnabled(): boolean {
-  const v = (process.env.TIENDUP_AUTO_ENROLL ?? "").trim().toLowerCase();
-  return !["false", "0", "off", "no"].includes(v);
+/** ¿Está prendida el alta automática? (base > env > prendido) y de dónde sale. */
+export async function tiendupAutoEnrollEnabled(): Promise<AutoEnrollResolution> {
+  const { enabled, source } = await getTiendupAutoEnrollSetting();
+  return { enabled, source };
 }
 
 interface PaymentRow {
@@ -129,7 +134,7 @@ export async function autoEnrollPayment(
   paymentId: string,
   opts: { trigger: string; sb?: Db },
 ): Promise<void> {
-  if (!tiendupAutoEnrollEnabled()) return;
+  if (!(await tiendupAutoEnrollEnabled()).enabled) return;
   try {
     const sb = opts.sb ?? getSupabaseServerClient();
     const { data } = await sb
@@ -153,7 +158,7 @@ export async function autoEnrollConversation(
   conversationId: string,
   opts: { trigger: string; sb?: Db },
 ): Promise<void> {
-  if (!tiendupAutoEnrollEnabled()) return;
+  if (!(await tiendupAutoEnrollEnabled()).enabled) return;
   try {
     const sb = opts.sb ?? getSupabaseServerClient();
     const { data } = await sb

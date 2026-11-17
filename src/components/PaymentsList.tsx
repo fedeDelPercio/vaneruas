@@ -19,6 +19,7 @@ import {
   KeyRound,
   SearchX,
 } from "lucide-react";
+import { TiendupAutoEnrollToggle } from "@/components/TiendupAutoEnrollToggle";
 import { useProfile } from "./ProfileProvider";
 import { DISMISS_NOTE } from "@/lib/payments/dismiss";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -866,6 +867,9 @@ export function PaymentsList() {
           </button>
         ))}
       </div>
+
+      {/* Interruptor del alta automática en Tiendup (solo en Falta acceso). */}
+      {filter === "sin-acceso" && !searching && <TiendupAutoEnrollToggle />}
 
       {/* Filtro + contador por evento (Congreso dorado / Masterclass esmeralda) */}
       {items && hasEvents && (
