@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { z } from "zod";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { markConversationTitleValidated } from "@/lib/titles/handle";
+import { autoEnrollConversation } from "@/lib/tiendup/auto-enroll";
 
 export const dynamic = "force-dynamic";
 
@@ -92,6 +93,9 @@ export async function PATCH(
     await markConversationTitleValidated(title.conversation_id, {
       systemNote: "Título profesional validado por el equipo, contacta marcada como clienta",
     });
+    // Si ya había un pago validado esperando el título, alta en Tiendup.
+    const conversationId = title.conversation_id;
+    after(() => autoEnrollConversation(conversationId, { trigger: "título validado" }));
   }
 
   return NextResponse.json({ id, action }, { status: 200 });

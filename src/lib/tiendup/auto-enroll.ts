@@ -1,0 +1,171 @@
+import "server-only";
+
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/lib/supabase/types";
+import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { accesoVigenteDeEvento, eventBySlug } from "@/lib/payments/event-match";
+import {
+  grantCourseAccess,
+  grantSucceeded,
+  openEnrollmentPendingNotification,
+  type GrantOutcome,
+} from "./grant";
+
+// ===========================================================================
+// Alta automática en Tiendup.
+//
+// Cuando un comprobante de masterclass queda validado, sin retención por
+// título (el gate ya pasó: título aprobado, clienta registrada o aprobación
+// forzada por el equipo) y tenemos un correo válido, se da de alta en Tiendup
+// con la MISMA lógica que el botón "Dar acceso al curso" (grantCourseAccess,
+// en modo automático: nunca fuerza, exige correo válido y listado completo).
+//
+// Disparadores:
+//   - al validar un comprobante (PATCH /api/payments/[id], también desde /wa);
+//   - al validarse el título cuando ya había un pago validado;
+//   - al capturarse el correo de la contacta en el worker.
+//
+// Lo que no se puede dar de alta solo abre UNA notificación al equipo con el
+// motivo (Derivaciones y "Intervención" en /wa). El botón de Aprobaciones →
+// Falta acceso queda como respaldo. Nunca lanza: quien la llama no puede
+// fallar por Tiendup.
+//
+// Flag: TIENDUP_AUTO_ENROLL. Prendido por defecto; se apaga con "false", "0",
+// "off" o "no".
+// ===========================================================================
+
+type Db = SupabaseClient<Database>;
+
+export function tiendupAutoEnrollEnabled(): boolean {
+  const v = (process.env.TIENDUP_AUTO_ENROLL ?? "").trim().toLowerCase();
+  return !["false", "0", "off", "no"].includes(v);
+}
+
+interface PaymentRow {
+  id: string;
+  conversation_id: string | null;
+  event_slug: string | null;
+  status: string;
+  awaiting_title: boolean;
+  course_access_granted_at: string | null;
+}
+
+const PAYMENT_COLS =
+  "id, conversation_id, event_slug, status, awaiting_title, course_access_granted_at";
+
+/**
+ * ¿Este comprobante está esperando acceso? Mismo criterio que la pestaña
+ * "Falta acceso" de Aprobaciones: masterclass con el acceso vigente, pago
+ * validado y acceso sin dar. Además, que no esté retenido por el título.
+ */
+function waitsForAccess(p: PaymentRow): boolean {
+  const ev = eventBySlug(p.event_slug);
+  const isMasterclass = Boolean(ev) && ev!.slug !== "congreso";
+  return (
+    isMasterclass &&
+    accesoVigenteDeEvento(p.event_slug) &&
+    p.status === "validated" &&
+    !p.awaiting_title &&
+    !p.course_access_granted_at
+  );
+}
+
+/** Motivo legible para el equipo, o null si no corresponde avisar. */
+function pendingReason(o: GrantOutcome): string | null {
+  switch (o.kind) {
+    case "no_email":
+      return "todavía no tenemos su correo (Valentina se lo pide)";
+    case "invalid_email":
+      return "el correo que dejó no tiene un formato válido";
+    case "name_conflict":
+      return "figura inscripta en Tiendup con otro correo, hay que confirmar cuál es el correcto";
+    case "listing_failed":
+      return "no se pudo leer el listado de inscriptos de Tiendup para descartar un duplicado";
+    case "enroll_failed":
+      return "Tiendup devolvió un error al inscribir";
+    case "no_course":
+      return "el curso de este evento no está cargado en Tiendup (falta el mapeo)";
+    default:
+      return null;
+  }
+}
+
+async function enrollOne(sb: Db, p: PaymentRow, trigger: string): Promise<void> {
+  try {
+    const { outcome } = await grantCourseAccess(p.id, { mode: "auto", sb });
+    if (grantSucceeded(outcome)) {
+      console.log(`[tiendup] alta automática ok (${trigger}): pago ${p.id}`);
+      return;
+    }
+    const motivo = pendingReason(outcome);
+    console.log(`[tiendup] alta automática pendiente (${trigger}): pago ${p.id}, ${outcome.kind}`);
+    if (motivo && p.conversation_id) {
+      await openEnrollmentPendingNotification(
+        { conversationId: p.conversation_id, paymentId: p.id, motivo },
+        sb,
+      );
+    }
+  } catch (err) {
+    console.error(`[tiendup] alta automática falló (${trigger}): pago ${p.id}:`, err);
+    if (p.conversation_id) {
+      try {
+        await openEnrollmentPendingNotification(
+          {
+            conversationId: p.conversation_id,
+            paymentId: p.id,
+            motivo: "falló el alta automática por un error inesperado",
+          },
+          sb,
+        );
+      } catch {
+        // Ya quedó en el log; el comprobante sigue en "Falta acceso".
+      }
+    }
+  }
+}
+
+/** Alta automática de un comprobante puntual (al validarlo). */
+export async function autoEnrollPayment(
+  paymentId: string,
+  opts: { trigger: string; sb?: Db },
+): Promise<void> {
+  if (!tiendupAutoEnrollEnabled()) return;
+  try {
+    const sb = opts.sb ?? getSupabaseServerClient();
+    const { data } = await sb
+      .from("payment_validations")
+      .select(PAYMENT_COLS)
+      .eq("id", paymentId)
+      .maybeSingle();
+    const p = data as PaymentRow | null;
+    if (!p || !waitsForAccess(p)) return;
+    await enrollOne(sb, p, opts.trigger);
+  } catch (err) {
+    console.error("[tiendup] alta automática: no se pudo leer el comprobante:", err);
+  }
+}
+
+/**
+ * Alta automática de todo lo que una conversación tenga esperando acceso (al
+ * validarse el título o al llegar el correo).
+ */
+export async function autoEnrollConversation(
+  conversationId: string,
+  opts: { trigger: string; sb?: Db },
+): Promise<void> {
+  if (!tiendupAutoEnrollEnabled()) return;
+  try {
+    const sb = opts.sb ?? getSupabaseServerClient();
+    const { data } = await sb
+      .from("payment_validations")
+      .select(PAYMENT_COLS)
+      .eq("conversation_id", conversationId)
+      .eq("status", "validated")
+      .is("course_access_granted_at", null)
+      .order("created_at", { ascending: true });
+    const rows = ((data ?? []) as PaymentRow[]).filter(waitsForAccess);
+    for (const p of rows) await enrollOne(sb, p, opts.trigger);
+  } catch (err) {
+    console.error("[tiendup] alta automática: no se pudo leer la conversación:", err);
+  }
+}

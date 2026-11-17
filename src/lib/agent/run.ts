@@ -18,6 +18,10 @@ import type {
   TraceStatus,
 } from "./types";
 import type { Json } from "@/lib/supabase/types";
+import { SYSTEM_NOTIFICATION_REASON_LIKE } from "@/lib/tiendup/messages";
+
+/** Filtro PostgREST: notificaciones que NO son de sistema (Tiendup). */
+const NOT_SYSTEM_NOTIFICATION = `reason.is.null,reason.not.like.${SYSTEM_NOTIFICATION_REASON_LIKE}`;
 
 // ===========================================================================
 // runAgent — entry point del sistema agéntico.
@@ -123,6 +127,8 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
     .from("agent_notifications")
     .select("category")
     .eq("conversation_id", input.conversationId)
+    // Las notificaciones de sistema de Tiendup no son una derivación del agente.
+    .or(NOT_SYSTEM_NOTIFICATION)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -405,7 +411,10 @@ async function recordNotification(args: {
       .from("agent_notifications")
       .select("id", { count: "exact", head: true })
       .eq("conversation_id", args.conversationId)
-      .eq("category", args.category);
+      .eq("category", args.category)
+      // Un alta pendiente de Tiendup (escalado_manual de sistema) no tapa una
+      // derivación real del agente con la misma categoría.
+      .or(NOT_SYSTEM_NOTIFICATION);
     if ((count ?? 0) > 0) return false;
 
     await supabase.from("agent_notifications").insert({

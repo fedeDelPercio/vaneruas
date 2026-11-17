@@ -12,6 +12,8 @@ import { deliverAssistantToWhatsApp } from "@/lib/whatsapp-delivery";
 import { ghlFetchContact, ghlContactIsRegistered } from "@/lib/providers/ghl";
 import { assistantSaidRecently } from "@/lib/messages/dedup";
 import { captionLooksLikePayment } from "@/lib/payments/signals";
+import { autoEnrollConversation } from "@/lib/tiendup/auto-enroll";
+import { normalizeContactEmail } from "@/lib/contact-email";
 
 // ===========================================================================
 // Gate de validación de título profesional.
@@ -63,13 +65,15 @@ export async function handleAttachmentIntake(
     const ghlContact = await ghlFetchContact(conv.external_id);
     if (ghlContactIsRegistered(ghlContact)) {
       registered = true;
+      // Solo un correo con formato válido: es el que se usa para Tiendup.
+      const ghlEmail = normalizeContactEmail(ghlContact?.email);
       // Cacheamos el alta y, si GHL tiene el email, lo guardamos (así después
       // no se lo pedimos al aprobar el pago).
       await supabase
         .from("conversations")
         .update({
           is_existing_customer: true,
-          ...(ghlContact?.email ? { contact_email: ghlContact.email } : {}),
+          ...(ghlEmail ? { contact_email: ghlEmail } : {}),
         })
         .eq("id", args.conversationId);
     }
@@ -255,6 +259,9 @@ async function handleTitleSubmission(
   await markConversationTitleValidated(args.conversationId, {
     systemNote: "Título profesional validado por IA, contacta marcada como clienta",
   });
+  // Si ya había un pago validado esperando el título (aprobación forzada), alta
+  // en Tiendup. Nunca lanza.
+  await autoEnrollConversation(args.conversationId, { trigger: "título validado por IA" });
 }
 
 /**

@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { z } from "zod";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { deliverAssistantToWhatsApp } from "@/lib/whatsapp-delivery";
+import { autoEnrollPayment } from "@/lib/tiendup/auto-enroll";
 
 export const dynamic = "force-dynamic";
 
@@ -163,6 +164,12 @@ export async function PATCH(
         })
         .eq("id", id);
     }
+  }
+
+  // Alta automática en Tiendup (si corresponde): corre después de responder,
+  // así la aprobación nunca espera ni falla por Tiendup.
+  if (status === "validated" && prev?.status !== "validated") {
+    after(() => autoEnrollPayment(id, { trigger: "pago validado" }));
   }
 
   return NextResponse.json({ id: data.id, status, deliveryFailed }, { status: 200 });
