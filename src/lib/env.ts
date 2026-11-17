@@ -140,6 +140,9 @@ const serverSchema = z.object({
   GMAIL_USER: z.string().email().optional(),
   GMAIL_APP_PASSWORD: z.string().min(1).optional(),
   EMAIL_NOTIFY_TO: z.string().email().optional(),
+  // Portal de AI ScaleMap: el botón de feedback del panel crea ahí el ticket
+  // (POST /api/intake/tickets). La clave va en integration_tokens, no acá.
+  AISCALEMAP_URL: z.string().url().default("https://app.aiscalemap.com"),
 });
 
 export type ServerEnv = z.infer<typeof serverSchema>;
@@ -181,6 +184,7 @@ export function serverEnv(): ServerEnv {
     GMAIL_USER: process.env.GMAIL_USER,
     GMAIL_APP_PASSWORD: process.env.GMAIL_APP_PASSWORD,
     EMAIL_NOTIFY_TO: process.env.EMAIL_NOTIFY_TO,
+    AISCALEMAP_URL: process.env.AISCALEMAP_URL || undefined,
   });
   if (!parsed.success) {
     throw new Error(

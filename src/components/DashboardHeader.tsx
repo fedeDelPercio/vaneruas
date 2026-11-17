@@ -20,6 +20,7 @@ import { useProfile } from "./ProfileProvider";
 import { Avatar } from "./Avatar";
 import { ThemeToggle } from "./ThemeToggle";
 import { AgentModeToggle } from "./AgentModeToggle";
+import { FeedbackButton } from "./feedback/FeedbackButton";
 import { BrandLogo } from "./BrandLogo";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { roleLabel } from "@/lib/profile";
@@ -171,6 +172,7 @@ export function DashboardHeader() {
 
       <div className="flex items-center gap-1">
         <AgentModeToggle />
+        <FeedbackButton />
         <ThemeToggle />
         <div className="relative">
           <button
