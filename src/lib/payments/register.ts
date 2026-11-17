@@ -12,7 +12,9 @@ import { assistantSaidRecently } from "@/lib/messages/dedup";
 import {
   ATTACHMENT_RECEIVED_MESSAGE,
   COMPROBANTE_RECEIVED_MESSAGE,
+  EMAIL_REQUEST_MESSAGE,
 } from "./messages";
+import { extractContactEmail, normalizeContactEmail } from "@/lib/contact-email";
 
 export const PAYMENT_NOTIFICATION_CATEGORY = "validacion_pago";
 
@@ -142,6 +144,7 @@ export async function handlePaymentComprobante(
         content: titleAskMsg,
       });
     }
+    await askEmailIfMissing(args.conversationId, args.caption);
     await touchConversation(args.conversationId);
     return;
   }
@@ -195,8 +198,60 @@ export async function handlePaymentComprobante(
     });
   }
 
+  // 5b. Si es un comprobante y no tenemos su correo, se lo pedimos (sin el
+  //     correo no hay a dónde darle el acceso en Tiendup).
+  if (looksLikeReceipt) await askEmailIfMissing(args.conversationId, args.caption);
+
   // 6. Reordenar la conversación.
   await touchConversation(args.conversationId);
+}
+
+/** Mensajes de la contacta que se miran buscando un correo que ya dejó. */
+const EMAIL_LOOKBACK = 15;
+/** No repetir el pedido del correo si ya se lo pedimos en este lapso. */
+const EMAIL_ASK_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Le pide el correo a la contacta si todavía no lo tenemos: ni guardado en la
+ * conversación, ni en el texto del adjunto, ni en sus últimos mensajes (el
+ * worker lo guarda después de este flujo). Burbuja aparte, una vez por día.
+ * Best-effort: nunca corta el registro del comprobante.
+ */
+async function askEmailIfMissing(conversationId: string, caption?: string | null): Promise<void> {
+  try {
+    const supabase = getSupabaseServerClient();
+    const { data: conv } = await supabase
+      .from("conversations")
+      .select("contact_email")
+      .eq("id", conversationId)
+      .maybeSingle();
+    if (normalizeContactEmail(conv?.contact_email)) return;
+    if (extractContactEmail(caption)) return;
+    const { data: previos, error } = await supabase
+      .from("messages")
+      .select("content")
+      .eq("conversation_id", conversationId)
+      .eq("role", "user")
+      .order("created_at", { ascending: false })
+      .limit(EMAIL_LOOKBACK);
+    if (error) return;
+    if ((previos ?? []).some((m) => extractContactEmail(m.content))) return;
+    if (await assistantSaidRecently(conversationId, EMAIL_REQUEST_MESSAGE, EMAIL_ASK_WINDOW_MS)) {
+      return;
+    }
+    const { data: ask } = await supabase
+      .from("messages")
+      .insert({ conversation_id: conversationId, role: "assistant", content: EMAIL_REQUEST_MESSAGE })
+      .select("id")
+      .single();
+    await deliverAssistantToWhatsApp({
+      conversationId,
+      messageId: ask?.id,
+      content: EMAIL_REQUEST_MESSAGE,
+    });
+  } catch (err) {
+    console.error("[payments] no se pudo pedir el correo:", err);
+  }
 }
 
 /**

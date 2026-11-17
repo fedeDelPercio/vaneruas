@@ -19,6 +19,7 @@ import type {
 } from "./types";
 import type { Json } from "@/lib/supabase/types";
 import { SYSTEM_NOTIFICATION_REASON_LIKE } from "@/lib/tiendup/messages";
+import { normalizeContactEmail } from "@/lib/contact-email";
 
 /** Filtro PostgREST: notificaciones que NO son de sistema (Tiendup). */
 const NOT_SYSTEM_NOTIFICATION = `reason.is.null,reason.not.like.${SYSTEM_NOTIFICATION_REASON_LIKE}`;
@@ -349,6 +350,35 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
  * "" si no hay pagos (best-effort: nunca tumba la corrida).
  */
 async function loadPaymentContext(conversationId: string): Promise<string> {
+  const [amounts, email] = await Promise.all([
+    loadPaymentAmountsContext(conversationId),
+    loadEmailContext(conversationId),
+  ]);
+  return [amounts, email].filter(Boolean).join("\n");
+}
+
+/**
+ * Estado del correo para el acceso, solo si la conversación ya tiene algún
+ * comprobante: así Valentina sabe si tiene que pedirlo (o no repetirlo).
+ */
+async function loadEmailContext(conversationId: string): Promise<string> {
+  try {
+    const sb = getSupabaseServerClient();
+    const [{ data: pays }, { data: conv }] = await Promise.all([
+      sb.from("payment_validations").select("id").eq("conversation_id", conversationId).limit(1),
+      sb.from("conversations").select("contact_email").eq("id", conversationId).maybeSingle(),
+    ]);
+    if (!pays?.length) return "";
+    return normalizeContactEmail(conv?.contact_email)
+      ? "Ya tenemos su correo para el acceso: no se lo pidas de nuevo."
+      : "Todavía NO tenemos su correo para el acceso: pedile el correo con el que se inscribió en la web (una sola vez).";
+  } catch (err) {
+    console.error("[run] no se pudo cargar el estado del correo:", err);
+    return "";
+  }
+}
+
+async function loadPaymentAmountsContext(conversationId: string): Promise<string> {
   try {
     const { data } = await getSupabaseServerClient()
       .from("payment_validations")

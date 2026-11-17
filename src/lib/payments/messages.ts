@@ -26,3 +26,11 @@ export const COMPROBANTE_RECEIVED_MESSAGE_LEGACY =
 export const ATTACHMENT_RECEIVED_MESSAGE =
   "Gracias, ya lo recibimos 🙌 El equipo lo revisa y te confirma a la brevedad";
 
+
+/**
+ * Pedido del correo cuando llega un comprobante y todavía no tenemos a dónde
+ * mandarle el acceso. Va en una burbuja aparte, después de la confirmación.
+ * También figura en knowledge-base.md (el evaluator no ve el orquestador).
+ */
+export const EMAIL_REQUEST_MESSAGE =
+  "Para darte el acceso, me pasás el correo con el que te inscribiste en la web? 📩";

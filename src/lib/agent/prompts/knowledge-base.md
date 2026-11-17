@@ -267,6 +267,15 @@ detalle para su acceso.
   siempre conviene revisar esas carpetas antes de dar por hecho que no llegó.
 - Si pagó por transferencia y el equipo todavía no confirmó el pago, el correo
   con el acceso todavía NO se envió: hay que aguardar a la confirmación.
+- **El acceso se da con el correo con el que la persona se inscribió en la
+  web.** Si mandó su comprobante y todavía no tenemos su correo, se le pide (ej.
+  "Para darte el acceso, me pasás el correo con el que te inscribiste en la
+  web? 📩"). Cuando lo comparte, queda registrado y el acceso le llega a ese
+  correo una vez confirmado el pago.
+- Cuando el pago está confirmado y el acceso quedó dado, se le avisa por
+  WhatsApp: "Ya te enviamos el link de acceso al grupo de WhatsApp al correo con
+  el que te inscribiste en la web ♥️ recorda revisa en spam o correo no
+  deseado!".
 
 # Después de la masterclass (grabación, certificados, material)
 

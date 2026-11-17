@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   COMPROBANTE_RECEIVED_MESSAGE,
   COMPROBANTE_RECEIVED_MESSAGE_LEGACY,
+  EMAIL_REQUEST_MESSAGE,
 } from "../payments/messages";
 import { TIENDUP_ACCESS_MESSAGE } from "../tiendup/messages";
 
@@ -86,6 +87,7 @@ interface GhlMessage {
 export const TEXTOS_DE_PLANTILLA: string[] = [
   COMPROBANTE_RECEIVED_MESSAGE,
   COMPROBANTE_RECEIVED_MESSAGE_LEGACY,
+  EMAIL_REQUEST_MESSAGE,
   TIENDUP_ACCESS_MESSAGE,
 ];
 

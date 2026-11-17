@@ -6,6 +6,8 @@ import { ghlSendAllowed, ghlSendWhatsApp, ghlUpdateContact } from "@/lib/provide
 import { isAllowedComprobanteType } from "@/lib/payments/storage";
 import { handleAttachmentIntake } from "@/lib/titles/handle";
 import { resolveWhatsAppTurn } from "@/lib/agent/debounce";
+import { extractContactEmail, normalizeContactEmail } from "@/lib/contact-email";
+import { autoEnrollConversation } from "@/lib/tiendup/auto-enroll";
 import type { HistoryMessage } from "@/lib/agent/types";
 import type { AgentJob } from "@/lib/supabase/types";
 
@@ -344,64 +346,66 @@ async function processJob(job: AgentJob): Promise<void> {
     .eq("id", job.id);
 }
 
-// Email simple: suficiente para capturar el correo que comparte la contacta.
-const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
-
-/**
- * Si el mensaje del usuario contiene un correo, lo guarda en
- * conversations.contact_email (lo último que mande pisa lo anterior). Best-
- * effort: cualquier error se loguea y no interrumpe el procesamiento del job.
- */
 /** Últimos mensajes de la contacta que se miran buscando un correo perdido. */
 const EMAIL_LOOKBACK = 15;
 
+/**
+ * Si el mensaje del usuario contiene un correo válido, lo guarda en
+ * conversations.contact_email (lo último que mande pisa lo anterior): es el
+ * correo que usa el alta en Tiendup. Se valida el formato
+ * (`normalizeContactEmail`) para no inscribir con basura y crear un cliente
+ * fantasma. Si el correo es nuevo y hay un pago validado esperando el acceso,
+ * dispara el alta automática. Best-effort: cualquier error se loguea y no
+ * interrumpe el procesamiento del job.
+ */
 async function captureContactEmail(
   conversationId: string,
   content: string | null,
   opts: { externalId: string | null; source: string | null },
 ): Promise<void> {
-  let email = content?.match(EMAIL_RE)?.[0]?.toLowerCase() ?? null;
-
-  // Rescate: el correo puede haber llegado en un mensaje ANTERIOR del mismo
-  // turno. Pasa seguido: la contacta escribe "Nombre + mail" y un segundo
-  // después manda la foto del comprobante o del título; el debounce reancla el
-  // turno al adjunto y este camino solo ve el texto del adjunto, que viene
-  // vacío. El correo quedaba perdido y el pago se aprobaba sin tener a dónde
-  // mandar el acceso. Solo se busca si todavía NO tenemos correo, para no pisar
-  // uno bueno con otro viejo que la contacta ya corrigió.
-  if (!email) {
+  try {
     const sb = getSupabaseServerClient();
     const { data: conv } = await sb
       .from("conversations")
       .select("contact_email")
       .eq("id", conversationId)
       .maybeSingle();
-    if (conv?.contact_email) return;
-    const { data: previos } = await sb
-      .from("messages")
-      .select("content")
-      .eq("conversation_id", conversationId)
-      .eq("role", "user")
-      .order("created_at", { ascending: false })
-      .limit(EMAIL_LOOKBACK);
-    for (const m of previos ?? []) {
-      const hit = m.content?.match(EMAIL_RE)?.[0];
-      if (hit) {
-        email = hit.toLowerCase();
-        break;
+    const current = normalizeContactEmail(conv?.contact_email);
+    let email = extractContactEmail(content);
+
+    // Rescate: el correo puede haber llegado en un mensaje ANTERIOR del mismo
+    // turno. Pasa seguido: la contacta escribe "Nombre + mail" y un segundo
+    // después manda la foto del comprobante o del título; el debounce reancla el
+    // turno al adjunto y este camino solo ve el texto del adjunto, que viene
+    // vacío. Solo se busca si todavía NO tenemos un correo válido, para no pisar
+    // uno bueno con otro viejo que la contacta ya corrigió.
+    if (!email) {
+      if (current) return;
+      const { data: previos } = await sb
+        .from("messages")
+        .select("content")
+        .eq("conversation_id", conversationId)
+        .eq("role", "user")
+        .order("created_at", { ascending: false })
+        .limit(EMAIL_LOOKBACK);
+      for (const m of previos ?? []) {
+        const hit = extractContactEmail(m.content);
+        if (hit) {
+          email = hit;
+          break;
+        }
       }
     }
-  }
-  if (!email) return;
-  try {
-    await getSupabaseServerClient()
-      .from("conversations")
-      .update({ contact_email: email })
-      .eq("id", conversationId);
+    if (!email || email === current) return;
+
+    await sb.from("conversations").update({ contact_email: email }).eq("id", conversationId);
     // Empujar el correo al contacto de GHL (best-effort, requiere contacts.write).
     if (opts.source === "whatsapp" && opts.externalId) {
       await ghlUpdateContact(opts.externalId, { email });
     }
+    // Correo nuevo: si había un pago validado esperando el acceso (o un alta
+    // pendiente por falta de correo), se da de alta ahora. Nunca lanza.
+    await autoEnrollConversation(conversationId, { trigger: "correo capturado" });
   } catch (err) {
     console.error("[jobs] no se pudo guardar el correo de la contacta:", err);
   }
