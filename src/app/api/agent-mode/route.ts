@@ -58,7 +58,10 @@ export async function PATCH(req: NextRequest) {
 
   let query = sb
     .from("conversations")
-    .update({ mode, updated_at: new Date().toISOString() })
+    // Sin tocar updated_at: ese campo ordena la lista del chat por última
+    // actividad, y pisarlo en masa dejaba a todas las conversaciones con la
+    // misma hora (el orden de la lista se perdía en cada cambio general).
+    .update({ mode })
     .eq("source", "whatsapp")
     .neq("mode", mode);
 

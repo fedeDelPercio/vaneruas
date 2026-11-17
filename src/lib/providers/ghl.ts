@@ -163,7 +163,7 @@ export async function ghlContactsWithPauseTag(
   locationId: string,
 ): Promise<string[] | null> {
   if (!process.env.GHL_API_KEY) return null;
-  const tag = (process.env.GHL_PAUSE_TAG_EXACT ?? "🙋 humano").trim();
+  const tag = ghlPauseTagExact();
   if (!tag) return null;
   try {
     const ids: string[] = [];
@@ -200,6 +200,49 @@ export async function ghlContactsWithPauseTag(
     return ids;
   } catch {
     return null;
+  }
+}
+
+/** Nombre EXACTO del tag de pausa en GHL (el search y el alta lo exigen así). */
+function ghlPauseTagExact(): string {
+  return (process.env.GHL_PAUSE_TAG_EXACT ?? "🙋 humano").trim();
+}
+
+/**
+ * Pone o saca el tag de pausa de un contacto en GHL. Lo usa el botón
+ * IA / Humano del chat del panel, para que el estado quede igual en los dos
+ * lados: el tag es lo que mira el equipo en GHL y lo que respeta el
+ * interruptor general al reactivar la IA. Sin esto, una conversación tomada
+ * desde el panel volvía a manos de la IA la próxima vez que alguien activaba
+ * la IA para todos.
+ *
+ * Best-effort: requiere el scope `contacts.write`. Devuelve false si no se
+ * pudo (el modo igual queda guardado en nuestra base). Nunca lanza.
+ */
+export async function ghlSetPauseTag(contactId: string, paused: boolean): Promise<boolean> {
+  if (!process.env.GHL_API_KEY) return false;
+  const tag = ghlPauseTagExact();
+  if (!tag) return false;
+  try {
+    const res = await fetch(`${GHL_BASE}/contacts/${encodeURIComponent(contactId)}/tags`, {
+      method: paused ? "POST" : "DELETE",
+      headers: {
+        Authorization: `Bearer ${process.env.GHL_API_KEY}`,
+        Version: "2021-07-28",
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ tags: [tag] }),
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      console.error(`[ghl] tag de pausa ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error("[ghl] tag de pausa falló:", err instanceof Error ? err.message : err);
+    return false;
   }
 }
 

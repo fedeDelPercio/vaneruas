@@ -1,25 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
-import { getComprobanteSignedUrl } from "@/lib/payments/storage";
+import { getSupabaseAdminClient, getSupabaseServerClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/paginate";
+import { COMPROBANTES_BUCKET } from "@/lib/payments/storage";
+import { matchesContactQuery } from "@/lib/search";
 
 export const dynamic = "force-dynamic";
 
 // ===========================================================================
-// GET /api/payments?status=pending|validated|rejected|all
+// GET /api/payments?status=pending|validated|rejected|all   (o ?q=<búsqueda>)
 //
-// Lista los comprobantes de pago de este cliente, ordenados por fecha desc.
+// Lista los comprobantes de pago de este cliente, del más antiguo al más nuevo
+// (cola de trabajo). Con ?q= busca por persona en todos los estados.
 // Resuelve la conversación de origen, el validador (profiles) y una signed URL
 // de vida corta para mostrar la imagen del comprobante. El aislamiento por
 // cliente lo enforce RLS via el JWT con claim client_slug.
 // ===========================================================================
 
-// Tope de registros que trae la lista. OJO: la query ordena por created_at
-// ASCENDENTE (cola de trabajo: primero quien envió antes), así que si el total
-// supera este tope se descartan los MÁS NUEVOS silenciosamente. Con 548 pagos
-// (324 validados) el tope viejo de 300 tapaba los comprobantes recientes en
-// "Todos" y "Falta acceso". Subido a 2000 para dar aire. Fix de fondo pendiente:
-// paginar en vez de un tope fijo.
-const MAX_ITEMS = 2000;
+// La lista trae TODOS los comprobantes del estado pedido, sin tope: con un
+// tope fijo y orden ascendente, lo que se perdía en silencio eran los más
+// nuevos (pasó con 300 y habría vuelto a pasar con 2000).
 
 /** Un título profesional que la contacta mandó para acreditarse. */
 export interface TitleSubmission {
@@ -104,56 +103,198 @@ export interface PaymentItem {
   validatedByName: string | null;
 }
 
+// Ids por consulta cuando la lista viaja en la URL (`.in(...)`). Pasar cientos
+// de una vez desborda el tamaño máximo del pedido y PostgREST no contesta: así
+// se perdían el nombre y el teléfono del contacto en "Validados" y "Todos".
+const IN_CHUNK = 100;
+// Paths por pedido de firma al Storage.
+const SIGN_CHUNK = 200;
+const SIGNED_URL_TTL_SECONDS = 300;
+
+function chunked<T>(list: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+}
+
+interface ConvLite {
+  id: string;
+  display_name: string;
+  source: string;
+  contact_email: string | null;
+  external_id: string | null;
+  wa_jid: string | null;
+  ghl_conversation_id: string | null;
+}
+
+function convSummary(conv: ConvLite | null | undefined): PaymentItem["conversation"] {
+  if (!conv) return null;
+  return {
+    id: conv.id,
+    displayName: conv.display_name ?? "(sin nombre)",
+    source: conv.source,
+    externalId: conv.external_id ?? null,
+    phone: conv.wa_jid ?? null,
+    ghlConversationId: conv.ghl_conversation_id ?? null,
+  };
+}
+
 export async function GET(req: NextRequest) {
   const sb = getSupabaseServerClient();
   const status = req.nextUrl.searchParams.get("status") ?? "all";
+  // Búsqueda por persona (nombre, teléfono, correo, emisor o N° de operación).
+  // Con búsqueda se ignora el estado: se busca en todos los comprobantes.
+  const q = (req.nextUrl.searchParams.get("q") ?? "").trim().slice(0, 80);
+  const searching = q.length >= 2;
+  const reviewView = searching || status === "pending" || status === "all";
 
-  let query = sb
-    .from("payment_validations")
-    .select("*")
-    // Más antiguo primero: el equipo prioriza a quien envió antes (cola de trabajo).
-    .order("created_at", { ascending: true })
-    .limit(MAX_ITEMS);
-
-  if (status === "pending" || status === "validated" || status === "rejected") {
-    query = query.eq("status", status);
+  // Conversaciones ya resueltas (se van sumando a medida que hacen falta).
+  const convById = new Map<string, ConvLite>();
+  async function resolveConversations(ids: string[]): Promise<void> {
+    const missing = Array.from(new Set(ids)).filter((id) => !convById.has(id));
+    if (!missing.length) return;
+    const results = await Promise.all(
+      chunked(missing, IN_CHUNK).map((chunk) =>
+        sb
+          .from("conversations")
+          .select("id, display_name, source, contact_email, external_id, wa_jid, ghl_conversation_id")
+          .in("id", chunk),
+      ),
+    );
+    for (const r of results) {
+      // Un fallo acá dejaba las tarjetas sin nombre ni teléfono, en silencio.
+      if (r.error) throw new Error(r.error.message);
+      for (const c of r.data ?? []) convById.set(c.id, c);
+    }
   }
 
-  const { data: rows, error } = await query;
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-  if (!rows?.length) {
-    return NextResponse.json({ items: [] satisfies PaymentItem[] });
+  // Firma de archivos del bucket privado, de a muchos por pedido (antes era un
+  // pedido por archivo: con 900 comprobantes, la lista tardaba decenas de
+  // segundos).
+  async function signPaths(paths: string[]): Promise<Map<string, string>> {
+    const unique = Array.from(new Set(paths));
+    const out = new Map<string, string>();
+    if (!unique.length) return out;
+    const storage = getSupabaseAdminClient().storage.from(COMPROBANTES_BUCKET);
+    const results = await Promise.all(
+      chunked(unique, SIGN_CHUNK).map((chunk) => storage.createSignedUrls(chunk, SIGNED_URL_TTL_SECONDS)),
+    );
+    for (const r of results) {
+      for (const item of r.data ?? []) {
+        if (item.path && item.signedUrl && !item.error) out.set(item.path, item.signedUrl);
+      }
+    }
+    return out;
   }
 
-  // Resolver conversaciones de origen.
-  const convIds = Array.from(
-    new Set(rows.map((r) => r.conversation_id).filter(Boolean) as string[]),
-  );
-  const { data: convs } = convIds.length
-    ? await sb.from("conversations").select("id, display_name, source, contact_email, external_id, wa_jid, ghl_conversation_id").in("id", convIds)
-    : { data: [] };
-  const convById = new Map((convs ?? []).map((c) => [c.id, c]));
+  // 1. TODOS los comprobantes del cliente, paginados (PostgREST corta en 1000
+  //    filas; sin paginar, "Todos" mostraba solo los 1000 más viejos). De esta
+  //    misma lectura salen los duplicados, "ya tiene un pago validado" y el
+  //    resumen de la cabecera, que antes eran tres consultas más.
+  let allRows;
+  try {
+    allRows = await fetchAllRows((from, to) =>
+      sb
+        .from("payment_validations")
+        .select(
+          "id, conversation_id, comprobante_path, comprobante_type, sender_name, sender_tax_id, recipient_name, recipient_tax_id, amount, currency, transfer_date_raw, transferred_at, operation_number, bank_or_method, concept, extraction_confidence, contact_name, contact_email, event_slug, status, awaiting_title, delivery_failed, delivery_error, course_access_granted_at, course_access_error, validated_by, validated_at, validation_note, created_at",
+        )
+        // Más antiguo primero: el equipo prioriza a quien envió antes (cola de trabajo).
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to),
+    );
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "No se pudieron cargar los comprobantes" },
+      { status: 500 },
+    );
+  }
+
+  // Resumen para la cabecera: pendientes y tiempo promedio de validación.
+  let pendingCount = 0;
+  let sumMs = 0;
+  let validatedCount = 0;
+  for (const r of allRows) {
+    if (r.status === "pending") pendingCount++;
+    if (r.status === "validated" && r.validated_at && r.created_at) {
+      const ms = new Date(r.validated_at).getTime() - new Date(r.created_at).getTime();
+      if (ms >= 0) {
+        sumMs += ms;
+        validatedCount++;
+      }
+    }
+  }
+  const stats: PaymentStats = {
+    pending: pendingCount,
+    avgValidationMs: validatedCount ? Math.round(sumMs / validatedCount) : null,
+  };
 
   // ¿Qué conversaciones ya tienen ALGÚN comprobante validado? Sirve para avisar
   // en la tarjeta que ese contacto ya está aprobado y este envío es adicional
   // (pasa seguido: mandan el comprobante, después una segunda foto / constancia /
   // un GIF; el real ya se validó y el resto es ruido).
-  const { data: validatedRows } = convIds.length
-    ? await sb
-        .from("payment_validations")
-        .select("id, conversation_id")
-        .eq("status", "validated")
-        .in("conversation_id", convIds)
-    : { data: [] };
   const validatedIdsByConv = new Map<string, Set<string>>();
-  for (const vr of validatedRows ?? []) {
-    if (!vr.conversation_id) continue;
-    const set = validatedIdsByConv.get(vr.conversation_id) ?? new Set<string>();
-    set.add(vr.id);
-    validatedIdsByConv.set(vr.conversation_id, set);
+  for (const r of allRows) {
+    if (r.status !== "validated" || !r.conversation_id) continue;
+    const set = validatedIdsByConv.get(r.conversation_id) ?? new Set<string>();
+    set.add(r.id);
+    validatedIdsByConv.set(r.conversation_id, set);
   }
+
+  // Detección de duplicados: comprobantes que comparten N° de operación, sobre
+  // TODA la tabla (así un pendiente que repite un pago ya validado se marca
+  // igual). La fila más antigua por N° de operación es la "original".
+  const norm = (op: string | null) => (op ?? "").trim().toUpperCase();
+  const earliestIdByOp = new Map<string, { id: string; createdAt: string }>();
+  const countByOp = new Map<string, number>();
+  for (const r of allRows) {
+    const op = norm(r.operation_number);
+    if (!op) continue;
+    countByOp.set(op, (countByOp.get(op) ?? 0) + 1);
+    const prev = earliestIdByOp.get(op);
+    if (!prev || r.created_at < prev.createdAt) {
+      earliestIdByOp.set(op, { id: r.id, createdAt: r.created_at });
+    }
+  }
+  const duplicateIds = new Set<string>();
+  for (const r of allRows) {
+    const op = norm(r.operation_number);
+    if (!op) continue;
+    if ((countByOp.get(op) ?? 0) > 1 && earliestIdByOp.get(op)?.id !== r.id) {
+      duplicateIds.add(r.id);
+    }
+  }
+
+  // 2. Las filas que se muestran: por estado, o por búsqueda en todos.
+  let rows = allRows;
+  if (searching) {
+    await resolveConversations(
+      allRows.map((r) => r.conversation_id).filter(Boolean) as string[],
+    );
+    rows = allRows.filter((r) => {
+      const conv = r.conversation_id ? convById.get(r.conversation_id) : null;
+      return matchesContactQuery(q, {
+        texts: [
+          conv?.display_name,
+          conv?.contact_email,
+          r.sender_name,
+          r.contact_name,
+          r.contact_email,
+          r.operation_number,
+        ],
+        phones: [conv?.wa_jid],
+      });
+    });
+  } else if (status === "pending" || status === "validated" || status === "rejected") {
+    rows = allRows.filter((r) => r.status === status);
+  }
+
+  const convIds = Array.from(
+    new Set(rows.map((r) => r.conversation_id).filter(Boolean) as string[]),
+  );
+  await resolveConversations(convIds);
+  const rowConvIds = new Set(convIds);
 
   // Resolver validadores.
   const validatorIds = Array.from(
@@ -164,72 +305,67 @@ export async function GET(req: NextRequest) {
     : { data: [] };
   const validatorById = new Map((validators ?? []).map((p) => [p.id, p]));
 
-  // Detección de duplicados: comprobantes que comparten N° de operación. Se
-  // evalúa sobre TODA la tabla del cliente (no solo el filtro de estado
-  // actual), así un pendiente que repite un pago ya validado se marca igual.
-  // La fila más antigua por N° de operación es la "original"; las posteriores
-  // se marcan como duplicado.
-  const { data: allOps } = await sb
-    .from("payment_validations")
-    .select("id, operation_number, created_at")
-    .not("operation_number", "is", null);
-  const norm = (op: string | null) => (op ?? "").trim().toUpperCase();
-  const earliestIdByOp = new Map<string, { id: string; createdAt: string }>();
-  const countByOp = new Map<string, number>();
-  for (const r of allOps ?? []) {
-    const op = norm(r.operation_number);
-    if (!op) continue;
-    countByOp.set(op, (countByOp.get(op) ?? 0) + 1);
-    const prev = earliestIdByOp.get(op);
-    if (!prev || r.created_at < prev.createdAt) {
-      earliestIdByOp.set(op, { id: r.id, createdAt: r.created_at });
+  // 3. Títulos profesionales (para agrupar con su comprobante: el certificado
+  //    primero, después el comprobante). En las vistas de revisión entran
+  //    también los de conversaciones que todavía no tienen comprobante (casos
+  //    "solo título a validar").
+  const titleRows = await fetchAllRows((from, to) =>
+      sb
+        .from("professional_titles")
+        .select(
+          "id, conversation_id, file_path, file_type, holder_name, title_name, institution, is_valid, reviewed_at, validation_note, created_at",
+        )
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to),
+  ).catch(() => []);
+  const heldConvIds = new Set(
+    rows.filter((r) => r.awaiting_title).map((r) => r.conversation_id).filter(Boolean) as string[],
+  );
+  // Conversaciones con un título a revisar y sin comprobante retenido que lo
+  // agrupe: van como card aparte.
+  // Tampoco si la conversación tiene un comprobante pendiente a la vista: su
+  // tarjeta ya muestra los títulos con los mismos botones, y la segunda
+  // tarjeta ("Sin comprobante") duplicaba a la persona y confundía.
+  const pendingRowConvIds = new Set(
+    rows.filter((r) => r.status === "pending").map((r) => r.conversation_id).filter(Boolean) as string[],
+  );
+  const reviewConvIds = new Set<string>();
+  if (reviewView) {
+    for (const t of titleRows) {
+      if (!t.conversation_id || heldConvIds.has(t.conversation_id)) continue;
+      if (pendingRowConvIds.has(t.conversation_id)) continue;
+      if (!t.is_valid && !t.reviewed_at) reviewConvIds.add(t.conversation_id);
     }
   }
-  const duplicateIds = new Set<string>();
-  for (const r of allOps ?? []) {
-    const op = norm(r.operation_number);
-    if (!op) continue;
-    if ((countByOp.get(op) ?? 0) > 1 && earliestIdByOp.get(op)?.id !== r.id) {
-      duplicateIds.add(r.id);
+  if (searching && reviewConvIds.size) {
+    // Con búsqueda, los títulos a revisar también se filtran por la persona.
+    await resolveConversations(Array.from(reviewConvIds));
+    for (const id of Array.from(reviewConvIds)) {
+      const conv = convById.get(id);
+      const ok = matchesContactQuery(q, {
+        texts: [conv?.display_name, conv?.contact_email],
+        phones: [conv?.wa_jid],
+      });
+      if (!ok) reviewConvIds.delete(id);
     }
   }
-
-  // Signed URLs (en paralelo) para mostrar los comprobantes.
-  const signedUrls = await Promise.all(
-    rows.map((r) =>
-      r.comprobante_path ? getComprobanteSignedUrl(r.comprobante_path) : Promise.resolve(null),
-    ),
+  const shownTitles = titleRows.filter(
+    (t) => t.conversation_id && (rowConvIds.has(t.conversation_id) || reviewConvIds.has(t.conversation_id)),
   );
 
-  // Títulos profesionales que mandaron estas contactas (para agrupar con su
-  // comprobante: el certificado primero, después el comprobante).
-  const wantTitlesFor =
-    status === "pending" || status === "all"
-      ? // En las vistas de revisión traemos también títulos de conversaciones que
-        // todavía no tienen comprobante (casos "solo título a validar").
-        undefined
-      : convIds;
-  let titleQuery = sb
-    .from("professional_titles")
-    .select("*")
-    .order("created_at", { ascending: true })
-    .limit(MAX_ITEMS);
-  if (wantTitlesFor) {
-    if (!wantTitlesFor.length) titleQuery = titleQuery.eq("id", "00000000-0000-0000-0000-000000000000");
-    else titleQuery = titleQuery.in("conversation_id", wantTitlesFor);
-  }
-  const { data: titleRows } = await titleQuery;
-  const titleSigned = await Promise.all(
-    (titleRows ?? []).map((t) =>
-      t.file_path ? getComprobanteSignedUrl(t.file_path) : Promise.resolve(null),
-    ),
-  );
+  // Una sola tanda de firmas para comprobantes y títulos.
+  const signed = await signPaths([
+    ...(rows.map((r) => r.comprobante_path).filter(Boolean) as string[]),
+    ...(shownTitles.map((t) => t.file_path).filter(Boolean) as string[]),
+  ]);
+
   const titlesByConv = new Map<string, TitleSubmission[]>();
-  (titleRows ?? []).forEach((t, i) => {
-    if (!t.conversation_id) return;
+  for (const t of shownTitles) {
+    if (!t.conversation_id) continue;
     const sub: TitleSubmission = {
       id: t.id,
-      url: titleSigned[i] ?? null,
+      url: t.file_path ? signed.get(t.file_path) ?? null : null,
       fileType: t.file_type,
       holderName: t.holder_name,
       titleName: t.title_name,
@@ -242,44 +378,36 @@ export async function GET(req: NextRequest) {
     const arr = titlesByConv.get(t.conversation_id) ?? [];
     arr.push(sub);
     titlesByConv.set(t.conversation_id, arr);
-  });
-
-  // Resolver conversaciones de títulos que no tienen comprobante en la lista.
-  const missingConvIds = Array.from(titlesByConv.keys()).filter((id) => !convById.has(id));
-  if (missingConvIds.length) {
-    const { data: moreConvs } = await sb
-      .from("conversations")
-      .select("id, display_name, source, contact_email, external_id, wa_jid, ghl_conversation_id")
-      .in("id", missingConvIds);
-    (moreConvs ?? []).forEach((c) => convById.set(c.id, c));
   }
+  await resolveConversations(Array.from(reviewConvIds));
 
   // Último mensaje de texto de la contacta por conversación (para mostrar
   // contexto, ej. una negativa a mandar el título). Se calcula para las
   // conversaciones con comprobante retenido o con título a revisar.
-  const noteConvIds = Array.from(
-    new Set([
-      ...rows.filter((r) => r.awaiting_title).map((r) => r.conversation_id),
-      ...titlesByConv.keys(),
-    ].filter(Boolean) as string[]),
-  );
+  const noteConvIds = Array.from(new Set([...heldConvIds, ...reviewConvIds]));
   const contactNoteByConv = new Map<string, string>();
   if (noteConvIds.length) {
-    const { data: userMsgs } = await sb
-      .from("messages")
-      .select("conversation_id, content, created_at")
-      .in("conversation_id", noteConvIds)
-      .eq("role", "user")
-      .order("created_at", { ascending: false })
-      .limit(400);
-    for (const m of userMsgs ?? []) {
-      if (!m.conversation_id || contactNoteByConv.has(m.conversation_id)) continue;
-      const text = (m.content ?? "").trim();
-      if (text) contactNoteByConv.set(m.conversation_id, text);
+    const results = await Promise.all(
+      chunked(noteConvIds, 50).map((chunk) =>
+        sb
+          .from("messages")
+          .select("conversation_id, content, created_at")
+          .in("conversation_id", chunk)
+          .eq("role", "user")
+          .order("created_at", { ascending: false })
+          .limit(400),
+      ),
+    );
+    for (const r of results) {
+      for (const m of r.data ?? []) {
+        if (!m.conversation_id || contactNoteByConv.has(m.conversation_id)) continue;
+        const text = (m.content ?? "").trim();
+        if (text) contactNoteByConv.set(m.conversation_id, text);
+      }
     }
   }
 
-  const items: PaymentItem[] = rows.map((r, i) => {
+  const items: PaymentItem[] = rows.map((r) => {
     const conv = r.conversation_id ? convById.get(r.conversation_id) : null;
     const validator = r.validated_by ? validatorById.get(r.validated_by) : null;
     // "Ya validado" si hay OTRA fila validada (distinta a esta) en la misma conv.
@@ -306,7 +434,7 @@ export async function GET(req: NextRequest) {
       contactName: r.contact_name,
       contactEmail: conv?.contact_email ?? r.contact_email,
       eventSlug: r.event_slug,
-      comprobanteUrl: signedUrls[i] ?? null,
+      comprobanteUrl: r.comprobante_path ? signed.get(r.comprobante_path) ?? null : null,
       comprobanteType: r.comprobante_type,
       isDuplicate: duplicateIds.has(r.id),
       contactHasValidatedPayment,
@@ -319,65 +447,27 @@ export async function GET(req: NextRequest) {
       contactNote: r.conversation_id
         ? contactNoteByConv.get(r.conversation_id) ?? null
         : null,
-      conversation: conv
-        ? { id: conv.id, displayName: conv.display_name ?? "(sin nombre)", source: conv.source, externalId: conv.external_id ?? null, phone: conv.wa_jid ?? null, ghlConversationId: conv.ghl_conversation_id ?? null }
-        : null,
+      conversation: convSummary(conv),
       validatedAt: r.validated_at,
       validationNote: r.validation_note,
       validatedByName: validator?.name ?? null,
     };
   });
 
-  // Casos de "título a validar" sin comprobante que los agrupe: conversaciones
-  // con un título a revisar (no validado y sin revisión manual) que NO tienen un
-  // comprobante retenido en la lista actual (esos ya muestran el título en su
-  // card). Solo en las vistas de revisión (pendientes / todos).
-  const heldConvIds = new Set(
-    rows.filter((r) => r.awaiting_title).map((r) => r.conversation_id).filter(Boolean) as string[],
-  );
+  // Casos de "título a validar" sin comprobante que los agrupe.
   const titleReviews: TitleReview[] = [];
-  if (status === "pending" || status === "all") {
-    for (const [convId, submissions] of titlesByConv) {
-      if (heldConvIds.has(convId)) continue;
-      const pendientes = submissions.filter((s) => !s.isValid && !s.reviewedAt);
-      if (!pendientes.length) continue;
-      const conv = convById.get(convId);
-      const createdAt =
-        submissions.map((s) => s.createdAt).sort().slice(-1)[0] ?? "";
-      titleReviews.push({
-        conversation: conv
-          ? { id: conv.id, displayName: conv.display_name ?? "(sin nombre)", source: conv.source, externalId: conv.external_id ?? null, phone: conv.wa_jid ?? null, ghlConversationId: conv.ghl_conversation_id ?? null }
-          : null,
-        submissions,
-        contactNote: contactNoteByConv.get(convId) ?? null,
-        createdAt,
-      });
-    }
-    titleReviews.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  for (const convId of reviewConvIds) {
+    const submissions = titlesByConv.get(convId) ?? [];
+    if (!submissions.length) continue;
+    const createdAt = submissions.map((s) => s.createdAt).sort().slice(-1)[0] ?? "";
+    titleReviews.push({
+      conversation: convSummary(convById.get(convId)),
+      submissions,
+      contactNote: contactNoteByConv.get(convId) ?? null,
+      createdAt,
+    });
   }
-
-  // Resumen para la cabecera: cantidad de pendientes y tiempo promedio de
-  // validación, sobre TODA la tabla del cliente (no solo el filtro/pagina).
-  const { data: statRows } = await sb
-    .from("payment_validations")
-    .select("status, created_at, validated_at");
-  let pending = 0;
-  let sumMs = 0;
-  let validatedCount = 0;
-  for (const r of statRows ?? []) {
-    if (r.status === "pending") pending++;
-    if (r.status === "validated" && r.validated_at && r.created_at) {
-      const ms = new Date(r.validated_at).getTime() - new Date(r.created_at).getTime();
-      if (ms >= 0) {
-        sumMs += ms;
-        validatedCount++;
-      }
-    }
-  }
-  const stats: PaymentStats = {
-    pending,
-    avgValidationMs: validatedCount ? Math.round(sumMs / validatedCount) : null,
-  };
+  titleReviews.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 
   return NextResponse.json({ items, titleReviews, stats });
 }

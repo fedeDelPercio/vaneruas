@@ -172,15 +172,23 @@ export async function importarMensajesDelEquipo(
   // Marca de agua: el último mensaje humano que ya tenemos.
   let sinceMs = opts?.sinceMs;
   if (sinceMs === undefined) {
+    // Solo cuentan los mensajes que trajo este importador. Los que el equipo
+    // envía desde el chat del panel también son role="human", pero llevan
+    // delivered_at: si movieran la marca, un envío desde el panel después de
+    // una caída del cron taparía lo que se escribió en GHL durante el hueco.
     const { data: ultimo } = await sb
       .from("messages")
       .select("created_at")
       .eq("role", "human")
+      .is("delivered_at", null)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
+    // Con piso de 24 hs: si el equipo pasa a escribir solo desde el panel, no
+    // hay importados nuevos y la marca quedaría fija, haciendo cada corrida más
+    // larga que la anterior.
     sinceMs = ultimo?.created_at
-      ? new Date(ultimo.created_at).getTime() - SAFETY_MS
+      ? Math.max(new Date(ultimo.created_at).getTime() - SAFETY_MS, Date.now() - 86_400_000)
       : Date.now() - DEFAULT_LOOKBACK_MS;
   }
 
@@ -236,7 +244,11 @@ export async function importarMensajesDelEquipo(
     const huellasNuestras = new Set<string>();
     for (const m of nuestras ?? []) {
       if (m.external_id) idsConocidos.add(m.external_id);
-      if (m.role === "assistant" || m.role === "system") {
+      // También lo que el equipo mandó desde el panel y quedó sin id de GHL
+      // (GHL contestó sin messageId): sin esto se reimportaba como un segundo
+      // mensaje.
+      const delPanelSinId = m.role === "human" && !m.external_id;
+      if (m.role === "assistant" || m.role === "system" || delPanelSinId) {
         // Las respuestas multi burbuja se parten por ---: cada tramo es un envío.
         for (const parte of (m.content ?? "").split("---")) {
           const h = huella(parte);

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { listNotifications, type NotificationListItem } from "@/lib/notifications-list";
 
 export const dynamic = "force-dynamic";
 
@@ -16,76 +17,26 @@ export const dynamic = "force-dynamic";
 // RLS aísla por client_slug vía el JWT.
 // ===========================================================================
 
-const MAX_ITEMS = 300;
 
 const CERTIFICADO_CATEGORY = "reclamo_certificado";
 
-export interface CertificadoItem {
-  id: string;
-  reason: string | null;
-  summary: string | null;
-  createdAt: string;
-  resolvedAt: string | null;
-  resolvedByName: string | null;
-  conversation: { id: string; displayName: string; source: string; externalId: string | null; phone: string | null; ghlConversationId: string | null } | null;
-}
+export type CertificadoItem = Omit<NotificationListItem, "category">;
 
 export async function GET(req: NextRequest) {
-  const sb = getSupabaseServerClient();
   const status = req.nextUrl.searchParams.get("status") ?? "pending";
-
-  let query = sb
-    .from("agent_notifications")
-    .select("*")
-    .eq("category", CERTIFICADO_CATEGORY)
-    // Más antiguo primero: se prioriza a quien reclamó antes (cola de trabajo).
-    .order("created_at", { ascending: true })
-    .limit(MAX_ITEMS);
-
-  if (status === "pending") query = query.is("resolved_at", null);
-  else if (status === "resolved") query = query.not("resolved_at", "is", null);
-
-  const { data: rows, error } = await query;
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  const q = (req.nextUrl.searchParams.get("q") ?? "").slice(0, 80);
+  try {
+    const result = await listNotifications({
+      sb: getSupabaseServerClient(),
+      status,
+      q,
+      onlyCategory: CERTIFICADO_CATEGORY,
+    });
+    return NextResponse.json(result);
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "No se pudieron cargar los reclamos" },
+      { status: 500 },
+    );
   }
-  if (!rows?.length) {
-    return NextResponse.json({ items: [] satisfies CertificadoItem[] });
-  }
-
-  // Resolver conversaciones de origen.
-  const convIds = Array.from(
-    new Set(rows.map((r) => r.conversation_id).filter(Boolean) as string[]),
-  );
-  const { data: convs } = convIds.length
-    ? await sb.from("conversations").select("id, display_name, source, external_id, wa_jid, ghl_conversation_id").in("id", convIds)
-    : { data: [] };
-  const convById = new Map((convs ?? []).map((c) => [c.id, c]));
-
-  // Resolver quién atendió cada reclamo.
-  const resolverIds = Array.from(
-    new Set(rows.map((r) => r.resolved_by).filter(Boolean) as string[]),
-  );
-  const { data: resolvers } = resolverIds.length
-    ? await sb.from("profiles").select("id, name").in("id", resolverIds)
-    : { data: [] };
-  const resolverById = new Map((resolvers ?? []).map((p) => [p.id, p]));
-
-  const items: CertificadoItem[] = rows.map((r) => {
-    const conv = r.conversation_id ? convById.get(r.conversation_id) : null;
-    const resolver = r.resolved_by ? resolverById.get(r.resolved_by) : null;
-    return {
-      id: r.id,
-      reason: r.reason,
-      summary: r.summary,
-      createdAt: r.created_at,
-      resolvedAt: r.resolved_at,
-      resolvedByName: resolver?.name ?? null,
-      conversation: conv
-        ? { id: conv.id, displayName: conv.display_name ?? "(sin nombre)", source: conv.source, externalId: conv.external_id ?? null, phone: conv.wa_jid ?? null, ghlConversationId: conv.ghl_conversation_id ?? null }
-        : null,
-    };
-  });
-
-  return NextResponse.json({ items });
 }

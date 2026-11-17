@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +48,15 @@ export async function GET() {
       .is("resolved_at", null)
       .eq("category", "reclamo_certificado"),
     // Conversaciones con comprobante (el módulo Agendar es solo para esas).
-    sb.from("payment_validations").select("conversation_id").not("conversation_id", "is", null),
+    // Paginado: son más de 1000 filas y sin esto se contaba sobre una parte.
+    fetchAllRows((from, to) =>
+      sb
+        .from("payment_validations")
+        .select("id, conversation_id")
+        .not("conversation_id", "is", null)
+        .order("id", { ascending: true })
+        .range(from, to),
+    ).catch(() => [] as { id: string; conversation_id: string | null }[]),
     // Títulos a revisar (la IA no los dio por válidos y nadie los revisó aún).
     sb
       .from("professional_titles")
@@ -55,28 +64,34 @@ export async function GET() {
       .eq("is_valid", false)
       .is("reviewed_at", null)
       .not("conversation_id", "is", null),
-    // Comprobantes retenidos esperando título: esas conversaciones ya muestran
-    // el título dentro de su propia card, así que no se cuentan dos veces.
+    // Conversaciones con un comprobante pendiente (retenido por título o no):
+    // ya muestran el título dentro de su propia card, así que no se cuentan
+    // dos veces. Mismo criterio que /api/payments.
     sb
       .from("payment_validations")
       .select("conversation_id")
-      .eq("awaiting_title", true)
+      .eq("status", "pending")
       .not("conversation_id", "is", null),
   ]);
 
   // agendar: de las que mandaron comprobante, las que todavía no están agendadas.
-  const comprobanteConvIds = Array.from(
-    new Set((payConvRows.data ?? []).map((r) => r.conversation_id).filter(Boolean) as string[]),
+  // Se cruza en memoria: pasar cientos de ids en un `.in()` desborda la URL,
+  // el pedido falla y el badge quedaba en 0 (además de tardar ~9 segundos).
+  const withComprobante = new Set(
+    payConvRows.map((r) => r.conversation_id).filter(Boolean) as string[],
   );
   let agendar = 0;
-  if (comprobanteConvIds.length) {
-    const { count } = await sb
-      .from("conversations")
-      .select("id", { count: "exact", head: true })
-      .eq("source", "whatsapp")
-      .eq("agendada", false)
-      .in("id", comprobanteConvIds);
-    agendar = count ?? 0;
+  if (withComprobante.size) {
+    const sinAgendar = await fetchAllRows((from, to) =>
+      sb
+        .from("conversations")
+        .select("id")
+        .eq("source", "whatsapp")
+        .eq("agendada", false)
+        .order("id", { ascending: true })
+        .range(from, to),
+    ).catch(() => [] as { id: string }[]);
+    agendar = sinAgendar.filter((c) => withComprobante.has(c.id)).length;
   }
 
   // Conversaciones con título a revisar que NO tienen un comprobante retenido

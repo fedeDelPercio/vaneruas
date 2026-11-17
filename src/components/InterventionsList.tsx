@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Inbox, Check, RotateCcw, ArrowRight, AlertTriangle } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { Loader2, Inbox, Check, RotateCcw, AlertTriangle, SearchX } from "lucide-react";
 import { useProfile } from "./ProfileProvider";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { ghlConversationUrl } from "@/lib/ghl-link";
 import { ContactStrip } from "./ContactStrip";
+import { ConversationLinks } from "./ConversationLinks";
+import { SearchField } from "./SearchField";
+import { useContactSearch } from "./useContactSearch";
 import type { InterventionItem } from "@/app/api/interventions/route";
 
 // Bandeja de derivaciones al equipo: notificaciones del agente que necesitan
@@ -54,25 +55,37 @@ function fmtDateTime(iso: string): string {
 }
 
 export function InterventionsList() {
-  const router = useRouter();
   const { profile } = useProfile();
+  const { query, setQuery, activeQuery } = useContactSearch();
   const [filter, setFilter] = useState<StatusFilter>("pending");
   const [items, setItems] = useState<InterventionItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const filterRef = useRef(filter);
   filterRef.current = filter;
+  // La búsqueda la resuelve el servidor (?q=), sobre todo el historial y no
+  // solo sobre las filas que entran en el tope de la lista.
+  const queryRef = useRef(activeQuery);
+  queryRef.current = activeQuery;
+  const [total, setTotal] = useState(0);
+  // Descarta respuestas viejas (cambio de pestaña o de búsqueda en el medio).
+  const requestRef = useRef(0);
 
-  const load = useCallback(async (status: StatusFilter) => {
+  const load = useCallback(async (status: StatusFilter, q: string) => {
+    const requestId = ++requestRef.current;
     try {
-      const r = await fetch(`/api/interventions?status=${status}`, { cache: "no-store" });
+      const params = new URLSearchParams({ status });
+      if (q) params.set("q", q);
+      const r = await fetch(`/api/interventions?${params}`, { cache: "no-store" });
       const j = await r.json();
+      if (requestId !== requestRef.current) return;
       if (!r.ok) {
         setError(j.error ?? "No se pudieron cargar las derivaciones");
         return;
       }
       setError(null);
       setItems(j.items as InterventionItem[]);
+      setTotal(typeof j.total === "number" ? j.total : (j.items as unknown[]).length);
     } catch {
       setError("Error de red");
     }
@@ -80,8 +93,8 @@ export function InterventionsList() {
 
   useEffect(() => {
     setItems(null);
-    void load(filter);
-  }, [filter, load]);
+    void load(filter, activeQuery);
+  }, [filter, activeQuery, load]);
 
   // Realtime: refrescar cuando entra una derivación nueva o cambia su estado.
   useEffect(() => {
@@ -91,7 +104,7 @@ export function InterventionsList() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "agent_notifications" },
-        () => void load(filterRef.current),
+        () => void load(filterRef.current, queryRef.current),
       )
       .subscribe();
     return () => {
@@ -112,7 +125,7 @@ export function InterventionsList() {
         setError(j.error ?? "No se pudo actualizar la derivación");
         return;
       }
-      await load(filterRef.current);
+      await load(filterRef.current, queryRef.current);
     } catch {
       setError("Error de red al actualizar");
     } finally {
@@ -128,6 +141,10 @@ export function InterventionsList() {
     );
   }
 
+  const shown = items ?? [];
+  // Si hay más de las que se muestran, se dice: "300 de 988".
+  const countLabel = total > shown.length ? `${shown.length} de ${total}` : `${total}`;
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-6 sm:px-8">
       <div className="flex items-center justify-between pb-3">
@@ -136,10 +153,17 @@ export function InterventionsList() {
         </h1>
         {items && (
           <span className="font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-            {items.length} derivaci{items.length === 1 ? "ón" : "ones"}
+            {countLabel} derivaci{total === 1 ? "ón" : "ones"}
           </span>
         )}
       </div>
+
+      <SearchField
+        value={query}
+        onChange={setQuery}
+        placeholder="Buscar por nombre o teléfono"
+        className="mb-3"
+      />
 
       <div className="mb-4 flex items-center gap-1">
         {FILTERS.map((f) => (
@@ -162,6 +186,16 @@ export function InterventionsList() {
           <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} />
           Cargando derivaciones…
         </div>
+      ) : shown.length === 0 && activeQuery ? (
+        <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
+          <SearchX className="h-6 w-6 text-neutral-300 dark:text-neutral-700" strokeWidth={1.5} />
+          <p className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300">
+            Sin resultados para “{activeQuery}”
+          </p>
+          <p className="text-[12px] text-neutral-500 dark:text-neutral-500">
+            Probá con otra parte del nombre o del teléfono, o mirá en otra pestaña.
+          </p>
+        </div>
       ) : items.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
           <Inbox className="h-6 w-6 text-neutral-300 dark:text-neutral-700" strokeWidth={1.5} />
@@ -174,7 +208,7 @@ export function InterventionsList() {
         </div>
       ) : (
         <div className="space-y-3">
-          {items.map((it) => {
+          {shown.map((it) => {
             const isResolved = it.resolvedAt !== null;
             const busy = busyId === it.id;
             const isAlert = ALERT_CATEGORIES.has(it.category);
@@ -216,17 +250,7 @@ export function InterventionsList() {
 
                 <div className="mt-3 flex flex-wrap items-center justify-end gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
                   {it.conversation && (
-                    <button
-                      onClick={() => {
-                        const url = ghlConversationUrl(it.conversation);
-                        if (url) window.open(url, "_blank", "noopener,noreferrer");
-                        else router.push(`/conversations?id=${it.conversation!.id}`);
-                      }}
-                      className="mr-auto flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] text-neutral-600 transition hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                    >
-                      Ver conversación
-                      <ArrowRight className="h-3 w-3" strokeWidth={1.75} />
-                    </button>
+                    <ConversationLinks conversation={it.conversation} className="mr-auto" />
                   )}
 
                   {isResolved ? (

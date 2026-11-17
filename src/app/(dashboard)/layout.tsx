@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { Suspense, useEffect, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { ProfileProvider, useProfile } from "@/components/ProfileProvider";
 import { ProfileGate } from "@/components/ProfileGate";
@@ -44,7 +44,9 @@ function DashboardShell({ children }: { children: ReactNode }) {
             Esta sección no está disponible para tu perfil ({roleLabel(profile.role)}).
           </div>
         ) : (
-          children
+          // Las bandejas leen ?q= con useSearchParams, que necesita un límite
+          // de Suspense para el render estático.
+          <Suspense fallback={null}>{children}</Suspense>
         )}
       </main>
     </div>

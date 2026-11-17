@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { ChevronRight, Bell, FileText } from "lucide-react";
+import { ChevronRight, Bell, Bot, FileText, UserRound } from "lucide-react";
 import type { Message, CommentKind } from "@/lib/supabase/types";
 import type { ViewMode } from "@/lib/profile";
 import { MessageTrace } from "./MessageTrace";
@@ -26,11 +26,11 @@ const URL_REGEX = /https?:\/\/[^\s<>()]+/g;
  * contenedor). Para evitar links rotos por puntuacion final, recorta `.,;:!?)`
  * trailing del match.
  */
-function renderWithLinks(content: string, isUser: boolean): ReactNode {
+function renderWithLinks(content: string, darkBubble: boolean): ReactNode {
   const parts: ReactNode[] = [];
   let lastIndex = 0;
   let key = 0;
-  const linkClass = isUser
+  const linkClass = darkBubble
     ? "underline underline-offset-2 decoration-1 opacity-90 hover:opacity-100"
     : "underline underline-offset-2 decoration-1 text-neutral-900 hover:decoration-2 dark:text-neutral-50";
 
@@ -102,7 +102,7 @@ function ComprobanteAttachment({
     return (
       <div className="mb-2 flex items-center gap-1.5 text-[11.5px] text-neutral-400">
         <FileText className="h-3.5 w-3.5" strokeWidth={1.75} />
-        Comprobante adjunto
+        Archivo adjunto
       </div>
     );
   }
@@ -120,7 +120,7 @@ function ComprobanteAttachment({
         className="mb-2 flex items-center gap-1.5 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-[12px] text-neutral-700 transition hover:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800"
       >
         <FileText className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
-        Ver comprobante (PDF)
+        Ver archivo (PDF)
       </a>
     );
   }
@@ -129,7 +129,7 @@ function ComprobanteAttachment({
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={url}
-        alt="Comprobante de pago"
+        alt="Archivo adjunto"
         className="mb-2 max-h-64 w-auto rounded-md border border-neutral-200 object-contain dark:border-neutral-800"
       />
     </a>
@@ -141,9 +141,21 @@ export function MessageBubble({
   viewMode,
   reactions,
   onSubmitReaction,
+  perspective = "tester",
+  showAuthor = true,
 }: {
   message: Message;
   viewMode: ViewMode;
+  /**
+   * Desde dónde se mira la conversación.
+   *  - "tester": banco de pruebas, quien escribe hace de cliente (cliente a la
+   *    derecha, agente a la izquierda).
+   *  - "team": bandeja real de WhatsApp. La clienta va a la izquierda y lo que
+   *    sale de nuestro lado a la derecha, distinguiendo a Valentina del equipo.
+   */
+  perspective?: "tester" | "team";
+  /** En "team": mostrar quién escribió (se apaga en mensajes seguidos del mismo autor). */
+  showAuthor?: boolean;
   reactions?: MessageReactionState;
   // El usuario abre el menú y elige sentimiento (positivo/neutro/negativo).
   // Al elegir, se dispara con content=null (voto inmediato). Si después
@@ -176,6 +188,26 @@ export function MessageBubble({
 
   const isUser = message.role === "user";
   const isAgent = message.role === "assistant";
+  const isTeamView = perspective === "team";
+  // En la bandeja real, lo nuestro (Valentina o el equipo) va a la derecha.
+  const alignRight = isTeamView ? !isUser : isUser;
+  const bubbleClass = !isTeamView
+    ? isUser
+      ? "rounded-br-sm bg-neutral-900 text-white dark:bg-neutral-50 dark:text-neutral-950"
+      : "rounded-bl-sm border border-neutral-200 bg-white text-neutral-800 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
+    : isUser
+      ? "rounded-bl-sm bg-neutral-100 text-neutral-900 dark:bg-neutral-800/80 dark:text-neutral-100"
+      : isAgent
+        ? "rounded-br-sm border border-neutral-200 bg-white text-neutral-800 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
+        : "rounded-br-sm bg-neutral-900 text-white dark:bg-neutral-50 dark:text-neutral-950";
+  const darkBubble = isTeamView ? !isUser && !isAgent : isUser;
+  // Las respuestas largas de Valentina se guardan con "---" entre burbujas.
+  // GHL manda este texto fijo, en inglés, cuando la clienta envía algo que no
+  // sabe pasar (un sticker, una encuesta, un contacto): no lo escribió ella.
+  const unsupported = message.content.trim() === "Message type is currently not supported.";
+  const displayContent = unsupported
+    ? "Mensaje que no se puede mostrar acá (sticker, contacto u otro formato). Miralo en WhatsApp"
+    : message.content.replace(/\n\s*---\s*\n/g, "\n\n");
   const canExpand = viewMode === "advanced" && isAgent && Boolean(message.trace_id);
 
   // El boton inline solo abre la burbuja. La logica de elegir sentimiento y
@@ -214,16 +246,28 @@ export function MessageBubble({
     <div
       id={`message-${message.id}`}
       className={`flex items-end gap-1 px-1 py-0.5 ${
-        isUser ? "justify-end" : "justify-start"
+        alignRight ? "justify-end" : "justify-start"
       }`}
     >
-      <div className="max-w-[85%] sm:max-w-[78%]">
+      {isTeamView && quickBubble}
+      {isTeamView && reactionsCol}
+      <div className="min-w-0 max-w-[85%] sm:max-w-[78%]">
+        {isTeamView && !isUser && showAuthor && (
+          <p
+            className={`mb-1 flex items-center justify-end gap-1 px-1 text-[10.5px] font-medium ${
+              isAgent ? "text-gold-fg dark:text-gold" : "text-neutral-500 dark:text-neutral-400"
+            }`}
+          >
+            {isAgent ? (
+              <Bot className="h-3 w-3" strokeWidth={1.75} />
+            ) : (
+              <UserRound className="h-3 w-3" strokeWidth={1.75} />
+            )}
+            {isAgent ? "Valentina · IA" : "Equipo"}
+          </p>
+        )}
         <div
-          className={`whitespace-pre-wrap break-words rounded-md px-3.5 py-2.5 text-[13.5px] leading-relaxed ${
-            isUser
-              ? "rounded-br-sm bg-neutral-900 text-white dark:bg-neutral-50 dark:text-neutral-950"
-              : "rounded-bl-sm border border-neutral-200 bg-white text-neutral-800 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
-          }`}
+          className={`whitespace-pre-wrap break-words rounded-lg px-3.5 py-2.5 text-[13.5px] leading-relaxed ${bubbleClass}`}
         >
           {message.attachment_path && (
             <ComprobanteAttachment
@@ -231,18 +275,23 @@ export function MessageBubble({
               type={message.attachment_type}
             />
           )}
-          {message.content.trim() && renderWithLinks(message.content, isUser)}
+          {unsupported ? (
+            <span className="italic opacity-70">{displayContent}</span>
+          ) : (
+            displayContent.trim() && renderWithLinks(displayContent, darkBubble)
+          )}
         </div>
 
         <div
           className={`mt-1 flex items-center gap-2 px-1 font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500 ${
-            isUser ? "justify-end" : "justify-start"
+            alignRight ? "justify-end" : "justify-start"
           }`}
         >
           <span>
             {new Date(message.created_at).toLocaleTimeString("es-AR", {
               hour: "2-digit",
               minute: "2-digit",
+              hour12: false,
             })}
           </span>
 
@@ -264,8 +313,8 @@ export function MessageBubble({
           <MessageTrace traceId={message.trace_id} />
         )}
       </div>
-      {!isUser && reactionsCol}
-      {!isUser && quickBubble}
+      {!isTeamView && !isUser && reactionsCol}
+      {!isTeamView && !isUser && quickBubble}
     </div>
   );
 }

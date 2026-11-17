@@ -29,6 +29,12 @@ export interface KnownComprobanteEvent {
    * falta a mano).
    */
   accesoVigente?: boolean;
+  /**
+   * Palabra que identifica al evento en el título cargado en /events. La tabla
+   * `events` no guarda el slug, así que la ficha del contacto en el chat une
+   * los comprobantes con su evento buscando esta palabra en el título.
+   */
+  titleKeyword: string;
 }
 
 export const KNOWN_COMPROBANTE_EVENTS: KnownComprobanteEvent[] = [
@@ -37,6 +43,7 @@ export const KNOWN_COMPROBANTE_EVENTS: KnownComprobanteEvent[] = [
     label: "Skin Intellectuals Congress",
     shortLabel: "Congreso",
     amount: 267000,
+    titleKeyword: "congress",
   },
   {
     slug: "masterclass-higiene-facial-dermaplaning",
@@ -44,6 +51,7 @@ export const KNOWN_COMPROBANTE_EVENTS: KnownComprobanteEvent[] = [
     // Hay más de una masterclass: el badge dice cuál, no solo "Masterclass".
     shortLabel: "Higiene facial",
     amount: 105000,
+    titleKeyword: "higiene",
     // Se dictó el 1/8/2026 y la grabación venció el 21/8. En Tiendup el curso
     // quedó en borrador: no hay acceso que dar.
     accesoVigente: false,
@@ -56,6 +64,7 @@ export const KNOWN_COMPROBANTE_EVENTS: KnownComprobanteEvent[] = [
     // no manda comprobante por WhatsApp).
     amount: 110000,
     accesoVigente: true,
+    titleKeyword: "peelings",
   },
 ];
 

@@ -9,7 +9,6 @@ import {
   CheckCheck,
   X,
   RotateCcw,
-  ArrowRight,
   AlertTriangle,
   GraduationCap,
   ShieldAlert,
@@ -18,13 +17,15 @@ import {
   Ticket,
   Users,
   KeyRound,
+  SearchX,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useProfile } from "./ProfileProvider";
 import { DISMISS_NOTE } from "@/lib/payments/dismiss";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { ghlConversationUrl } from "@/lib/ghl-link";
 import { ContactStrip } from "./ContactStrip";
+import { ConversationLinks } from "./ConversationLinks";
+import { SearchField } from "./SearchField";
+import { useContactSearch } from "./useContactSearch";
 import { eventBySlug, accesoVigenteDeEvento } from "@/lib/payments/event-match";
 import { recipientMismatches } from "@/lib/payments/recipient";
 import type {
@@ -51,6 +52,9 @@ const FILTERS: { key: StatusFilter; label: string }[] = [
 ];
 
 type EventFilter = "all" | "congreso" | "masterclass";
+
+/** Contactos (tarjetas) que se pintan por tanda. */
+const GROUPS_PER_PAGE = 100;
 
 /** A qué evento corresponde un comprobante (por su slug), o null si no se identificó. */
 function eventKind(slug: string | null | undefined): "congreso" | "masterclass" | null {
@@ -291,6 +295,10 @@ function Thumb({
       <img
         src={url}
         alt={alt}
+        // Carga diferida: "Todos" tiene cientos de tarjetas y bajar todas las
+        // imágenes de una dejaba la pantalla trabada medio minuto.
+        loading="lazy"
+        decoding="async"
         className={`rounded-md border border-neutral-200 object-cover transition hover:opacity-90 dark:border-neutral-800 ${className}`}
       />
     </a>
@@ -415,9 +423,15 @@ function ContactNote({
 }
 
 export function PaymentsList() {
-  const router = useRouter();
   const { profile } = useProfile();
+  // Buscador. Con 2 letras o más se busca en TODOS los estados: quien busca a
+  // una persona no sabe (ni le importa) si su comprobante está pendiente,
+  // validado o rechazado. La búsqueda la resuelve el servidor (?q=).
+  const { query, setQuery, activeQuery } = useContactSearch(300);
+  const searching = activeQuery.length >= 2;
+  const searchQuery = searching ? activeQuery : "";
   const [filter, setFilter] = useState<StatusFilter>("pending");
+  const [groupLimit, setGroupLimit] = useState(GROUPS_PER_PAGE);
   const [eventFilter, setEventFilter] = useState<EventFilter>("all");
   const [items, setItems] = useState<PaymentItem[] | null>(null);
   const [titleReviews, setTitleReviews] = useState<TitleReview[]>([]);
@@ -448,13 +462,20 @@ export function PaymentsList() {
   const [notes, setNotes] = useState<Record<string, string>>({});
   const filterRef = useRef(filter);
   filterRef.current = filter;
+  const searchRef = useRef(searchQuery);
+  searchRef.current = searchQuery;
+  // Descarta respuestas viejas (cambio de pestaña o de búsqueda en el medio).
+  const requestRef = useRef(0);
 
-  const load = useCallback(async (status: StatusFilter) => {
+  const load = useCallback(async (status: StatusFilter, q: string) => {
+    const requestId = ++requestRef.current;
     try {
       // "Falta acceso" es una vista sobre los validados (el resto se filtra acá).
       const apiStatus = status === "sin-acceso" ? "validated" : status;
-      const r = await fetch(`/api/payments?status=${apiStatus}`, { cache: "no-store" });
+      const params = new URLSearchParams(q ? { q } : { status: apiStatus });
+      const r = await fetch(`/api/payments?${params}`, { cache: "no-store" });
       const j = await r.json();
+      if (requestId !== requestRef.current) return;
       if (!r.ok) {
         setError(j.error ?? "No se pudieron cargar los comprobantes");
         return;
@@ -465,14 +486,15 @@ export function PaymentsList() {
       setTitleReviews((j.titleReviews as TitleReview[]) ?? []);
       setStats((j.stats as PaymentStats) ?? null);
     } catch {
-      setError("Error de red");
+      if (requestId === requestRef.current) setError("Error de red");
     }
   }, []);
 
   useEffect(() => {
     setItems(null);
-    void load(filter);
-  }, [filter, load]);
+    setGroupLimit(GROUPS_PER_PAGE);
+    void load(filter, searchQuery);
+  }, [filter, searchQuery, load]);
 
   // Realtime: refrescar cuando entra un comprobante o un título, o cambia un estado.
   useEffect(() => {
@@ -482,12 +504,12 @@ export function PaymentsList() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "payment_validations" },
-        () => void load(filterRef.current),
+        () => void load(filterRef.current, searchRef.current),
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "professional_titles" },
-        () => void load(filterRef.current),
+        () => void load(filterRef.current, searchRef.current),
       )
       .subscribe();
     return () => {
@@ -525,7 +547,7 @@ export function PaymentsList() {
           "El pago se aprobó, pero no se pudo avisar al cliente por WhatsApp (probable ventana de 24 horas vencida). Quedó marcado en el comprobante para que le envíes la confirmación manualmente desde GHL.",
         );
       }
-      await load(filterRef.current);
+      await load(filterRef.current, searchRef.current);
     } catch {
       setError("Error de red al actualizar");
     } finally {
@@ -576,7 +598,7 @@ export function PaymentsList() {
         delete next[id];
         return next;
       });
-      await load(filterRef.current);
+      await load(filterRef.current, searchRef.current);
     } catch {
       setNotice("Error de red al dar el acceso al curso");
     } finally {
@@ -614,7 +636,7 @@ export function PaymentsList() {
       }
       setNotice("Marcado como que ya tiene acceso");
       setConfirmMarkId(null);
-      await load(filterRef.current);
+      await load(filterRef.current, searchRef.current);
     } catch {
       setNotice("Error de red al marcar el acceso");
     } finally {
@@ -635,7 +657,7 @@ export function PaymentsList() {
         setError(j.error ?? "No se pudo actualizar el título");
         return;
       }
-      await load(filterRef.current);
+      await load(filterRef.current, searchRef.current);
     } catch {
       setError("Error de red al actualizar el título");
     } finally {
@@ -662,7 +684,7 @@ export function PaymentsList() {
         return;
       }
       setConfirmDismiss(null);
-      await load(filterRef.current);
+      await load(filterRef.current, searchRef.current);
     } catch {
       setError("Error de red al descartar");
     } finally {
@@ -697,7 +719,7 @@ export function PaymentsList() {
         }
       }
       setConfirmDismiss(null);
-      await load(filterRef.current);
+      await load(filterRef.current, searchRef.current);
     } catch {
       setError("Error de red al descartar");
     } finally {
@@ -732,8 +754,9 @@ export function PaymentsList() {
     accesoVigenteDeEvento(p.eventSlug) &&
     p.status === "validated" &&
     !p.courseAccessGrantedAt;
+  // Con búsqueda, la lista ya viene filtrada del servidor (todos los estados).
   const countBase =
-    filter === "sin-acceso" ? (items ?? []).filter(needsAccess) : (items ?? []);
+    !searching && filter === "sin-acceso" ? (items ?? []).filter(needsAccess) : (items ?? []);
   const congresoCount = countBase.filter((p) => eventKind(p.eventSlug) === "congreso").length;
   const masterclassCount = countBase.filter((p) => eventKind(p.eventSlug) === "masterclass").length;
   const hasEvents = congresoCount > 0 || masterclassCount > 0;
@@ -741,10 +764,17 @@ export function PaymentsList() {
     (p) => eventFilter === "all" || eventKind(p.eventSlug) === eventFilter,
   );
   const visibleTitleReviews =
-    eventFilter === "all" && filter !== "sin-acceso" ? titleReviews : [];
+    searching || (eventFilter === "all" && filter !== "sin-acceso") ? titleReviews : [];
+
+  // Se pintan de a tandas: "Todos" tiene más de mil tarjetas y dibujarlas de
+  // una dejaba la pantalla congelada varios segundos al entrar y al salir.
+  const groups = groupByConversation(visibleItems);
+  const shownGroups = groups.slice(0, groupLimit);
 
   const EVENT_FILTERS: { key: EventFilter; label: string; count: number; dot: string }[] = [
-    { key: "all", label: "Todos", count: congresoCount + masterclassCount, dot: "" },
+    // "Todos" cuenta también los comprobantes sin evento identificado, así
+    // coincide con el contador de arriba.
+    { key: "all", label: "Todos", count: countBase.length, dot: "" },
     { key: "congreso", label: "Congreso", count: congresoCount, dot: "bg-gold" },
     { key: "masterclass", label: "Masterclass", count: masterclassCount, dot: "bg-ok" },
   ];
@@ -805,14 +835,29 @@ export function PaymentsList() {
         </div>
       )}
 
+      <SearchField
+        value={query}
+        onChange={setQuery}
+        placeholder="Buscar por nombre, teléfono o correo"
+        className="mb-3"
+      />
+      {searching && (
+        <p className="mb-3 text-[12px] text-neutral-500 dark:text-neutral-500">
+          Buscando en todos los estados. Elegí una pestaña para volver a la lista
+        </p>
+      )}
+
       {/* Filtros por estado */}
-      <div className="mb-3 flex items-center gap-1">
+      <div className="mb-3 flex flex-wrap items-center gap-1">
         {FILTERS.map((f) => (
           <button
             key={f.key}
-            onClick={() => setFilter(f.key)}
+            onClick={() => {
+              setFilter(f.key);
+              if (query) setQuery("");
+            }}
             className={`rounded-md px-2.5 py-1.5 text-[12px] transition ${
-              filter === f.key
+              filter === f.key && !searching
                 ? "bg-neutral-900 text-white dark:bg-neutral-50 dark:text-neutral-950"
                 : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
             }`}
@@ -858,8 +903,21 @@ export function PaymentsList() {
         </div>
       ) : visibleItems.length === 0 && visibleTitleReviews.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
-          <Receipt className="h-6 w-6 text-neutral-300 dark:text-neutral-700" strokeWidth={1.5} />
-          {filter === "sin-acceso" ? (
+          {searching ? (
+            <SearchX className="h-6 w-6 text-neutral-300 dark:text-neutral-700" strokeWidth={1.5} />
+          ) : (
+            <Receipt className="h-6 w-6 text-neutral-300 dark:text-neutral-700" strokeWidth={1.5} />
+          )}
+          {searching ? (
+            <>
+              <p className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300">
+                Sin resultados para “{activeQuery}”
+              </p>
+              <p className="text-[12px] text-neutral-500 dark:text-neutral-500">
+                No hay comprobantes de esa persona. Probá con otra parte del nombre o del teléfono.
+              </p>
+            </>
+          ) : filter === "sin-acceso" ? (
             <>
               <p className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300">
                 No hay nadie esperando el acceso al curso
@@ -887,7 +945,7 @@ export function PaymentsList() {
         </div>
       ) : (
         <div className="space-y-3">
-          {groupByConversation(visibleItems).map((group) => {
+          {shownGroups.map((group) => {
             const first = group[0]!;
             const groupAwaitingTitle = group.some((g) => g.awaitingTitle);
             // Comprobantes a nombre de personas distintas en la misma conversación:
@@ -1144,17 +1202,7 @@ export function PaymentsList() {
                 {/* Acciones */}
                 <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
                   {p.conversation && (
-                    <button
-                      onClick={() => {
-                        const url = ghlConversationUrl(p.conversation);
-                        if (url) window.open(url, "_blank", "noopener,noreferrer");
-                        else router.push(`/conversations?id=${p.conversation!.id}`);
-                      }}
-                      className="mr-auto flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] text-neutral-600 transition hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                    >
-                      Ver conversación
-                      <ArrowRight className="h-3 w-3" strokeWidth={1.75} />
-                    </button>
+                    <ConversationLinks conversation={p.conversation} className="mr-auto" />
                   )}
 
                   {isPending && p.awaitingTitle ? (
@@ -1435,6 +1483,16 @@ export function PaymentsList() {
           {/* Títulos a validar sin comprobante asociado: la contacta mandó algo
               para acreditarse que la IA no dio por bueno, pero todavía no hay un
               comprobante que lo agrupe. */}
+          {groups.length > shownGroups.length && (
+            <div className="flex justify-center pt-1">
+              <button
+                onClick={() => setGroupLimit((n) => n + GROUPS_PER_PAGE)}
+                className="rounded-lg border border-neutral-200 px-3 py-2 text-[13px] text-neutral-600 transition hover:border-neutral-300 hover:bg-neutral-50 dark:border-neutral-800 dark:text-neutral-300 dark:hover:border-neutral-700 dark:hover:bg-neutral-900"
+              >
+                Mostrar más · quedan {groups.length - shownGroups.length} contactos
+              </button>
+            </div>
+          )}
           {visibleTitleReviews.length > 0 && (
             <>
               <div className="flex items-center gap-2 pt-2">
@@ -1501,17 +1559,7 @@ export function PaymentsList() {
 
                   {tr.conversation && (
                     <div className="mt-4 flex items-center border-t border-neutral-100 pt-3 dark:border-neutral-800">
-                      <button
-                        onClick={() => {
-                          const url = ghlConversationUrl(tr.conversation);
-                          if (url) window.open(url, "_blank", "noopener,noreferrer");
-                          else router.push(`/conversations?id=${tr.conversation!.id}`);
-                        }}
-                        className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] text-neutral-600 transition hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                      >
-                        Ver conversación
-                        <ArrowRight className="h-3 w-3" strokeWidth={1.75} />
-                      </button>
+                      <ConversationLinks conversation={tr.conversation} />
                     </div>
                   )}
                 </article>

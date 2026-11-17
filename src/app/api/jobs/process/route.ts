@@ -239,6 +239,27 @@ async function processJob(job: AgentJob): Promise<void> {
     history,
   });
 
+  // El equipo pudo tomar la conversación MIENTRAS Valentina redactaba (el
+  // modo se leyó arriba, antes de correr el agente, y redactar lleva varios
+  // segundos). Si pasó, la respuesta se descarta: mandarla sería contestarle
+  // encima a la persona que acaba de escribir.
+  const { data: convNow } = await supabase
+    .from("conversations")
+    .select("mode")
+    .eq("id", job.conversation_id)
+    .maybeSingle();
+  if (convNow?.mode === "HUMAN") {
+    await supabase
+      .from("agent_jobs")
+      .update({
+        status: "completed",
+        completed_at: new Date().toISOString(),
+        error: "El equipo tomó la conversación mientras se redactaba: respuesta descartada.",
+      })
+      .eq("id", job.id);
+    return;
+  }
+
   // El agente puede devolver varios mensajes cortos separados por una línea
   // con "---" (estilo mensajería). Se insertan como burbujas separadas.
   // Si assistantMessage viene vacío (caso típico: derivación a humano sin
