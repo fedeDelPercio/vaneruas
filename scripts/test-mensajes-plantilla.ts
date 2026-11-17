@@ -7,6 +7,7 @@ import {
   COMPROBANTE_RECEIVED_MESSAGE,
   COMPROBANTE_RECEIVED_MESSAGE_LEGACY,
 } from "../src/lib/payments/messages";
+import { TIENDUP_ACCESS_MESSAGE } from "../src/lib/tiendup/messages";
 import { TEXTOS_DE_PLANTILLA, huella } from "../src/lib/providers/ghl-human";
 
 let fail = 0;
@@ -26,11 +27,20 @@ check(COMPROBANTE_RECEIVED_MESSAGE === ESPERADO, "comprobante: texto exacto");
 check(COMPROBANTE_RECEIVED_MESSAGE.split(/\n\s*---\s*\n/).length === 1, "comprobante: una sola burbuja");
 check(COMPROBANTE_RECEIVED_MESSAGE.trim() === COMPROBANTE_RECEIVED_MESSAGE, "comprobante: el trim de la entrega no lo cambia");
 
+// Aviso de acceso a Tiendup: texto exacto pedido por el cliente (con el "!").
+check(
+  TIENDUP_ACCESS_MESSAGE ===
+    "Ya te enviamos el link de acceso al grupo de WhatsApp al correo con el que te inscribiste en la web ♥️ recorda revisa en spam o correo no deseado!",
+  "acceso: texto exacto",
+);
+check(TIENDUP_ACCESS_MESSAGE.split(/\n\s*---\s*\n/).length === 1, "acceso: una sola burbuja");
+
 // Importador del equipo: lo que vuelve de GHL (con o sin \r\n) se reconoce.
 const huellas = new Set(TEXTOS_DE_PLANTILLA.map(huella));
 check(huellas.has(huella(COMPROBANTE_RECEIVED_MESSAGE)), "importador: reconoce el texto nuevo");
 check(huellas.has(huella(COMPROBANTE_RECEIVED_MESSAGE.replace(/\n/g, "\r\n"))), "importador: reconoce el texto nuevo con CRLF");
 check(huellas.has(huella(COMPROBANTE_RECEIVED_MESSAGE_LEGACY)), "importador: reconoce el texto viejo");
+check(huellas.has(huella(TIENDUP_ACCESS_MESSAGE)), "importador: reconoce el aviso de acceso");
 check(!huellas.has(huella("Hola, te escribo del equipo por tu comprobante")), "importador: un mensaje del equipo no matchea");
 
 console.log(fail === 0 ? "\nMENSAJES DE PLANTILLA OK" : `\n${fail} TEST(S) FALLARON`);

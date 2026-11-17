@@ -148,9 +148,22 @@ function normLoose(s: string | null | undefined): string {
 
 /** Trae TODOS los inscriptos al curso (paginado). [] ante error. */
 export async function listEnrolled(courseId: number): Promise<TiendupEnrolled[]> {
+  return (await listEnrolledChecked(courseId)).enrolled;
+}
+
+/**
+ * Igual que `listEnrolled`, pero avisa si el listado quedó completo. El alta
+ * automática lo necesita: con un listado cortado no se puede descartar que la
+ * persona ya figure con otro correo, y en ese caso no inscribe (lo deja para
+ * el equipo). El botón manual sigue con `listEnrolled`, como siempre.
+ */
+export async function listEnrolledChecked(
+  courseId: number,
+): Promise<{ enrolled: TiendupEnrolled[]; complete: boolean }> {
   const key = process.env.TIENDUP_API_KEY;
-  if (!key) return [];
+  if (!key) return { enrolled: [], complete: false };
   const out: TiendupEnrolled[] = [];
+  let complete = false;
   try {
     for (let page = 1; page <= 50; page++) {
       const res = await fetch(
@@ -174,12 +187,15 @@ export async function listEnrolled(courseId: number): Promise<TiendupEnrolled[]>
         });
       }
       const pages = Number(json.pages ?? 1);
-      if (page >= pages || rows.length === 0) break;
+      if (page >= pages || rows.length === 0) {
+        complete = true;
+        break;
+      }
     }
   } catch {
     // best-effort: si falla, devolvemos lo que juntamos.
   }
-  return out;
+  return { enrolled: out, complete };
 }
 
 export interface ExistingEnrollment {

@@ -3,6 +3,7 @@ import {
   COMPROBANTE_RECEIVED_MESSAGE,
   COMPROBANTE_RECEIVED_MESSAGE_LEGACY,
 } from "../payments/messages";
+import { TIENDUP_ACCESS_MESSAGE } from "../tiendup/messages";
 
 // ===========================================================================
 // Importador de los mensajes que escribe el EQUIPO desde GoHighLevel.
@@ -85,6 +86,7 @@ interface GhlMessage {
 export const TEXTOS_DE_PLANTILLA: string[] = [
   COMPROBANTE_RECEIVED_MESSAGE,
   COMPROBANTE_RECEIVED_MESSAGE_LEGACY,
+  TIENDUP_ACCESS_MESSAGE,
 ];
 
 /** Huella del texto para comparar: sin emojis ni signos, primeros 70 caracteres. */
