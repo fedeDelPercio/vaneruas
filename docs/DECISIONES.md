@@ -7,6 +7,90 @@ decidió, por qué, qué se descartó y qué costo o pendiente deja.
 
 ---
 
+## 17/11/2026 · Alta automática en Tiendup, pedido del correo y filtro de intervención
+
+**Qué entró**
+
+- Alta automática en Tiendup de los pagos de masterclass validados (flag
+  `TIENDUP_AUTO_ENROLL`, prendido por defecto) y aviso por WhatsApp cuando el
+  acceso queda dado.
+- Valentina pide el correo cuando llega un comprobante y no lo tenemos; el
+  correo se valida antes de guardarlo.
+- Nuevo texto de comprobante recibido, con el aviso de revisión manual.
+- Ficha de /wa: miniaturas de comprobantes y títulos con modal para aprobar o
+  rechazar.
+- Filtro "Intervención" en /wa con contador, y las notificaciones de pago se
+  resuelven al revisar el comprobante.
+
+**D-20 · Federico pidió automatizar el alta en Tiendup.** La regla dura "dar
+acceso es siempre humano" cambia (CONTEXTO, regla 6). La automática usa
+`grantCourseAccess`, la misma función que el botón, en un modo más estricto:
+exige correo con formato válido, no inscribe si el listado de inscriptos no se
+leyó completo (con el listado cortado no se puede descartar que figure con otro
+correo) y nunca fuerza. Por qué: el cliente fantasma en Tiendup es el error caro.
+El botón queda como respaldo y para forzar.
+
+**D-21 · Condición del alta: pago validado y sin retención por título.** Un
+pago validado sin `awaiting_title` ya pasó el gate (título aprobado, clienta
+registrada o aprobación forzada por el equipo), así que no se vuelve a mirar
+`professional_titles`. Solo masterclass con `accesoVigente` (mismo criterio que
+"Falta acceso"); el Congreso no tiene curso.
+
+**D-22 · Disparadores: al validar el pago, al validarse el título y al llegar
+el correo.** En las rutas del panel corre con `after()`, después de responder:
+aprobar nunca espera ni falla por Tiendup. En el worker corre en línea dentro
+de un try.
+
+**D-23 · Sin categoría nueva para los casos que no se pueden dar de alta.** La
+base compartida tiene un CHECK sobre `agent_notifications.category` fuera de
+las migraciones. Se usa `escalado_manual` con la marca en `reason`
+(`tiendup_alta_pendiente_<pago>`, `tiendup_aviso_sin_enviar_<pago>`): una
+notificación abierta por pago, que se actualiza si cambia el motivo y se
+resuelve sola cuando el alta sale bien (automática, botón o "Ya tiene
+acceso"). `reason` no se muestra en el panel ni en el email. El agente ignora
+estas notificaciones al deduplicar sus derivaciones y al armar el "Estado de
+derivación": si no, un alta pendiente silenciaba una derivación real de
+`escalado_manual`. No se propone migración: no hizo falta.
+
+**D-24 · El aviso de acceso se manda tras el alta automática y tras "Dar
+acceso al curso" (también si ya estaba inscripta), no tras "Ya tiene acceso".**
+"Ya tiene acceso" es un caso resuelto por afuera: no sabemos si le llegó el
+correo de Tiendup. Idempotencia sin columna nueva: no se manda si ya hay un
+mensaje con ese texto en la conversación desde el primer comprobante de ese
+evento. Si el envío falla, `delivery_failed` en el comprobante (se ve como "No
+se avisó al cliente") y una notificación al equipo. Como el resto de los
+envíos automáticos, en modo Humano queda guardado pero no sale.
+
+**D-25 · El pedido del correo va en código y en el prompt.** En el flujo de
+comprobante (determinístico) sale como burbuja aparte si no hay correo
+guardado, en el texto ni en los últimos 15 mensajes, una vez por día. Además
+el orquestador ve en "Pagos de esta conversación" si ya tenemos el correo, y la
+base de conocimiento explica el pedido (el evaluator no ve el orquestador).
+
+**D-26 · "Derivadas" pasa a "Intervención".** Patrón del panel de Hábitat:
+conversaciones con notificaciones sin resolver. Entran todas las categorías
+(incluidos los reclamos de certificado y las altas de Tiendup), y
+`validacion_pago` solo si la conversación tiene un comprobante `pending` sin
+retención por título (lo retenido espera a la contacta, no al equipo).
+Criterio en `src/lib/interventions.ts`, paginado y cruzado en memoria.
+
+**D-27 · Las `validacion_pago` se resuelven al revisar el último comprobante
+pendiente de la conversación.** La notificación solo guarda la conversación,
+no el comprobante. Volver un comprobante a pendiente no reabre la
+notificación. El histórico (~685 abiertas) se limpia con
+`supabase/cleanup/2026-11-17-resolver-notificaciones-pago.sql`, escrito y sin
+correr.
+
+### Pendientes que deja esta entrega
+
+- Correr (o no) el SQL de limpieza histórica.
+- Probar en producción el alta automática con un caso real antes de confiar
+  en ella; mientras tanto se puede apagar con `TIENDUP_AUTO_ENROLL=false`.
+- El texto de comprobante dice "No hace falta que vuelvas a escribir" y, si
+  falta el correo, a continuación se lo pedimos. Confirmar con el cliente.
+
+---
+
 ## 17/11/2026 · Chat del equipo, buscador, ficha del contacto y botón de feedback
 
 **Qué entró**

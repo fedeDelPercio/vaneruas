@@ -49,8 +49,14 @@ presencial.
    solo en el chat. Nunca al repo ni a un sitio público.
 5. **Merge `main → client/*`:** NO `git merge origin/main` directo, borra los
    prompts del cliente. Usar checkout selectivo por path.
-6. **Dar acceso en Tiendup es siempre una acción humana** (un botón del panel).
-   No automatices inscripciones sin que Federico lo pida explícitamente.
+6. **El alta en Tiendup es automática solo por el camino ya acordado.** Desde
+   el 17/11/2026, por pedido explícito de Federico, un pago de masterclass
+   validado, con el título OK y correo válido se da de alta solo
+   (`src/lib/tiendup/auto-enroll.ts`, flag `TIENDUP_AUTO_ENROLL`, prendido por
+   defecto). Usa la misma lógica que el botón y nunca fuerza: si la persona
+   figura con otro correo, falta el correo o Tiendup falla, deja una
+   notificación al equipo. No sumes otras inscripciones automáticas (otros
+   cursos, forzar con otro correo) sin que Federico lo pida.
 7. **Excepción de estilo de este cliente:** Valentina **sí** usa emojis con
    moderación y **sí** se presenta como "la asistente IA de Vanesa Rúas
    Formación Profesional". No los "corrijas" como si fueran bugs. El resto de
@@ -239,7 +245,7 @@ para leer o escribir datos se usan scripts con service role.
 | `messages` | `role`: `user` (clienta), `assistant` (Valentina o el panel), `human` (equipo, importado de GHL), `system` (carteles). `external_id` = id de GHL. **Tiene `client_slug` NOT NULL**: con service role hay que setearlo al insertar |
 | `agent_jobs` | Cola del worker, con `process_after` para el debounce |
 | `agent_traces` / `agent_trace_steps` | Una corrida del agente y sus pasos (tokens, cache, costo) |
-| `agent_notifications` | Derivaciones al equipo (`category`, `summary`). Sin estado de "atendida" |
+| `agent_notifications` | Derivaciones al equipo (`category`, `reason`, `summary`, `resolved_at`/`resolved_by`). Las de sistema de Tiendup van como `escalado_manual` con `reason` que empieza con `tiendup_` |
 | `payment_validations` | Comprobantes: monto leído por OCR, `event_slug`, `status` (`pending`/`validated`/`rejected`), `awaiting_title`, `course_access_granted_at`, `delivery_failed` |
 | `professional_titles` | Títulos enviados para el gate |
 | `events` | Masterclasses y congreso: precios, fechas, `details` (ficha en vivo), `status` (`borrador`/`activo`/`archivado`) |
@@ -253,7 +259,7 @@ Roles y rutas del panel: `ROLE_ACCESS` en `src/lib/profile.ts`.
 
 | Ruta | Qué es |
 |---|---|
-| `/wa` | Bandeja de WhatsApp: lista paginada con buscador y filtros, chat visto desde el equipo (tomar la conversación y escribirle a la clienta) y ficha del contacto con sus eventos. Componentes en `src/components/wa/`, rutas en `src/app/api/wa/` |
+| `/wa` | Bandeja de WhatsApp: lista paginada con buscador y filtros (Todas, Intervención, Con el equipo), chat visto desde el equipo (tomar la conversación y escribirle a la clienta) y ficha del contacto con sus eventos, donde se ven y se aprueban o rechazan comprobantes y títulos. Componentes en `src/components/wa/`, rutas en `src/app/api/wa/` |
 | `/payments` (Aprobaciones) | Validar comprobantes. Pestaña **"Falta acceso"** = worklist de masterclass validadas sin acceso a Tiendup (incluye a quien no dejó correo, con aviso) |
 | `/interventions` (Derivaciones) | Lo que Valentina pasó al equipo (excluye comprobantes y certificados) |
 | `/certificados` | Reclamos de certificados (`reclamo_certificado`) |
@@ -291,11 +297,24 @@ Aprobaciones, detalles que importan:
   buenos por error). **Descartar** (la cruz) es para imágenes que no eran un
   comprobante; deja `validation_note` con `DISMISS_NOTE`
   (`src/lib/payments/dismiss.ts`).
-- **"Dar acceso al curso"** inscribe en Tiendup por correo. Antes chequea el
+- **Alta automática en Tiendup** al validar (o al validarse el título, o al
+  llegar el correo): misma lógica que el botón, en modo conservador (exige
+  correo con formato válido y el listado de inscriptos completo, nunca
+  fuerza). Lo que no puede resolver abre una notificación `escalado_manual`
+  ("Alta en Tiendup pendiente: motivo") que se resuelve sola cuando el alta
+  sale bien.
+- **"Dar acceso al curso"** (respaldo manual, `grantCourseAccess` en
+  `src/lib/tiendup/grant.ts`) inscribe en Tiendup por correo. Antes chequea el
   listado real de inscriptos por correo y por nombre; si la persona figura con
   otro correo, avisa y no inscribe (inscribir con un correo malo crea un
   cliente fantasma y la persona real queda sin acceso). "Ya tiene acceso" solo
-  marca, sin tocar Tiendup.
+  marca, sin tocar Tiendup ni avisar.
+- **Cuando el acceso queda dado** (automático o botón) se manda por WhatsApp
+  `TIENDUP_ACCESS_MESSAGE` (`src/lib/tiendup/messages.ts`), una vez por curso.
+  Si no sale (ventana de 24 h), queda `delivery_failed` en el comprobante y una
+  notificación al equipo.
+- Validar, rechazar o descartar un comprobante resuelve las notificaciones
+  `validacion_pago` de la conversación cuando ya no le quedan pendientes.
 
 ---
 
@@ -326,9 +345,14 @@ ahí (incluido "Masterizado" y la "falla intermitente" de Tiendup) es correcto.
 - **Gate de título:** una contacta no registrada que manda comprobante tiene
   que acreditar título del rubro (validado por IA) antes de que el pago llegue
   al equipo. Se saltea si GHL ya la tiene registrada.
-- El correo para dar acceso se captura de la conversación. Si llega en un
+- El correo para dar acceso se captura de la conversación y se valida el
+  formato antes de guardarlo (`src/lib/contact-email.ts`). Si llega en un
   mensaje y el adjunto en el siguiente, igual se rescata (busca en los últimos
-  15 mensajes cuando la conversación no tiene correo).
+  15 mensajes cuando la conversación no tiene correo). Si llega un comprobante
+  y no hay correo, Valentina lo pide (`EMAIL_REQUEST_MESSAGE`, burbuja aparte).
+- Textos fijos del flujo de comprobante en `src/lib/payments/messages.ts`. Si
+  cambiás uno, dejá el viejo en `TEXTOS_DE_PLANTILLA` de `ghl-human.ts` para
+  que el importador lo siga reconociendo como nuestro.
 - El link del grupo de WhatsApp llega en el correo de confirmación de Tiendup.
   Cada clase tiene grupo nuevo. Con WhatsApp Business: tres puntitos, "abrir en
   otra pestaña". El link del Zoom se manda el día de la clase por el grupo.
@@ -484,6 +508,9 @@ Validá siempre con `npx tsc --noEmit` y `npx next build` antes de commitear.
   costumbre del equipo.
 - **Template de Meta `pago_verificado_mail`:** pendiente de aprobación, para
   avisar el pago cuando venció la ventana de 24 h.
+- **Limpieza histórica sin correr:**
+  `supabase/cleanup/2026-11-17-resolver-notificaciones-pago.sql` resuelve las
+  ~685 `validacion_pago` abiertas de conversaciones sin pagos pendientes.
 - La migración `031_messages_external_id_unique.sql` (índice único) no se pudo
   aplicar sin acceso de escritura al esquema; el importador deduplica en
   código mientras tanto. Verificá si ya está aplicada antes de asumirlo.
