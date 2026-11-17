@@ -9,6 +9,10 @@ import { downloadComprobante } from "./storage";
 import { extractPaymentData, type PaymentExtraction } from "./extract";
 import { resolveStoredEventSlug } from "./event-match";
 import { assistantSaidRecently } from "@/lib/messages/dedup";
+import {
+  ATTACHMENT_RECEIVED_MESSAGE,
+  COMPROBANTE_RECEIVED_MESSAGE,
+} from "./messages";
 
 export const PAYMENT_NOTIFICATION_CATEGORY = "validacion_pago";
 
@@ -173,9 +177,11 @@ export async function handlePaymentComprobante(
   //    NO le decimos "gracias por el comprobante": ack neutro para no confundir
   //    ni duplicar la confirmación de pago. Dedup: si ya mandamos este mismo
   //    texto hace poco (mandó varios comprobantes juntos), no lo repetimos.
+  //    El texto es fijo (messages.ts): sale tal cual, en una sola burbuja, sin
+  //    pasar por sanitize (conserva el punto, el salto de línea y los emojis).
   const receivedMsg = looksLikeReceipt
-    ? "Genial, gracias por compartir el comprobante 🙌 El equipo lo revisa y te confirma la inscripción a la brevedad"
-    : "Gracias, ya lo recibimos 🙌 El equipo lo revisa y te confirma a la brevedad";
+    ? COMPROBANTE_RECEIVED_MESSAGE
+    : ATTACHMENT_RECEIVED_MESSAGE;
   if (!(await assistantSaidRecently(args.conversationId, receivedMsg))) {
     const { data: received } = await supabase
       .from("messages")

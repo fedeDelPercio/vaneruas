@@ -1,4 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  COMPROBANTE_RECEIVED_MESSAGE,
+  COMPROBANTE_RECEIVED_MESSAGE_LEGACY,
+} from "../payments/messages";
 
 // ===========================================================================
 // Importador de los mensajes que escribe el EQUIPO desde GoHighLevel.
@@ -72,8 +76,19 @@ interface GhlMessage {
   dateAdded?: string;
 }
 
+/**
+ * Textos fijos que mandamos nosotros (plantillas de los flujos automáticos).
+ * Se suman a las huellas globales aunque no figuren en el último mes de
+ * mensajes: cubren la versión vieja y la nueva de un texto que cambió, y los
+ * envíos que GHL devuelve con otro formato de saltos de línea.
+ */
+export const TEXTOS_DE_PLANTILLA: string[] = [
+  COMPROBANTE_RECEIVED_MESSAGE,
+  COMPROBANTE_RECEIVED_MESSAGE_LEGACY,
+];
+
 /** Huella del texto para comparar: sin emojis ni signos, primeros 70 caracteres. */
-function huella(s: string): string {
+export function huella(s: string): string {
   return s
     .toLowerCase()
     .replace(/[^\p{L}\p{N} ]/gu, "")
@@ -199,6 +214,12 @@ export async function importarMensajesDelEquipo(
   // dos versiones del texto conviviendo), el match por conversación no alcanza y
   // terminamos marcando como "del equipo" un mensaje nuestro.
   const huellasGlobales = new Set<string>();
+  for (const texto of TEXTOS_DE_PLANTILLA) {
+    for (const parte of texto.split("---")) {
+      const h = huella(parte);
+      if (h.length > 12) huellasGlobales.add(h);
+    }
+  }
   for (let from = 0; ; from += 1000) {
     const { data } = await sb
       .from("messages")
