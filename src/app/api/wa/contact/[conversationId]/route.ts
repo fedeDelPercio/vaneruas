@@ -52,7 +52,12 @@ export interface ContactEvent {
     /** No se le pudo avisar por WhatsApp que el pago quedó aprobado. */
     deliveryFailed: boolean;
   };
-  access: { stage: AccessStage; grantedAt: string | null };
+  access: {
+    stage: AccessStage;
+    grantedAt: string | null;
+    /** Motivo del último intento de alta en Tiendup que no salió (null = ninguno). */
+    error: string | null;
+  };
 }
 
 /**
@@ -126,7 +131,7 @@ export async function GET(
     sb
       .from("payment_validations")
       .select(
-        "id, amount, currency, event_slug, status, awaiting_title, delivery_failed, course_access_granted_at, validated_at, validation_note, contact_email, operation_number, comprobante_path, comprobante_type, created_at",
+        "id, amount, currency, event_slug, status, awaiting_title, delivery_failed, course_access_granted_at, course_access_error, validated_at, validation_note, contact_email, operation_number, comprobante_path, comprobante_type, created_at",
       )
       .eq("conversation_id", conversationId)
       .order("created_at", { ascending: true }),
@@ -217,19 +222,22 @@ export async function GET(
       amount = withAmount ? sum : null;
     }
 
-    let access: ContactEvent["access"] = { stage: "not_applicable", grantedAt: null };
+    let access: ContactEvent["access"] = { stage: "not_applicable", grantedAt: null, error: null };
     if (kind === "masterclass") {
       const granted = own.find((p) => p.course_access_granted_at);
+      // Motivo del alta que no salió (otro correo en Tiendup, falla, etc.).
+      const error =
+        validatedAll.map((p) => p.course_access_error?.trim() || null).find(Boolean) ?? null;
       if (granted) {
-        access = { stage: "granted", grantedAt: granted.course_access_granted_at };
+        access = { stage: "granted", grantedAt: granted.course_access_granted_at, error: null };
       } else if (!validated) {
-        access = { stage: "waiting_payment", grantedAt: null };
+        access = { stage: "waiting_payment", grantedAt: null, error: null };
       } else if (slug && !accesoVigenteDeEvento(slug)) {
-        access = { stage: "closed", grantedAt: null };
+        access = { stage: "closed", grantedAt: null, error: null };
       } else if (!email && !validated.contact_email) {
-        access = { stage: "missing_email", grantedAt: null };
+        access = { stage: "missing_email", grantedAt: null, error };
       } else {
-        access = { stage: "missing", grantedAt: null };
+        access = { stage: "missing", grantedAt: null, error };
       }
     }
 
@@ -284,7 +292,7 @@ export async function GET(
       eventAt: row.event_at,
       active: true,
       payment: { stage: "none", amount: null, currency: null, receivedAt: null, validatedAt: null, count: 0, validatedCount: 0, extraPending: 0, deliveryFailed: false },
-      access: { stage: "not_applicable", grantedAt: null },
+      access: { stage: "not_applicable", grantedAt: null, error: null },
     });
   }
   // Comprobantes viejos sin evento identificado.

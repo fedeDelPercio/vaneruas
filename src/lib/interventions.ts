@@ -92,3 +92,37 @@ export async function resolvePaymentNotificationsIfDone(
     console.error("[interventions] no se pudieron resolver las notificaciones de pago:", err);
   }
 }
+
+/**
+ * Conversaciones con derivaciones al equipo abiertas, SIN contar
+ * `validacion_pago`. Lo usa /revision para marcar en la lista quién tiene una
+ * intervención además del comprobante o título que se está revisando: con el
+ * criterio de `loadInterventionConversationIds`, todo comprobante pendiente
+ * contaría como intervención y el indicador no diría nada.
+ *
+ * Devuelve id de conversación → cantidad de notificaciones abiertas. Filtra
+ * por `client_slug` explícito además de RLS.
+ */
+export async function loadOpenTeamNotificationCounts(
+  sb: Db,
+  clientSlug: string,
+): Promise<Map<string, number>> {
+  const rows = await fetchAllRows((from, to) =>
+    sb
+      .from("agent_notifications")
+      .select("id, conversation_id")
+      .eq("client_slug", clientSlug)
+      .is("resolved_at", null)
+      .neq("category", PAYMENT_NOTIFICATION_CATEGORY)
+      .not("conversation_id", "is", null)
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
+  const out = new Map<string, number>();
+  for (const n of rows) {
+    if (!n.conversation_id) continue;
+    out.set(n.conversation_id, (out.get(n.conversation_id) ?? 0) + 1);
+  }
+  return out;
+}

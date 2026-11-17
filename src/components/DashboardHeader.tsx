@@ -15,6 +15,7 @@ import {
   Award,
   UserPlus,
   CalendarDays,
+  ClipboardCheck,
 } from "lucide-react";
 import { useProfile } from "./ProfileProvider";
 import { Avatar } from "./Avatar";
@@ -41,6 +42,9 @@ const TABS: Array<{
   { href: "/wa", label: "WhatsApp", icon: MessageCircle, roles: ["dev", "client", "asesor"] },
   { href: "/feedback", label: "Feedback", icon: Inbox, roles: ["dev"] },
   { href: "/payments", label: "Aprobaciones", icon: Receipt, roles: ["dev", "client", "asesor"] },
+  // Vista consolidada de lo mismo que Aprobaciones (archivo + chat + ficha):
+  // comparte el contador.
+  { href: "/revision", label: "Revisión", icon: ClipboardCheck, roles: ["dev", "client", "asesor"] },
   { href: "/interventions", label: "Derivaciones", icon: Flag, roles: ["dev", "client", "asesor"] },
   { href: "/certificados", label: "Certificados", icon: Award, roles: ["dev", "client", "asesor"] },
   { href: "/agendar", label: "Agendar", icon: UserPlus, roles: ["dev", "client", "asesor"] },
@@ -108,6 +112,7 @@ export function DashboardHeader() {
 
   const countByHref: Record<string, number> = {
     "/payments": counts.payments,
+    "/revision": counts.payments,
     "/interventions": counts.interventions,
     "/certificados": counts.certificados,
     "/agendar": counts.agendar,

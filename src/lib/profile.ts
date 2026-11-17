@@ -57,7 +57,7 @@ export function clearStoredProfile(): void {
 //
 // Roles:
 //   - dev    -> todo (panel completo: Testing, Feedback, Webhooks, etc.)
-//   - client -> operación: WhatsApp, Aprobaciones, Derivaciones, Certificados,
+//   - client -> operación: WhatsApp, Aprobaciones, Revisión, Derivaciones, Certificados,
 //               Eventos, Métricas. SIN Testing ni Feedback (solo dev).
 //   - asesor -> mismo set operativo que client.
 //
@@ -70,6 +70,7 @@ const ROLE_ACCESS: Record<string, ProfileRole[]> = {
   "/feedback": ["dev"],
   "/wa": ["dev", "client", "asesor"],
   "/payments": ["dev", "client", "asesor"],
+  "/revision": ["dev", "client", "asesor"],
   "/interventions": ["dev", "client", "asesor"],
   "/certificados": ["dev", "client", "asesor"],
   "/agendar": ["dev", "client", "asesor"],

@@ -15,6 +15,9 @@ import type { ContactFile } from "@/app/api/wa/contact/[conversationId]/route";
 //   - título: PATCH /api/titles/[id] (approve / reject).
 // Rechazar pide confirmación, como en Aprobaciones. Esc y click afuera cierran
 // (salvo con una acción en curso).
+//
+// El contenido (archivo + botones) vive en FileReviewPanel, que también usa
+// /revision en línea, sin modal.
 
 function fmtAmount(amount: number | null, currency: string | null): string | null {
   if (amount === null) return null;
@@ -48,29 +51,45 @@ export function fileStatusLabel(f: ContactFile) {
   return STATUS_LABEL[f.status] ?? { text: f.status, tone: "idle" as const };
 }
 
-export function FileReviewModal({
+export type FileReviewAction = "approve" | "reject";
+
+/**
+ * Archivo (imagen o PDF) con Aprobar / Rechazar. Se usa dentro del modal de la
+ * ficha (variant "modal") y en la columna derecha de /revision ("inline").
+ */
+export function FileReviewPanel({
   file,
-  onClose,
+  variant,
   onDone,
+  onClose,
+  onStateChange,
 }: {
   file: ContactFile;
-  onClose: () => void;
-  /** Después de aprobar o rechazar: refrescar la ficha. */
-  onDone: () => void;
+  variant: "modal" | "inline";
+  /** Después de aprobar o rechazar con éxito. */
+  onDone: (action: FileReviewAction) => void;
+  /** Solo en el modal: botón de cerrar de la cabecera. */
+  onClose?: () => void;
+  /** Avisa si hay una acción en curso o una confirmación abierta. */
+  onStateChange?: (state: { busy: boolean; confirming: boolean }) => void;
 }) {
   const { profile } = useProfile();
-  const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
+  const [busy, setBusy] = useState<FileReviewAction | null>(null);
   const [confirm, setConfirm] = useState<"reject" | "force" | null>(null);
 
   useEffect(() => {
+    onStateChange?.({ busy: Boolean(busy), confirming: Boolean(confirm) });
+  }, [busy, confirm, onStateChange]);
+
+  // Esc cancela la confirmación abierta (el modal, si lo hay, no se cierra).
+  useEffect(() => {
+    if (!confirm) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key !== "Escape" || busy) return;
-      if (confirm) setConfirm(null);
-      else onClose();
+      if (e.key === "Escape" && !busy) setConfirm(null);
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose, busy, confirm]);
+  }, [confirm, busy]);
 
   const isPdf = file.fileType === "application/pdf";
   const isPayment = file.kind === "comprobante";
@@ -80,8 +99,9 @@ export function FileReviewModal({
   const status = fileStatusLabel(file);
   const ev = isPayment ? eventBySlug(file.eventSlug) : null;
   const amount = fmtAmount(file.amount, file.currency);
+  const inline = variant === "inline";
 
-  async function act(action: "approve" | "reject", force = false) {
+  async function act(action: FileReviewAction, force = false) {
     setBusy(action);
     try {
       const r = isPayment
@@ -120,8 +140,8 @@ export function FileReviewModal({
               : "Título rechazado",
         );
       }
-      onDone();
-      onClose();
+      setConfirm(null);
+      onDone(action);
     } catch {
       toast.error("Error de red");
     } finally {
@@ -139,41 +159,34 @@ export function FileReviewModal({
           : "bg-neutral-300 dark:bg-neutral-700";
 
   return (
-    <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-neutral-900/40 p-4 backdrop-blur-sm"
-      onClick={busy ? undefined : onClose}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={isPayment ? "Comprobante" : "Título profesional"}
-        className="flex max-h-[92vh] w-full max-w-2xl flex-col glass rounded-xl border border-neutral-200 p-5 shadow-soft dark:border-neutral-800 dark:shadow-soft-dark"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h2 className="flex items-center gap-2 text-[15px] font-medium tracking-tight-er text-neutral-900 dark:text-neutral-50">
-              {isPayment ? (
-                <FileText className="h-4 w-4 shrink-0 text-gold" strokeWidth={1.75} />
-              ) : (
-                <GraduationCap className="h-4 w-4 shrink-0 text-gold" strokeWidth={1.75} />
-              )}
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="flex items-center gap-2 text-[15px] font-medium tracking-tight-er text-neutral-900 dark:text-neutral-50">
+            {isPayment ? (
+              <FileText className="h-4 w-4 shrink-0 text-gold" strokeWidth={1.75} />
+            ) : (
+              <GraduationCap className="h-4 w-4 shrink-0 text-gold" strokeWidth={1.75} />
+            )}
+            <span className="truncate">
               {isPayment ? "Comprobante" : file.titleName ?? "Título profesional"}
-            </h2>
-            <p className="mt-1 text-[12px] leading-relaxed text-neutral-500 dark:text-neutral-400">
-              {[
-                isPayment ? ev?.shortLabel ?? null : file.institution,
-                amount,
-                `Recibido ${fmtDateTime(file.createdAt)}`,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </p>
-            <span className="mt-1.5 flex items-center gap-1.5 text-[11.5px] text-neutral-500 dark:text-neutral-400">
-              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
-              {status.text}
             </span>
-          </div>
+          </h2>
+          <p className="mt-1 text-[12px] leading-relaxed text-neutral-500 dark:text-neutral-400">
+            {[
+              isPayment ? ev?.shortLabel ?? null : file.institution,
+              amount,
+              `Recibido ${fmtDateTime(file.createdAt)}`,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+          <span className="mt-1.5 flex items-center gap-1.5 text-[11.5px] text-neutral-500 dark:text-neutral-400">
+            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
+            {status.text}
+          </span>
+        </div>
+        {onClose && (
           <button
             onClick={onClose}
             disabled={Boolean(busy)}
@@ -182,117 +195,174 @@ export function FileReviewModal({
           >
             <X className="h-4 w-4" strokeWidth={1.75} />
           </button>
-        </div>
+        )}
+      </div>
 
-        <div className="mt-4 flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-lg border border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900/40">
-          {!file.url ? (
-            <p className="py-16 text-[12px] text-neutral-500">No se pudo cargar el archivo</p>
-          ) : isPdf ? (
-            <object data={file.url} type="application/pdf" className="h-[62vh] w-full">
-              <a
-                href={file.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 py-16 text-[12px] text-neutral-600 underline underline-offset-2 dark:text-neutral-300"
-              >
-                Abrir el PDF <ExternalLink className="h-3 w-3" strokeWidth={1.75} />
-              </a>
-            </object>
-          ) : (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={file.url}
-              alt={isPayment ? "Comprobante" : "Título profesional"}
-              className="max-h-[62vh] w-auto max-w-full object-contain"
-            />
-          )}
-        </div>
-
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-2">
-          {file.url ? (
+      <div
+        className={`mt-4 flex items-center justify-center overflow-hidden rounded-lg border border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900/40 ${
+          inline ? "min-h-[220px] flex-1" : "min-h-0 flex-1"
+        }`}
+      >
+        {!file.url ? (
+          <p className="py-16 text-[12px] text-neutral-500">No se pudo cargar el archivo</p>
+        ) : isPdf ? (
+          <object
+            data={file.url}
+            type="application/pdf"
+            className={inline ? "h-[55vh] w-full" : "h-[62vh] w-full"}
+          >
             <a
               href={file.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              className="flex items-center gap-1.5 py-16 text-[12px] text-neutral-600 underline underline-offset-2 dark:text-neutral-300"
             >
-              <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.75} />
-              Abrir en otra pestaña
+              Abrir el PDF <ExternalLink className="h-3 w-3" strokeWidth={1.75} />
             </a>
-          ) : (
-            <span />
-          )}
+          </object>
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={file.url}
+            alt={isPayment ? "Comprobante" : "Título profesional"}
+            className={`w-auto max-w-full object-contain ${inline ? "max-h-[55vh]" : "max-h-[62vh]"}`}
+          />
+        )}
+      </div>
 
-          {canAct &&
-            (confirm === "reject" ? (
-              <div className="flex items-center gap-2">
-                <span className="flex items-center gap-1.5 text-[12px] text-neutral-600 dark:text-neutral-300">
-                  <AlertTriangle className="h-3.5 w-3.5 text-red-500 dark:text-red-400" strokeWidth={1.75} />
-                  {isPayment ? "Rechazar este comprobante?" : "Rechazar este título?"}
-                </span>
-                <button
-                  onClick={() => setConfirm(null)}
-                  disabled={Boolean(busy)}
-                  className="rounded-lg px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={() => void act("reject")}
-                  disabled={Boolean(busy)}
-                  className="flex items-center gap-1.5 rounded-lg bg-red-600 px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {busy === "reject" && <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />}
-                  Sí, rechazar
-                </button>
-              </div>
-            ) : confirm === "force" ? (
-              <div className="flex items-center gap-2">
-                <span className="max-w-[260px] text-[12px] leading-snug text-neutral-600 dark:text-neutral-300">
-                  Todavía no acreditó su título. Aprobar igual?
-                </span>
-                <button
-                  onClick={() => setConfirm(null)}
-                  disabled={Boolean(busy)}
-                  className="rounded-lg px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={() => void act("approve", true)}
-                  disabled={Boolean(busy)}
-                  className="btn-gold flex items-center gap-1.5"
-                >
-                  {busy === "approve" && <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />}
-                  Aprobar igual
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setConfirm("reject")}
-                  disabled={Boolean(busy)}
-                  className="rounded-lg px-3 py-2 text-[13px] font-medium text-red-700 transition hover:bg-red-600/[0.08] disabled:opacity-40 dark:text-red-300"
-                >
-                  Rechazar
-                </button>
-                <button
-                  onClick={() =>
-                    file.status === "awaiting_title" ? setConfirm("force") : void act("approve")
-                  }
-                  disabled={Boolean(busy)}
-                  className="btn-gold flex items-center gap-1.5"
-                >
-                  {busy === "approve" ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
-                  ) : (
-                    <Check className="h-3.5 w-3.5" strokeWidth={2} />
-                  )}
-                  {isPayment ? "Aprobar" : "Validar título"}
-                </button>
-              </div>
-            ))}
-        </div>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+        {file.url ? (
+          <a
+            href={file.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+          >
+            <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.75} />
+            {inline ? "Abrir" : "Abrir en otra pestaña"}
+          </a>
+        ) : (
+          <span />
+        )}
+
+        {canAct &&
+          (confirm === "reject" ? (
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <span className="flex items-center gap-1.5 text-[12px] text-neutral-600 dark:text-neutral-300">
+                <AlertTriangle className="h-3.5 w-3.5 text-red-500 dark:text-red-400" strokeWidth={1.75} />
+                {isPayment ? "Rechazar este comprobante?" : "Rechazar este título?"}
+              </span>
+              <button
+                onClick={() => setConfirm(null)}
+                disabled={Boolean(busy)}
+                className="rounded-lg px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => void act("reject")}
+                disabled={Boolean(busy)}
+                className="flex items-center gap-1.5 rounded-lg bg-red-600 px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {busy === "reject" && <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />}
+                Sí, rechazar
+              </button>
+            </div>
+          ) : confirm === "force" ? (
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <span className="max-w-[260px] text-[12px] leading-snug text-neutral-600 dark:text-neutral-300">
+                Todavía no acreditó su título. Aprobar igual?
+              </span>
+              <button
+                onClick={() => setConfirm(null)}
+                disabled={Boolean(busy)}
+                className="rounded-lg px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => void act("approve", true)}
+                disabled={Boolean(busy)}
+                className="btn-gold flex items-center gap-1.5"
+              >
+                {busy === "approve" && <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />}
+                Aprobar igual
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setConfirm("reject")}
+                disabled={Boolean(busy)}
+                className="rounded-lg px-3 py-2 text-[13px] font-medium text-red-700 transition hover:bg-red-600/[0.08] disabled:opacity-40 dark:text-red-300"
+              >
+                Rechazar
+              </button>
+              <button
+                onClick={() =>
+                  file.status === "awaiting_title" ? setConfirm("force") : void act("approve")
+                }
+                disabled={Boolean(busy)}
+                className="btn-gold flex items-center gap-1.5"
+              >
+                {busy === "approve" ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
+                ) : (
+                  <Check className="h-3.5 w-3.5" strokeWidth={2} />
+                )}
+                {isPayment ? "Aprobar" : "Validar título"}
+              </button>
+            </div>
+          ))}
+      </div>
+    </div>
+  );
+}
+
+export function FileReviewModal({
+  file,
+  onClose,
+  onDone,
+}: {
+  file: ContactFile;
+  onClose: () => void;
+  /** Después de aprobar o rechazar: refrescar la ficha. */
+  onDone: () => void;
+}) {
+  const [state, setState] = useState({ busy: false, confirming: false });
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      // Con una confirmación abierta, Esc la cancela (lo maneja el panel).
+      if (e.key !== "Escape" || state.busy || state.confirming) return;
+      onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose, state]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-neutral-900/40 p-4 backdrop-blur-sm"
+      onClick={state.busy ? undefined : onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={file.kind === "comprobante" ? "Comprobante" : "Título profesional"}
+        className="flex max-h-[92vh] w-full max-w-2xl flex-col glass rounded-xl border border-neutral-200 p-5 shadow-soft dark:border-neutral-800 dark:shadow-soft-dark"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <FileReviewPanel
+          file={file}
+          variant="modal"
+          onClose={onClose}
+          onStateChange={setState}
+          onDone={() => {
+            onDone();
+            onClose();
+          }}
+        />
       </div>
     </div>
   );

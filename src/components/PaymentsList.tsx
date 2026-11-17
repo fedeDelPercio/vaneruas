@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Loader2,
   Receipt,
@@ -431,7 +432,11 @@ export function PaymentsList() {
   const { query, setQuery, activeQuery } = useContactSearch(300);
   const searching = activeQuery.length >= 2;
   const searchQuery = searching ? activeQuery : "";
-  const [filter, setFilter] = useState<StatusFilter>("pending");
+  // ?filter= abre una pestaña puntual (ej. /revision linkea a "Falta acceso").
+  const urlFilter = useSearchParams().get("filter");
+  const [filter, setFilter] = useState<StatusFilter>(
+    FILTERS.some((f) => f.key === urlFilter) ? (urlFilter as StatusFilter) : "pending",
+  );
   const [groupLimit, setGroupLimit] = useState(GROUPS_PER_PAGE);
   const [eventFilter, setEventFilter] = useState<EventFilter>("all");
   const [items, setItems] = useState<PaymentItem[] | null>(null);
