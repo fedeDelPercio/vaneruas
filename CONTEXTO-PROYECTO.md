@@ -4,7 +4,7 @@ Documento para agentes de código (Claude, Codex, Grok, etc.) que trabajan en
 este repo. Leelo entero antes de tocar el agente, la base de datos o el panel.
 Para reglas visuales del panel, ver `design-system.md` y `CLAUDE.md`.
 
-Actualizado al 16/11/2026.
+Actualizado al 17/11/2026.
 
 ---
 
@@ -94,9 +94,30 @@ Cobertura desde el 31/08/2026. Un saliente es "nuestro" si su id de GHL está en
 del equipo. La cercanía temporal NO sirve como señal (el equipo contesta a
 segundos del bot).
 
-**Modo IA / Humano:** el equipo pausa a Valentina en una conversación con un tag
-de GHL (`GHL_PAUSE_TAG`, webhook `/api/webhooks/ghl/mode`). En modo `HUMAN` el
-agente no responde, pero los comprobantes igual se registran.
+**Modo IA / Humano:** `conversations.mode`. En modo `HUMAN` el agente no
+responde, pero los comprobantes igual se registran. Se cambia por tres caminos,
+que tienen que quedar coherentes:
+
+- **Tag de GHL** (`GHL_PAUSE_TAG`, webhook `/api/webhooks/ghl/mode`): el equipo
+  pone o saca el tag en GHL y el webhook recalcula el modo de ese contacto.
+- **Chat del panel** (`POST /api/wa/mode/[id]`, botón "Tomar conversación" /
+  "Devolver a Valentina"): cambia el modo Y pone o saca el mismo tag en GHL
+  (`ghlSetPauseTag`, nombre exacto en `GHL_PAUSE_TAG_EXACT`). Enviar un mensaje
+  desde el panel también asegura el tag. Si GHL no lo acepta, el chat lo avisa
+  y ofrece reintentar.
+- **Interruptor general** (`/api/agent-mode`, header): pone el modo en masa, sin
+  tocar tags. Al reactivar la IA respeta a quien tiene el tag. Por eso importa
+  que lo tomado desde el panel tenga tag: sin él volvería a Valentina.
+
+El worker lee el modo dos veces: antes de correr el agente y otra vez después
+de redactar. Si en el medio el equipo tomó la conversación, la respuesta se
+descarta (no se le contesta encima a una persona).
+
+**Mensajes del equipo desde el panel:** `POST /api/wa/messages/[id]` envía por
+GHL y guarda `role="human"` con `external_id` (id de GHL) y `delivered_at`.
+Exige modo `HUMAN` y respeta `GHL_SEND_ALLOWLIST`. El importador de mensajes
+del equipo reconoce esos envíos por el id y no los duplica; su marca de agua
+solo mira mensajes sin `delivered_at` (los importados).
 
 **Debounce:** `MESSAGE_DEBOUNCE_SECONDS` (~60 s en prod). Toda respuesta de
 WhatsApp espera ese silencio antes de contestar. Es una decisión aceptada.
@@ -232,7 +253,7 @@ Roles y rutas del panel: `ROLE_ACCESS` en `src/lib/profile.ts`.
 
 | Ruta | Qué es |
 |---|---|
-| `/wa` | Conversaciones de WhatsApp |
+| `/wa` | Bandeja de WhatsApp: lista paginada con buscador y filtros, chat visto desde el equipo (tomar la conversación y escribirle a la clienta) y ficha del contacto con sus eventos. Componentes en `src/components/wa/`, rutas en `src/app/api/wa/` |
 | `/payments` (Aprobaciones) | Validar comprobantes. Pestaña **"Falta acceso"** = worklist de masterclass validadas sin acceso a Tiendup (incluye a quien no dejó correo, con aviso) |
 | `/interventions` (Derivaciones) | Lo que Valentina pasó al equipo (excluye comprobantes y certificados) |
 | `/certificados` | Reclamos de certificados (`reclamo_certificado`) |
@@ -240,6 +261,26 @@ Roles y rutas del panel: `ROLE_ACCESS` en `src/lib/profile.ts`.
 | `/events` | Alta y edición de eventos (la ficha que lee el agente en vivo) |
 | `/metrics` | Métricas (ver sección 9) |
 | `/conversations`, `/feedback`, `/webhooks` | Solo `dev`: banco de pruebas, feedback, webhooks salientes |
+
+**Botón de feedback** (header, `src/components/feedback/`): Mejora o Bug,
+texto escrito o grabado (el audio pasa por `/api/transcribe` y se escribe tal
+cual, sin que una IA lo reescriba) y capturas pegadas con Ctrl+V, arrastradas o
+adjuntas (el navegador las achica antes: Vercel corta los envíos de más de
+4,5 MB). `POST /api/tickets` lo manda a AI ScaleMap (`src/lib/aiscalemap.ts`,
+`/api/intake/tickets` del repo `ai-scalemap`), que crea el ticket en el
+proyecto de Vanesa Rúas. La clave va en `integration_tokens` (provider
+`aiscalemap`, `client_slug` `vanesaruas`) y su hash en `TICKET_INTAKE_KEYS` de
+AI ScaleMap. Cerrar el cuadro no borra el borrador.
+
+Todas las bandejas tienen buscador por nombre o teléfono
+(`src/lib/search.ts`, sin distinguir tildes y aceptando el teléfono como se
+dicta: "011 15 ..."). La búsqueda la resuelve el servidor (`?q=`) sobre todo el
+historial; la lista muestra hasta 300 filas y el contador dice "300 de N".
+"Ver chat" abre la conversación en `/wa?id=`.
+
+La ficha del contacto (`GET /api/wa/contact/[id]`) une los comprobantes con su
+evento por `titleKeyword` de `event-match.ts` (la tabla `events` no guarda el
+slug): al sumar una masterclass hay que cargar esa palabra.
 
 Aprobaciones, detalles que importan:
 
@@ -336,6 +377,19 @@ ahí (incluido "Masterizado" y la "falla intermitente" de Tiendup) es correcto.
   traiga filas (no un `count` con `head: true`) tiene que paginar con
   `.range()` y **`.order()`**: sin orden, la paginación saltea filas en
   silencio. Esto ya hundió la métrica de contención y un análisis de correos.
+- **Nunca pasar cientos de ids en un `.in(...)`.** La lista viaja en la URL;
+  pasada cierta longitud el pedido falla ("fetch failed") y, como casi ninguna
+  ruta miraba ese error, el síntoma era silencioso: tarjetas sin nombre ni
+  teléfono en Aprobaciones, Agendar vacío, badges en 0. Partir en tandas de
+  100 (o 50 si además se piden mensajes), o traer las dos listas paginadas
+  (`fetchAllRows` en `src/lib/supabase/paginate.ts`) y cruzarlas en memoria.
+- **Un tope fijo con orden ascendente descarta lo más nuevo.** Pasó en
+  Aprobaciones y en Derivaciones. Las colas de pendientes van de más viejo a
+  más nuevo; los historiales, al revés.
+- **`conversations.updated_at` ordena la lista del chat.** No lo toques en
+  actualizaciones masivas ni al cambiar el modo. Quedaron unas 600
+  conversaciones con esa fecha pisada por actualizaciones viejas (6/8 y
+  13/10): por eso, bien abajo en la lista, las horas no van en orden.
 - **Archivos con CRLF.** Varios `.ts` del repo tienen fin de línea Windows. Los
   reemplazos multilínea por script fallan sin avisar; editá con una
   herramienta que respete el formato y verificá el diff.
@@ -386,7 +440,8 @@ Sumá `OPENROUTER_API_KEY`, `GHL_API_KEY`, `NEXT_PUBLIC_GHL_LOCATION_ID`,
 ### Sumar una masterclass nueva
 
 1. Cargala en `/events` con su ficha y ponela `activo`.
-2. Agregá su monto por transferencia a `event-match.ts` y movés
+2. Agregá su monto por transferencia a `event-match.ts`, con su
+   `titleKeyword` (una palabra del título cargado en `/events`), y movés
    `DEFAULT_COMPROBANTE_EVENT_SLUG` a la nueva venta.
 3. Mapeá su curso de Tiendup en `src/lib/tiendup/client.ts` (el id sale de
    `GET /learning/courses`).
@@ -419,9 +474,11 @@ Validá siempre con `npx tsc --noEmit` y `npx next build` antes de commitear.
   código del calendario aparece en la grabación de la clase; qué opción tiene
   quien no hizo la masterclass y quiere desbloquear el calendario después del
   25/11.
-- **Derivaciones sin estado:** `agent_notifications` no tiene "atendida"; en
-  octubre la mitad de las derivaciones quedaba sin respuesta. Hay una propuesta
-  de agregar estado y antigüedad en el panel.
+- **QA del chat (16 y 17/11):** plan y hallazgos en `qa/`. Quedó sin probar
+  de punta a punta el envío real de un mensaje del equipo (el QA corrió en solo
+  lectura contra producción). Pendientes anotados ahí: orden de la lista por
+  `updated_at` pisado, quién del equipo envió cada mensaje (falta columna), y
+  la pestaña "Todos" de Aprobaciones, que pinta todas las tarjetas de una.
 - **El 44% de las conversaciones las toma el equipo sin que el agente derive.**
   Falta clasificar cuánto es por respuestas flojas del agente y cuánto por
   costumbre del equipo.
@@ -435,6 +492,8 @@ Validá siempre con `npx tsc --noEmit` y `npx next build` antes de commitear.
 
 ## 13. Otros documentos
 
+- `docs/DECISIONES.md`: por qué se eligió cada cosa, por entrega. Leelo antes
+  de cambiar algo que parezca raro; al cerrar una entrega, sumá sus decisiones.
 - `design-system.md` + `CLAUDE.md` / `AGENTS.md`: reglas visuales del panel.
 - `docs/INTEGRACION-IA-GHL.md`: arquitectura de la integración con GHL, pensada
   para replicarla en otro proyecto.
