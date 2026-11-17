@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { clientEnv } from "@/lib/env";
 import type { Json } from "@/lib/supabase/types";
 import {
   autoEnrollFromAutoSend,
@@ -61,6 +62,7 @@ export async function getTiendupAutoEnrollSetting(): Promise<AutoEnrollSetting> 
     const { data, error } = await getSupabaseServerClient()
       .from("agent_settings")
       .select("auto_send")
+      .eq("client_slug", clientEnv.NEXT_PUBLIC_CLIENT_SLUG)
       .maybeSingle();
     if (error) {
       warnOnce(error.code ?? "error");
@@ -101,6 +103,7 @@ export async function setTiendupAutoEnroll(enabled: boolean, profileId: string):
   const { data, error: readErr } = await sb
     .from("agent_settings")
     .select("auto_send")
+    .eq("client_slug", clientEnv.NEXT_PUBLIC_CLIENT_SLUG)
     .maybeSingle();
   if (readErr) {
     if (isMissingTable(readErr)) throw new AutoEnrollTableMissingError();
@@ -116,7 +119,12 @@ export async function setTiendupAutoEnroll(enabled: boolean, profileId: string):
   const { error } = await sb
     .from("agent_settings")
     .upsert(
-      { auto_send: autoSend as Json, updated_at: now, updated_by: profileId },
+      {
+        client_slug: clientEnv.NEXT_PUBLIC_CLIENT_SLUG,
+        auto_send: autoSend as Json,
+        updated_at: now,
+        updated_by: profileId,
+      },
       { onConflict: "client_slug" },
     );
   if (error) {
