@@ -9,6 +9,7 @@ import {
   Check,
   Clock,
   Copy,
+  FileText,
   Flag,
   GraduationCap,
   Loader2,
@@ -22,12 +23,16 @@ import { Avatar } from "../Avatar";
 import type {
   ContactEvent,
   ContactFicha,
+  ContactFile,
 } from "@/app/api/wa/contact/[conversationId]/route";
+import { FileReviewModal, fileStatusLabel } from "./FileReviewModal";
 
 // Ficha del contacto, al costado del chat: quién es y qué nos llegó de ella
 // para cada evento (comprobante, pago, acceso al curso), más su título
-// profesional, reclamos de certificado y derivaciones. Solo lectura: las
-// acciones (aprobar, dar acceso) siguen en sus módulos, y la ficha lleva ahí.
+// profesional, reclamos de certificado y derivaciones. Los comprobantes y
+// títulos se ven en miniatura y, al abrirlos, se aprueban o rechazan ahí mismo
+// (FileReviewModal, mismas rutas que Aprobaciones). Dar acceso sigue en
+// Aprobaciones; la ficha lleva ahí.
 
 type Tone = "ok" | "warn" | "bad" | "idle";
 
@@ -153,7 +158,67 @@ function StepIcon({ tone }: { tone: Tone }) {
   return <span className={`${base} border border-dashed border-neutral-300 dark:border-neutral-700`} />;
 }
 
-function EventCard({ ev, paymentsHref }: { ev: ContactEvent; paymentsHref: string }) {
+/** Miniaturas clickeables de comprobantes o títulos. */
+function FileThumbs({
+  files,
+  onOpen,
+}: {
+  files: ContactFile[];
+  onOpen: (f: ContactFile) => void;
+}) {
+  if (!files.length) return null;
+  return (
+    <div className="mt-3 flex flex-wrap gap-1.5">
+      {files.map((f) => {
+        const st = fileStatusLabel(f);
+        const ring =
+          st.tone === "warn"
+            ? "border-warn/60"
+            : st.tone === "ok"
+              ? "border-ok/40"
+              : st.tone === "bad"
+                ? "border-red-500/40"
+                : "border-neutral-200 dark:border-neutral-800";
+        const label = `${f.kind === "comprobante" ? "Comprobante" : "Título"}: ${st.text}`;
+        return (
+          <button
+            key={f.id}
+            onClick={() => onOpen(f)}
+            title={label}
+            aria-label={label}
+            className={`relative h-14 w-12 overflow-hidden rounded-lg border bg-neutral-50 transition hover:opacity-90 hover:shadow-gold dark:bg-neutral-900/40 ${ring} ${
+              f.status === "dismissed" ? "opacity-50" : ""
+            }`}
+          >
+            {f.url && f.fileType !== "application/pdf" ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={f.url} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
+            ) : (
+              <span className="flex h-full w-full items-center justify-center text-neutral-400 dark:text-neutral-500">
+                <FileText className="h-4 w-4" strokeWidth={1.5} />
+              </span>
+            )}
+            {st.tone === "warn" && (
+              <span aria-hidden className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-warn" />
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function EventCard({
+  ev,
+  paymentsHref,
+  files,
+  onOpenFile,
+}: {
+  ev: ContactEvent;
+  paymentsHref: string;
+  files: ContactFile[];
+  onOpenFile: (f: ContactFile) => void;
+}) {
   const steps = stepsFor(ev);
   const date = fmtEventDate(ev.eventAt);
   const needsAction =
@@ -218,6 +283,8 @@ function EventCard({ ev, paymentsHref }: { ev: ContactEvent; paymentsHref: strin
         ))}
       </ol>
 
+      <FileThumbs files={files} onOpen={onOpenFile} />
+
       {needsAction && (
         <Link
           href={paymentsHref}
@@ -264,6 +331,8 @@ export function ContactPanel({
   const [error, setError] = useState<string | null>(null);
   // La conversación no existe (link roto): la ficha no tiene nada que mostrar.
   const [missing, setMissing] = useState(false);
+  // Comprobante o título abierto en el modal de revisión.
+  const [openFile, setOpenFile] = useState<ContactFile | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -426,7 +495,15 @@ export function ContactPanel({
               ) : (
                 <div className="space-y-2.5">
                   {ficha.events.map((ev) => (
-                    <EventCard key={ev.key} ev={ev} paymentsHref={paymentsHref} />
+                    <EventCard
+                      key={ev.key}
+                      ev={ev}
+                      paymentsHref={paymentsHref}
+                      files={ficha.files.filter(
+                        (f) => f.kind === "comprobante" && (f.eventSlug ?? "sin-evento") === ev.key,
+                      )}
+                      onOpenFile={setOpenFile}
+                    />
                   ))}
                 </div>
               )}
@@ -469,6 +546,10 @@ export function ContactPanel({
                   )}
                 </div>
               </div>
+              <FileThumbs
+                files={ficha.files.filter((f) => f.kind === "titulo")}
+                onOpen={setOpenFile}
+              />
             </Section>
 
             {ficha.certificados.length > 0 && (
@@ -529,6 +610,13 @@ export function ContactPanel({
           </div>
         )}
       </aside>
+      {openFile && (
+        <FileReviewModal
+          file={openFile}
+          onClose={() => setOpenFile(null)}
+          onDone={() => void load()}
+        />
+      )}
     </>
   );
 }

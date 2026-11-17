@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { getSupabaseAdminClient, getSupabaseServerClient } from "@/lib/supabase/server";
+import { COMPROBANTES_BUCKET } from "@/lib/payments/storage";
 import {
   KNOWN_COMPROBANTE_EVENTS,
   accesoVigenteDeEvento,
@@ -54,6 +55,30 @@ export interface ContactEvent {
   access: { stage: AccessStage; grantedAt: string | null };
 }
 
+/**
+ * Un archivo que mandó la persona (comprobante o título), para verlo y
+ * resolverlo desde la ficha. `url` es una signed URL de vida corta.
+ */
+export interface ContactFile {
+  id: string;
+  kind: "comprobante" | "titulo";
+  url: string | null;
+  fileType: string | null;
+  createdAt: string;
+  /**
+   * Comprobante: pending / awaiting_title / validated / rejected / dismissed.
+   * Título: valid / review / rejected.
+   */
+  status: string;
+  /** Comprobante: evento al que se asignó (slug) y monto leído. */
+  eventSlug: string | null;
+  amount: number | null;
+  currency: string | null;
+  /** Título: nombre e institución leídos. */
+  titleName: string | null;
+  institution: string | null;
+}
+
 export interface ContactFicha {
   conversation: {
     id: string;
@@ -76,7 +101,11 @@ export interface ContactFicha {
   };
   certificados: { id: string; summary: string | null; createdAt: string; resolvedAt: string | null }[];
   derivaciones: { id: string; category: string; summary: string | null; createdAt: string; resolvedAt: string | null }[];
+  /** Comprobantes (incluidos los descartados) y títulos, del más nuevo al más viejo. */
+  files: ContactFile[];
 }
+
+const SIGNED_URL_TTL_SECONDS = 600;
 
 function normalize(s: string): string {
   return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -97,13 +126,13 @@ export async function GET(
     sb
       .from("payment_validations")
       .select(
-        "id, amount, currency, event_slug, status, awaiting_title, delivery_failed, course_access_granted_at, validated_at, validation_note, contact_email, operation_number, created_at",
+        "id, amount, currency, event_slug, status, awaiting_title, delivery_failed, course_access_granted_at, validated_at, validation_note, contact_email, operation_number, comprobante_path, comprobante_type, created_at",
       )
       .eq("conversation_id", conversationId)
       .order("created_at", { ascending: true }),
     sb
       .from("professional_titles")
-      .select("id, title_name, institution, is_valid, reviewed_at, created_at")
+      .select("id, title_name, institution, is_valid, reviewed_at, file_path, file_type, created_at")
       .eq("conversation_id", conversationId)
       .order("created_at", { ascending: false }),
     sb
@@ -283,6 +312,55 @@ export async function GET(
         }
       : { stage: "none", titleName: null, institution: null, at: null };
 
+  // Archivos para ver y resolver desde la ficha. Firmados de una vez (el
+  // bucket es privado); los paths salen de filas que RLS ya filtró por cliente.
+  const allPayments = payRes.data ?? [];
+  const paths = [
+    ...allPayments.map((p) => p.comprobante_path),
+    ...titles.map((t) => t.file_path),
+  ].filter((x): x is string => Boolean(x));
+  const signed = new Map<string, string>();
+  if (paths.length) {
+    const { data: urls } = await getSupabaseAdminClient()
+      .storage.from(COMPROBANTES_BUCKET)
+      .createSignedUrls(Array.from(new Set(paths)), SIGNED_URL_TTL_SECONDS);
+    for (const u of urls ?? []) {
+      if (u.path && u.signedUrl && !u.error) signed.set(u.path, u.signedUrl);
+    }
+  }
+  const files: ContactFile[] = [
+    ...allPayments.map((p) => ({
+      id: p.id,
+      kind: "comprobante" as const,
+      url: p.comprobante_path ? signed.get(p.comprobante_path) ?? null : null,
+      fileType: p.comprobante_type ?? null,
+      createdAt: p.created_at,
+      status: esDescartado(p)
+        ? "dismissed"
+        : p.status === "pending" && p.awaiting_title
+          ? "awaiting_title"
+          : p.status,
+      eventSlug: p.event_slug ?? null,
+      amount: p.amount === null ? null : Number(p.amount),
+      currency: p.currency ?? null,
+      titleName: null,
+      institution: null,
+    })),
+    ...titles.map((t) => ({
+      id: t.id,
+      kind: "titulo" as const,
+      url: t.file_path ? signed.get(t.file_path) ?? null : null,
+      fileType: t.file_type ?? null,
+      createdAt: t.created_at,
+      status: t.is_valid ? "valid" : t.reviewed_at ? "rejected" : "review",
+      eventSlug: null,
+      amount: null,
+      currency: null,
+      titleName: t.title_name ?? null,
+      institution: t.institution ?? null,
+    })),
+  ].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
   const notifs = notifRes.data ?? [];
   const ficha: ContactFicha = {
     conversation: {
@@ -305,6 +383,7 @@ export async function GET(
     derivaciones: notifs
       .filter((n) => n.category !== "reclamo_certificado")
       .map((n) => ({ id: n.id, category: n.category, summary: n.summary, createdAt: n.created_at, resolvedAt: n.resolved_at })),
+    files,
   };
   return NextResponse.json(ficha);
 }
