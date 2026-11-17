@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { matchesContactQuery } from "@/lib/search";
+import { loadInterventionConversationIds } from "@/lib/interventions";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 
 export const dynamic = "force-dynamic";
 
 // ===========================================================================
-// GET /api/wa/conversations?q=&filter=all|derivadas|humano&offset=&limit=
+// GET /api/wa/conversations?q=&filter=all|intervencion|humano&offset=&limit=
 //
 // Lista del chat de WhatsApp. Reemplaza la carga directa desde el navegador,
 // que tenía tres problemas con el volumen real (más de 1.500 conversaciones):
@@ -26,10 +28,7 @@ const DB_PAGE = 1000;
 const CONV_COLS =
   "id, display_name, wa_jid, contact_email, mode, updated_at, is_existing_customer";
 
-// Las derivaciones con módulo propio no cuentan como "necesita al equipo" acá.
-const EXCLUDED_CATEGORIES = "(validacion_pago,reclamo_certificado)";
-
-type Filter = "all" | "derivadas" | "humano";
+type Filter = "all" | "intervencion" | "humano";
 
 interface ConvRow {
   id: string;
@@ -56,7 +55,7 @@ export interface WaConversationItem {
   mode: "AI" | "HUMAN";
   updatedAt: string;
   isCustomer: boolean;
-  /** Tiene una derivación al equipo sin atender. */
+  /** Necesita intervención del equipo (notificación sin resolver). */
   needsTeam: boolean;
   preview: WaPreview | null;
 }
@@ -66,7 +65,7 @@ export interface WaConversationsResponse {
   /** Total que coincide con la búsqueda y el filtro (no solo esta página). */
   total: number;
   hasMore: boolean;
-  counts: { all: number; derivadas: number; humano: number };
+  counts: { all: number; intervencion: number; humano: number };
 }
 
 // Texto fijo (en inglés) que manda GHL cuando la clienta envía algo que no
@@ -89,7 +88,12 @@ export async function GET(req: NextRequest) {
   const q = (sp.get("q") ?? "").trim().slice(0, 80);
   const filterParam = sp.get("filter");
   const filter: Filter =
-    filterParam === "derivadas" || filterParam === "humano" ? filterParam : "all";
+    filterParam === "intervencion" || filterParam === "humano"
+      ? filterParam
+      : // Nombre viejo del filtro (links guardados).
+        filterParam === "derivadas"
+        ? "intervencion"
+        : "all";
   const offset = Math.max(Number(sp.get("offset") ?? 0) || 0, 0);
   const limit = Math.min(
     Math.max(Number(sp.get("limit") ?? PAGE_DEFAULT) || PAGE_DEFAULT, 1),
@@ -98,21 +102,27 @@ export async function GET(req: NextRequest) {
 
   const sb = getSupabaseServerClient();
 
-  // Conversaciones con una derivación sin atender (para el punto de aviso y el
-  // filtro). Paginado y ordenado: sin orden, PostgREST saltea filas.
-  const needsTeam = new Set<string>();
-  for (let from = 0; ; from += DB_PAGE) {
-    const { data, error } = await sb
-      .from("agent_notifications")
-      .select("id, conversation_id")
-      .is("resolved_at", null)
-      .not("category", "in", EXCLUDED_CATEGORIES)
-      .order("created_at", { ascending: true })
-      .order("id", { ascending: true })
-      .range(from, from + DB_PAGE - 1);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    for (const r of data ?? []) if (r.conversation_id) needsTeam.add(r.conversation_id);
-    if (!data || data.length < DB_PAGE) break;
+  // Conversaciones que necesitan intervención del equipo (punto de aviso y
+  // filtro): notificaciones sin resolver, con el criterio de
+  // src/lib/interventions.ts. Paginado y cruzado en memoria.
+  let needsTeam: Set<string>;
+  try {
+    needsTeam = await loadInterventionConversationIds(sb);
+    // El contador es de la bandeja de WhatsApp: fuera las del banco de pruebas.
+    const otras = await fetchAllRows((from, to) =>
+      sb
+        .from("conversations")
+        .select("id")
+        .neq("source", "whatsapp")
+        .order("id", { ascending: true })
+        .range(from, to),
+    );
+    for (const c of otras) needsTeam.delete(c.id);
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "No se pudieron cargar las intervenciones" },
+      { status: 500 },
+    );
   }
 
   const [allCount, humanCount] = await Promise.all([
@@ -156,7 +166,7 @@ export async function GET(req: NextRequest) {
     }
     const filtered = all.filter(
       (c) =>
-        (filter !== "derivadas" || needsTeam.has(c.id)) &&
+        (filter !== "intervencion" || needsTeam.has(c.id)) &&
         matchesContactQuery(q, {
           texts: [c.display_name, c.contact_email],
           phones: [c.wa_jid],
@@ -232,7 +242,7 @@ export async function GET(req: NextRequest) {
     hasMore: offset + items.length < total,
     counts: {
       all: allCount.count ?? 0,
-      derivadas: needsTeam.size,
+      intervencion: needsTeam.size,
       humano: humanCount.count ?? 0,
     },
   };

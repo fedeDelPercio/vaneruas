@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { deliverAssistantToWhatsApp } from "@/lib/whatsapp-delivery";
 import { autoEnrollPayment } from "@/lib/tiendup/auto-enroll";
+import { resolvePaymentNotificationsIfDone } from "@/lib/interventions";
 
 export const dynamic = "force-dynamic";
 
@@ -164,6 +165,13 @@ export async function PATCH(
         })
         .eq("id", id);
     }
+  }
+
+  // Validado, rechazado o descartado: si a la conversación no le queda ningún
+  // comprobante pendiente, se cierran sus notificaciones de pago (si no,
+  // quedaban abiertas para siempre e inflaban "Intervención" en /wa).
+  if (isResolved && prev?.conversation_id) {
+    await resolvePaymentNotificationsIfDone(sb, prev.conversation_id, validatedBy ?? null);
   }
 
   // Alta automática en Tiendup (si corresponde): corre después de responder,

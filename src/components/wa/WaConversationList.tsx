@@ -18,13 +18,16 @@ import type {
 // respaldo: si el canal se cae, se recrea, y al volver a la pestaña se
 // refresca igual.
 
-type Filter = "all" | "derivadas" | "humano";
+type Filter = "all" | "intervencion" | "humano";
 
 const PAGE = 40;
 
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "all", label: "Todas" },
-  { key: "derivadas", label: "Derivadas" },
+  // Conversaciones con notificaciones al equipo sin resolver (derivaciones,
+  // reclamos, altas de Tiendup pendientes, comprobantes sin revisar). Mismo
+  // criterio que src/lib/interventions.ts.
+  { key: "intervencion", label: "Intervención" },
   { key: "humano", label: "Con el equipo" },
 ];
 
@@ -71,7 +74,7 @@ export function WaConversationList({
   const [items, setItems] = useState<WaConversationItem[] | null>(null);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
-  const [counts, setCounts] = useState({ all: 0, derivadas: 0, humano: 0 });
+  const [counts, setCounts] = useState({ all: 0, intervencion: 0, humano: 0 });
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [searching, setSearching] = useState(false);
@@ -203,6 +206,8 @@ export function WaConversationList({
       )
       .on("postgres_changes", { event: "*", schema: "public", table: "conversations" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "agent_notifications" }, refresh)
+      // Un comprobante revisado cambia quién necesita intervención.
+      .on("postgres_changes", { event: "*", schema: "public", table: "payment_validations" }, refresh)
       .subscribe((status) => {
         if (!active) return;
         if (status === "SUBSCRIBED") {
@@ -313,7 +318,7 @@ export function WaConversationList({
                   }`}
                 >
                   {f.label}
-                  {count !== null && count > 0 && (
+                  {count !== null && (count > 0 || (f.key === "intervencion" && loaded)) && (
                     <span
                       className={`font-mono text-[10.5px] ${
                         activeFilter ? "opacity-70" : "text-neutral-400 dark:text-neutral-500"
@@ -372,8 +377,8 @@ export function WaConversationList({
               <p className="text-[13px] font-medium text-neutral-900 dark:text-neutral-200">
                 {debouncedQuery
                   ? "Sin resultados"
-                  : filter === "derivadas"
-                    ? "Ninguna derivación pendiente"
+                  : filter === "intervencion"
+                    ? "Nada que necesite intervención"
                     : filter === "humano"
                       ? "Ninguna conversación con el equipo"
                       : "Sin conversaciones de WhatsApp todavía"}
@@ -452,7 +457,7 @@ export function WaConversationList({
                             {text}
                           </span>
                           {c.needsTeam && (
-                            <span title="Derivada al equipo, sin atender" className="shrink-0 text-warn">
+                            <span title="Necesita intervención del equipo" className="shrink-0 text-warn">
                               <Flag className="h-3 w-3" strokeWidth={2} />
                             </span>
                           )}
