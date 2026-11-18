@@ -501,7 +501,12 @@ export async function GET(req: NextRequest) {
           (m) => m.id === earliestIdByOp.get(norm(r.operation_number))?.id,
         ),
       contactHasValidatedPayment,
-      awaitingTitle: r.awaiting_title ?? false,
+      // En un grupo pendiente alcanza con que una imagen esté retenida (la
+      // PATCH exige forzar igual).
+      awaitingTitle:
+        r.status === "pending"
+          ? (membersByCanonical.get(r.id) ?? [r]).some((m) => m.status === "pending" && m.awaiting_title)
+          : r.awaiting_title ?? false,
       deliveryFailed: r.delivery_failed ?? false,
       deliveryError: r.delivery_error ?? null,
       courseAccessGrantedAt: r.course_access_granted_at ?? null,

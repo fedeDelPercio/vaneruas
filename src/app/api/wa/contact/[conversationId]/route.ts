@@ -380,7 +380,8 @@ export async function GET(
       createdAt: p.created_at,
       status: esDescartado(p)
         ? "dismissed"
-        : p.status === "pending" && p.awaiting_title
+        : p.status === "pending" &&
+            (membersByCanonical.get(p.id) ?? [p]).some((m) => m.status === "pending" && m.awaiting_title)
           ? "awaiting_title"
           : p.status,
       eventSlug: p.event_slug ?? null,
