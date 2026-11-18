@@ -7,6 +7,51 @@ decidió, por qué, qué se descartó y qué costo o pendiente deja.
 
 ---
 
+## 18/11/2026 · Componente de filtros e interruptor "IA activa / IA apagada"
+
+**Qué entró**
+
+- `src/components/ui/FilterChips.tsx` (`FilterChips` + `FilterChip`): un solo
+  look para los filtros de `/wa` y de Aprobaciones (por estado y por evento).
+- `AgentModeToggle`: switch real (track + thumb, `role="switch"`,
+  `aria-checked`) con label "IA activa" / "IA apagada".
+
+**D-57 · Chips iguales, `rounded-lg`, con borde siempre.** Misma caja para
+todos (30 px de alto, borde, `text-[12px] font-medium`, ícono lucide 3.5
+opcional). `rounded-lg` porque el design-system usa ese radio para botones;
+`rounded-full` queda para badges. Un estado activo (relleno neutro oscuro,
+claro en dark) y uno inactivo (borde neutro, texto secundario, hover sutil).
+Se sacaron el ámbar y el rojo por filtro. "Con el equipo" suma el ícono de
+persona y recuadro como los demás. Layout: wrap con `gap-1.5`; en la columna
+de 340 px entran en dos filas sin cortar texto. Se descartó la fila con scroll
+horizontal porque esconde filtros sin que se note.
+
+**D-58 · La urgencia es solo el número en dorado.** Los chips con `attention`
+(Derivadas, Falta aprobar, Críticos) pintan el contador en dorado cuando es
+mayor a 0 y el chip no está activo. Es igual para los tres. "Con el equipo" es
+un estado, no un pendiente: su contador queda neutro. Los contadores se
+muestran recién cuando llegó la primera carga (antes no salía nada o salía 0).
+
+**D-59 · Switch de IA en dorado, la acción no cambia.** Prendido va con el
+gradiente dorado de marca, igual que el switch del alta automática de Tiendup,
+para que los interruptores del panel se lean iguales. El verde `ok` se descartó
+para no sumar un segundo acento. Tocar el switch abre la misma confirmación de
+antes y pega al mismo `PATCH /api/agent-mode`; `aria-checked` refleja el estado
+vigente, no el que se pide. Con el menú contraído va solo el switch, con el
+estado en `aria-label` y `title`. Mientras guarda, spinner en el thumb y
+deshabilitado. Mientras carga, un switch neutro deshabilitado con spinner (antes
+no se mostraba nada). "IA pausada" pasa a "IA apagada" y el botón de la
+confirmación a "Apagar IA", por el pedido de Federico.
+
+### Pendientes que deja esta entrega
+
+- Probar en un navegador real con datos: filtros en la columna de /wa (light y
+  dark), switch en el menú contraído y en la barra de celular angosta (el label
+  del switch le quita lugar al nombre de la sección, que se trunca).
+- /revision no se tocó: lo que tiene son pestañas de celular, no chips.
+
+---
+
 ## 18/11/2026 · Arreglos y mejoras en /wa, visor de archivos y logo
 
 **Qué entró**
