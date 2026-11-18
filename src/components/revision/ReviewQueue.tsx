@@ -1,11 +1,12 @@
 "use client";
 
-import { CheckCircle2, Flag, Loader2 } from "lucide-react";
+import { CheckCircle2, Loader2 } from "lucide-react";
 import { SearchField } from "../SearchField";
 import { formatPhone } from "@/lib/search";
 import { eventBySlug } from "@/lib/payments/event-match";
 import { fmtAge, fmtAmount, type ReviewItem } from "./review-items";
 import { CriticalPill } from "../CriticalPill";
+import { AwaitingTitlePill, InterventionPill, KindPill } from "../StatusPills";
 
 // Columna izquierda de /revision: la cola de pendientes (comprobantes y
 // títulos), con buscador server-side (el mismo ?q= de Aprobaciones).
@@ -147,30 +148,13 @@ function QueueRow({
           <span className="truncate font-mono text-[11px] text-neutral-500 dark:text-neutral-400">{phone}</span>
         )}
         <div className="flex flex-wrap items-center gap-1.5">
-          <span
-            className={`badge-pill ${
-              item.kind === "comprobante"
-                ? "border-gold/30 bg-gold/[0.06] text-gold-fg dark:text-gold"
-                : "border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-300"
-            }`}
-          >
-            {item.kind === "comprobante" ? "Comprobante" : "Título"}
-          </span>
-          {item.awaitingTitle && (
-            <span className="badge-pill border-warn/40 bg-warn/10 text-warn-fg dark:text-warn">
-              Retenido por título
-            </span>
-          )}
+          <KindPill kind={item.kind} />
+          {item.awaitingTitle && <AwaitingTitlePill />}
+          {interventions > 0 && <InterventionPill count={interventions} />}
           {meta && (
             <span className="truncate text-[11.5px] text-neutral-500 dark:text-neutral-400">{meta}</span>
           )}
         </div>
-        {interventions > 0 && (
-          <span className="flex items-center gap-1.5 text-[11.5px] text-neutral-600 dark:text-neutral-300">
-            <Flag className="h-3 w-3 shrink-0 text-warn" strokeWidth={2} />
-            {interventions === 1 ? "Intervención abierta" : `${interventions} intervenciones abiertas`}
-          </span>
-        )}
       </button>
     </li>
   );

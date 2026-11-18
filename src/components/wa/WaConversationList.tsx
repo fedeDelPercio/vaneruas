@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { CriticalPill } from "../CriticalPill";
+import { ConversationStatusPills } from "../StatusPills";
 import { clientEnv } from "@/lib/env";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { formatPhone } from "@/lib/search";
@@ -582,12 +583,10 @@ export function WaConversationList({
                             {prefix && <span className="text-neutral-400 dark:text-neutral-500">{prefix}</span>}
                             {text}
                           </span>
-                          {c.pendingApproval && (
-                            <span title="Tiene algo esperando aprobación" className="shrink-0 text-neutral-400 dark:text-neutral-500">
-                              <ClipboardCheck className="h-3 w-3" strokeWidth={1.75} />
-                            </span>
-                          )}
-                          {c.needsTeam && (
+                          {c.needsTeam && !c.status.derivations && (
+                            // Intervención solo por un comprobante a revisar:
+                            // el pill "Comprobante" ya lo dice; la bandera
+                            // queda para que se vea que es del equipo.
                             <span title="Necesita intervención del equipo" className="shrink-0 text-warn">
                               <Flag className="h-3 w-3" strokeWidth={2} />
                             </span>
@@ -599,6 +598,14 @@ export function WaConversationList({
                             />
                           )}
                         </span>
+                        {/* Mismos pills que la cola de /revision. */}
+                        <ConversationStatusPills
+                          className="mt-1.5"
+                          comprobantes={c.status.comprobantes}
+                          titulos={c.status.titulos}
+                          awaitingTitle={c.status.awaitingTitle}
+                          derivations={c.status.derivations}
+                        />
                         {debouncedQuery && c.phone && (
                           <span className="mt-0.5 block truncate font-mono text-[10.5px] text-neutral-400 dark:text-neutral-500">
                             {formatPhone(c.phone)}

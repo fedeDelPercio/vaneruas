@@ -27,12 +27,30 @@ import { PAYMENT_NOTIFICATION_CATEGORY } from "@/lib/payments/register";
 
 type Db = SupabaseClient<Database>;
 
-export async function loadInterventionConversationIds(sb: Db): Promise<Set<string>> {
+/** Por qué una conversación necesita intervención. */
+export interface InterventionInfo {
+  /** Notificaciones abiertas que no son `validacion_pago` (derivaciones,
+   *  reclamos, altas de Tiendup que no salieron solas). */
+  derivations: number;
+  /** Tiene una `validacion_pago` abierta con un comprobante pendiente. */
+  payment: boolean;
+}
+
+/**
+ * Conversaciones que necesitan intervención → por qué. Las claves del Map son
+ * el mismo conjunto de siempre (`.has()` / `.size` sirven como antes).
+ * Filtra por `client_slug` explícito además de RLS.
+ */
+export async function loadInterventionConversationIds(
+  sb: Db,
+  clientSlug: string,
+): Promise<Map<string, InterventionInfo>> {
   const [openNotifs, pendingPays] = await Promise.all([
     fetchAllRows((from, to) =>
       sb
         .from("agent_notifications")
         .select("id, conversation_id, category")
+        .eq("client_slug", clientSlug)
         .is("resolved_at", null)
         .order("created_at", { ascending: true })
         .order("id", { ascending: true })
@@ -42,6 +60,7 @@ export async function loadInterventionConversationIds(sb: Db): Promise<Set<strin
       sb
         .from("payment_validations")
         .select("id, conversation_id")
+        .eq("client_slug", clientSlug)
         .eq("status", "pending")
         .eq("awaiting_title", false)
         .not("conversation_id", "is", null)
@@ -53,15 +72,17 @@ export async function loadInterventionConversationIds(sb: Db): Promise<Set<strin
   const withPending = new Set(
     pendingPays.map((p) => p.conversation_id).filter(Boolean) as string[],
   );
-  const ids = new Set<string>();
+  const out = new Map<string, InterventionInfo>();
   for (const n of openNotifs) {
     if (!n.conversation_id) continue;
-    if (n.category === PAYMENT_NOTIFICATION_CATEGORY && !withPending.has(n.conversation_id)) {
-      continue;
-    }
-    ids.add(n.conversation_id);
+    const isPayment = n.category === PAYMENT_NOTIFICATION_CATEGORY;
+    if (isPayment && !withPending.has(n.conversation_id)) continue;
+    const info = out.get(n.conversation_id) ?? { derivations: 0, payment: false };
+    if (isPayment) info.payment = true;
+    else info.derivations += 1;
+    out.set(n.conversation_id, info);
   }
-  return ids;
+  return out;
 }
 
 /**
@@ -127,11 +148,21 @@ export async function loadOpenTeamNotificationCounts(
   return out;
 }
 
+/** Qué tiene para aprobar una conversación. */
+export interface PendingApprovalInfo {
+  /** Comprobantes `pending` (incluidos los retenidos por título). */
+  comprobantes: number;
+  /** Títulos profesionales sin revisar. */
+  titulos: number;
+  /** Algún comprobante está retenido hasta validar el título. */
+  awaitingTitle: boolean;
+}
+
 /**
- * Conversaciones con algo para aprobar: un comprobante `pending` (incluidos los
- * retenidos por título) o un título profesional sin revisar. Es el mismo
- * criterio que la cola de /revision (`buildReviewItems`). Lo usa el filtro
- * "Falta aprobar" de /wa.
+ * Conversaciones con algo para aprobar → qué tienen: comprobantes `pending`
+ * (incluidos los retenidos por título) y títulos profesionales sin revisar.
+ * Es el mismo criterio que la cola de /revision (`buildReviewItems`). Lo usa
+ * el filtro "Falta aprobar" de /wa y los pills de cada fila.
  *
  * Paginado y cruzado en memoria (nada de ids en un `.in()`), con `client_slug`
  * explícito además de RLS.
@@ -139,12 +170,12 @@ export async function loadOpenTeamNotificationCounts(
 export async function loadPendingApprovalConversationIds(
   sb: Db,
   clientSlug: string,
-): Promise<Set<string>> {
+): Promise<Map<string, PendingApprovalInfo>> {
   const [pays, titles] = await Promise.all([
     fetchAllRows((from, to) =>
       sb
         .from("payment_validations")
-        .select("id, conversation_id")
+        .select("id, conversation_id, awaiting_title")
         .eq("client_slug", clientSlug)
         .eq("status", "pending")
         .not("conversation_id", "is", null)
@@ -163,7 +194,23 @@ export async function loadPendingApprovalConversationIds(
         .range(from, to),
     ),
   ]);
-  const ids = new Set<string>();
-  for (const r of [...pays, ...titles]) if (r.conversation_id) ids.add(r.conversation_id);
-  return ids;
+  const out = new Map<string, PendingApprovalInfo>();
+  const entry = (id: string) => {
+    let info = out.get(id);
+    if (!info) {
+      info = { comprobantes: 0, titulos: 0, awaitingTitle: false };
+      out.set(id, info);
+    }
+    return info;
+  };
+  for (const p of pays) {
+    if (!p.conversation_id) continue;
+    const info = entry(p.conversation_id);
+    info.comprobantes += 1;
+    if (p.awaiting_title) info.awaitingTitle = true;
+  }
+  for (const t of titles) {
+    if (t.conversation_id) entry(t.conversation_id).titulos += 1;
+  }
+  return out;
 }

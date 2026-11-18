@@ -4,6 +4,8 @@ import { matchesContactQuery } from "@/lib/search";
 import {
   loadInterventionConversationIds,
   loadPendingApprovalConversationIds,
+  type InterventionInfo,
+  type PendingApprovalInfo,
 } from "@/lib/interventions";
 import { clientEnv } from "@/lib/env";
 import { isMissingColumnError, withOptionalColumns } from "@/lib/critical/classifier";
@@ -80,6 +82,17 @@ export interface WaConversationItem {
   needsTeam: boolean;
   /** Tiene un comprobante o un título esperando aprobación. */
   pendingApproval: boolean;
+  /**
+   * Pills de estado de la fila, con el criterio de la cola de /revision:
+   * comprobantes pendientes (y si alguno está retenido por título), títulos
+   * sin revisar y derivaciones abiertas (sin contar `validacion_pago`).
+   */
+  status: {
+    comprobantes: number;
+    titulos: number;
+    awaitingTitle: boolean;
+    derivations: number;
+  };
   /** Tag "Crítico" (false si la migración 034 no está aplicada). */
   critical: boolean;
   criticalReason: string | null;
@@ -136,11 +149,14 @@ export async function GET(req: NextRequest) {
   // Conversaciones que necesitan intervención del equipo (punto de aviso y
   // filtro): notificaciones sin resolver, con el criterio de
   // src/lib/interventions.ts. Paginado y cruzado en memoria.
-  let needsTeam: Set<string>;
-  let pendingApproval: Set<string>;
+  // Ambos devuelven id → detalle (tipo de pendiente), en pocas consultas
+  // paginadas y cruzadas en memoria: nada de N+1 ni `.in()` gigantes.
+  const slug = clientEnv.NEXT_PUBLIC_CLIENT_SLUG;
+  let needsTeam: Map<string, InterventionInfo>;
+  let pendingApproval: Map<string, PendingApprovalInfo>;
   try {
     [needsTeam, pendingApproval] = await Promise.all([
-      loadInterventionConversationIds(sb),
+      loadInterventionConversationIds(sb, slug),
       loadPendingApprovalConversationIds(sb, clientEnv.NEXT_PUBLIC_CLIENT_SLUG),
     ]);
     // El contador es de la bandeja de WhatsApp: fuera las del banco de pruebas.
@@ -148,6 +164,7 @@ export async function GET(req: NextRequest) {
       sb
         .from("conversations")
         .select("id")
+        .eq("client_slug", slug)
         .neq("source", "whatsapp")
         .order("id", { ascending: true })
         .range(from, to),
@@ -164,10 +181,15 @@ export async function GET(req: NextRequest) {
   }
 
   const [allCount, humanCount, criticalCount] = await Promise.all([
-    sb.from("conversations").select("id", { count: "exact", head: true }).eq("source", "whatsapp"),
     sb
       .from("conversations")
       .select("id", { count: "exact", head: true })
+      .eq("client_slug", slug)
+      .eq("source", "whatsapp"),
+    sb
+      .from("conversations")
+      .select("id", { count: "exact", head: true })
+      .eq("client_slug", slug)
       .eq("source", "whatsapp")
       .eq("mode", "HUMAN"),
     criticalAvailable()
@@ -175,7 +197,7 @@ export async function GET(req: NextRequest) {
           .from("conversations")
           .select("id", { count: "exact", head: true })
           .eq("source", "whatsapp")
-          .eq("client_slug", clientEnv.NEXT_PUBLIC_CLIENT_SLUG)
+          .eq("client_slug", slug)
           .eq("critical", true)
       : Promise.resolve({ count: 0, error: null }),
   ]);
@@ -192,6 +214,7 @@ export async function GET(req: NextRequest) {
       sb
         .from("conversations")
         .select(cols)
+        .eq("client_slug", slug)
         .eq("source", "whatsapp")
         .order("updated_at", { ascending: false })
         .order("id", { ascending: true })
@@ -206,7 +229,11 @@ export async function GET(req: NextRequest) {
     const all: ConvRow[] = [];
     for (let from = 0; ; from += DB_PAGE) {
       const chunk = (cols: string) => {
-        let query = sb.from("conversations").select(cols).eq("source", "whatsapp");
+        let query = sb
+          .from("conversations")
+          .select(cols)
+          .eq("client_slug", slug)
+          .eq("source", "whatsapp");
         if (filter === "humano") query = query.eq("mode", "HUMAN");
         return query
           .order("updated_at", { ascending: false })
@@ -280,20 +307,29 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const items: WaConversationItem[] = pageRows.map((c) => ({
-    id: c.id,
-    displayName: c.display_name?.trim() || "(sin nombre)",
-    phone: c.wa_jid,
-    email: c.contact_email,
-    mode: c.mode === "HUMAN" ? "HUMAN" : "AI",
-    updatedAt: c.updated_at,
-    isCustomer: c.is_existing_customer,
-    needsTeam: needsTeam.has(c.id),
-    pendingApproval: pendingApproval.has(c.id),
-    critical: c.critical === true,
-    criticalReason: c.critical === true ? c.critical_reason ?? null : null,
-    preview: previews.get(c.id) ?? null,
-  }));
+  const items: WaConversationItem[] = pageRows.map((c) => {
+    const approval = pendingApproval.get(c.id);
+    return {
+      id: c.id,
+      displayName: c.display_name?.trim() || "(sin nombre)",
+      phone: c.wa_jid,
+      email: c.contact_email,
+      mode: c.mode === "HUMAN" ? "HUMAN" : "AI",
+      updatedAt: c.updated_at,
+      isCustomer: c.is_existing_customer,
+      needsTeam: needsTeam.has(c.id),
+      pendingApproval: Boolean(approval),
+      status: {
+        comprobantes: approval?.comprobantes ?? 0,
+        titulos: approval?.titulos ?? 0,
+        awaitingTitle: approval?.awaitingTitle ?? false,
+        derivations: needsTeam.get(c.id)?.derivations ?? 0,
+      },
+      critical: c.critical === true,
+      criticalReason: c.critical === true ? c.critical_reason ?? null : null,
+      preview: previews.get(c.id) ?? null,
+    };
+  });
 
   const body: WaConversationsResponse = {
     items,
