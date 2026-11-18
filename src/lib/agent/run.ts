@@ -18,11 +18,15 @@ import type {
   TraceStatus,
 } from "./types";
 import type { Json } from "@/lib/supabase/types";
-import { SYSTEM_NOTIFICATION_REASON_LIKE } from "@/lib/tiendup/messages";
 import { normalizeContactEmail } from "@/lib/contact-email";
+import { AGENT_HANDOFF_FILTER } from "@/lib/team-interventions";
 
-/** Filtro PostgREST: notificaciones que NO son de sistema (Tiendup). */
-const NOT_SYSTEM_NOTIFICATION = `reason.is.null,reason.not.like.${SYSTEM_NOTIFICATION_REASON_LIKE}`;
+/**
+ * Filtro PostgREST: notificaciones que NO son de sistema (Tiendup ni
+ * "humano_sin_respuesta", que abre el worker cuando la contacta escribe con la
+ * IA en pausa). Ninguna de las dos es una derivación del agente.
+ */
+const NOT_SYSTEM_NOTIFICATION = AGENT_HANDOFF_FILTER;
 
 // ===========================================================================
 // runAgent — entry point del sistema agéntico.
@@ -442,8 +446,9 @@ async function recordNotification(args: {
       .select("id", { count: "exact", head: true })
       .eq("conversation_id", args.conversationId)
       .eq("category", args.category)
-      // Un alta pendiente de Tiendup (escalado_manual de sistema) no tapa una
-      // derivación real del agente con la misma categoría.
+      // Un alta pendiente de Tiendup o un "escribió con la IA en pausa"
+      // (escalado_manual de sistema) no tapa una derivación real del agente
+      // con la misma categoría.
       .or(NOT_SYSTEM_NOTIFICATION);
     if ((count ?? 0) > 0) return false;
 

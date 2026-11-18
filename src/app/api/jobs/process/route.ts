@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
-import { serverEnv } from "@/lib/env";
+import { clientEnv, serverEnv } from "@/lib/env";
 import { runAgent } from "@/lib/agent/run";
 import { ghlSendAllowed, ghlSendWhatsApp, ghlUpdateContact } from "@/lib/providers/ghl";
 import { isAllowedComprobanteType } from "@/lib/payments/storage";
@@ -8,6 +8,13 @@ import { handleAttachmentIntake } from "@/lib/titles/handle";
 import { resolveWhatsAppTurn } from "@/lib/agent/debounce";
 import { extractContactEmail, normalizeContactEmail } from "@/lib/contact-email";
 import { autoEnrollConversation } from "@/lib/tiendup/auto-enroll";
+import { sendTeamNotificationAlert } from "@/lib/email/sender";
+import {
+  HUMAN_WAITING_CATEGORY,
+  HUMAN_WAITING_REASON,
+  HUMAN_WAITING_SUMMARY,
+  openHumanWaitingIntervention,
+} from "@/lib/team-interventions";
 import type { HistoryMessage } from "@/lib/agent/types";
 import type { AgentJob } from "@/lib/supabase/types";
 
@@ -163,6 +170,14 @@ async function processJob(job: AgentJob): Promise<void> {
     .maybeSingle();
 
   if (convState?.mode === "HUMAN") {
+    // La contacta escribió y la IA está en pausa: si nadie tiene ya algo
+    // pendiente en esta conversación, se abre una intervención para que el
+    // equipo le conteste (se cierra sola cuando alguien responde). Los
+    // comprobantes y títulos no llegan hasta acá: los corta el intake de
+    // arriba con su propia notificación (validacion_pago).
+    if (convState.source === "whatsapp") {
+      await openHumanWaitingNotice(job.conversation_id);
+    }
     await supabase
       .from("agent_jobs")
       .update({
@@ -344,6 +359,34 @@ async function processJob(job: AgentJob): Promise<void> {
       trace_id: result.traceId,
     })
     .eq("id", job.id);
+}
+
+/**
+ * Abre la intervención "humano_sin_respuesta" (una sola abierta por
+ * conversación) y, solo si es nueva, avisa al equipo por email igual que una
+ * derivación. Best-effort: nunca corta el job.
+ */
+async function openHumanWaitingNotice(conversationId: string): Promise<void> {
+  try {
+    const { opened, error } = await openHumanWaitingIntervention(getSupabaseServerClient(), {
+      conversationId,
+      clientSlug: clientEnv.NEXT_PUBLIC_CLIENT_SLUG,
+    });
+    if (error) {
+      console.error("[jobs] no se pudo abrir la intervención de modo humano:", error);
+      return;
+    }
+    if (!opened) return;
+    await sendTeamNotificationAlert({
+      category: HUMAN_WAITING_CATEGORY,
+      reason: HUMAN_WAITING_REASON,
+      summary: HUMAN_WAITING_SUMMARY,
+      conversationId,
+      conversationSource: "whatsapp",
+    });
+  } catch (err) {
+    console.error("[jobs] falló el aviso de modo humano:", err instanceof Error ? err.message : err);
+  }
 }
 
 /** Últimos mensajes de la contacta que se miran buscando un correo perdido. */

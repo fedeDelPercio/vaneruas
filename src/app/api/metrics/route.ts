@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { esDescartado } from "@/lib/payments/dismiss";
+import { HUMAN_WAITING_REASON } from "@/lib/team-interventions";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,10 @@ export const dynamic = "force-dynamic";
 // El backlog NO se filtra por período: un pendiente viejo sigue siendo backlog
 // abierto sin importar la ventana que esté mirando el usuario.
 // ===========================================================================
+
+// "La contacta escribió con la IA en pausa" la abre el sistema, no es una
+// derivación del agente: no cuenta en las métricas de derivaciones.
+const NOT_HUMAN_WAITING = `reason.is.null,reason.neq.${HUMAN_WAITING_REASON}`;
 
 const PERIOD_DAYS: Record<string, number | null> = {
   "7d": 7,
@@ -269,6 +274,7 @@ export async function GET(req: NextRequest) {
           .from("agent_notifications")
           .select("conversation_id, created_at")
           .neq("category", "validacion_pago")
+          .or(NOT_HUMAN_WAITING)
           .gte("created_at", spanDesde)
           .order("created_at")
           .range(from, to),
@@ -334,7 +340,11 @@ export async function GET(req: NextRequest) {
   // --- Derivaciones por categoría (traemos solo la columna y agrupamos en JS).
   const categoriesP = (async () => {
     const data = await fetchAll<{ category: string | null }>((from, to) => {
-      let q = sb.from("agent_notifications").select("category").order("created_at");
+      let q = sb
+        .from("agent_notifications")
+        .select("category")
+        .or(NOT_HUMAN_WAITING)
+        .order("created_at");
       if (since) q = q.gte("created_at", since);
       return q.range(from, to);
     });
@@ -419,6 +429,7 @@ export async function GET(req: NextRequest) {
       .from("agent_notifications")
       .select("conversation_id")
       .neq("category", "validacion_pago")
+      .or(NOT_HUMAN_WAITING)
       .order("created_at");
     if (since) q = q.gte("created_at", since);
     return q.range(from, to);

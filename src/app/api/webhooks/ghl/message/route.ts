@@ -1,7 +1,8 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
-import { serverEnv } from "@/lib/env";
+import { clientEnv, serverEnv } from "@/lib/env";
+import { resolveTeamInterventions } from "@/lib/team-interventions";
 
 export const dynamic = "force-dynamic";
 
@@ -215,12 +216,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ skipped: "outbound sin conversacion" }, { status: 200 });
   }
 
-  await supabase.from("messages").insert({
-    conversation_id: conv.id,
-    role: "human",
-    content,
-    external_id: messageId ?? null,
-  });
+  const { data: humanMsg } = await supabase
+    .from("messages")
+    .insert({
+      conversation_id: conv.id,
+      role: "human",
+      content,
+      external_id: messageId ?? null,
+    })
+    .select("created_at")
+    .single();
+  // El equipo respondió desde GHL: se cierran las intervenciones abiertas
+  // antes de este mensaje (mismo criterio que el importador).
+  if (humanMsg) {
+    const { error: resolveErr } = await resolveTeamInterventions(supabase, {
+      conversationId: conv.id,
+      clientSlug: clientEnv.NEXT_PUBLIC_CLIENT_SLUG,
+      resolvedBy: null,
+      before: humanMsg.created_at,
+    });
+    if (resolveErr) console.error("[ghl/message] no se pudo resolver la intervención:", resolveErr);
+  }
   await supabase
     .from("conversations")
     .update({ updated_at: new Date().toISOString() })

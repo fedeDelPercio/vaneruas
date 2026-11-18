@@ -28,6 +28,7 @@ import { EMPTY_REACTION, type MessageReactionState } from "../MessageReactions";
 import type { CommentTarget } from "../ConversationPanel";
 import { ModeToggle, type ConversationMode } from "./ModeToggle";
 import { WaComposer } from "./WaComposer";
+import { HUMAN_WAITING_LABEL, HUMAN_WAITING_REASON } from "@/lib/team-interventions";
 
 // Panel de chat de una conversación REAL de WhatsApp, visto desde el equipo:
 // la clienta a la izquierda, lo nuestro (Valentina o una persona) a la derecha.
@@ -51,8 +52,15 @@ const CATEGORY_LABELS: Record<string, string> = {
 interface PendingNotification {
   id: string;
   category: string;
+  reason: string | null;
   summary: string | null;
   created_at: string;
+}
+
+/** Etiqueta de una derivación: las de sistema por su marca, el resto por categoría. */
+function pendingLabel(n: PendingNotification): string {
+  if (n.reason === HUMAN_WAITING_REASON) return HUMAN_WAITING_LABEL;
+  return CATEGORY_LABELS[n.category] ?? n.category;
 }
 
 function dayKey(iso: string): string {
@@ -181,7 +189,7 @@ export function WaChatPanel({
   const refreshPending = useCallback(async () => {
     const { data } = await getSupabaseBrowserClient()
       .from("agent_notifications")
-      .select("id, category, summary, created_at")
+      .select("id, category, reason, summary, created_at")
       .eq("conversation_id", conversationId)
       .is("resolved_at", null)
       // Mismo criterio que la lista y que Derivaciones: comprobantes y reclamos
@@ -711,7 +719,7 @@ export function WaChatPanel({
           <div className="min-w-0 flex-1">
             <p className="text-[12px] font-medium text-neutral-800 dark:text-neutral-100">
               {pending.length === 1
-                ? `Derivada al equipo · ${CATEGORY_LABELS[pending[0]!.category] ?? pending[0]!.category}`
+                ? `Derivada al equipo · ${pendingLabel(pending[0]!)}`
                 : `${pending.length} derivaciones al equipo sin atender`}
             </p>
             {pending[pending.length - 1]!.summary && (

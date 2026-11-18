@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { ghlSendAllowed, ghlSendWhatsApp, ghlSetPauseTag } from "@/lib/providers/ghl";
+import { clientEnv } from "@/lib/env";
+import { resolveTeamInterventions } from "@/lib/team-interventions";
 
 export const dynamic = "force-dynamic";
 
@@ -25,10 +27,16 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 //  - Respeta GHL_SEND_ALLOWLIST (en local solo salen los contactos de prueba).
 //  - Guardamos el id que devuelve GHL en external_id: el importador de
 //    mensajes del equipo lo reconoce y no lo duplica.
+//  - Si el mensaje salió, las intervenciones abiertas de la conversación se
+//    resuelven solas (src/lib/team-interventions.ts), con `resolved_by` = el
+//    perfil que escribió si el panel lo manda. Si falla la resolución el envío
+//    igual se informa como ok (reintentar duplicaría el mensaje).
 // ===========================================================================
 
 const bodySchema = z.object({
   content: z.string().trim().min(1).max(4000),
+  /** Perfil del panel que escribe (para `resolved_by`). Opcional. */
+  profileId: z.string().uuid().optional().nullable(),
 });
 
 export async function POST(
@@ -44,6 +52,7 @@ export async function POST(
     return NextResponse.json({ error: "El mensaje está vacío o es demasiado largo" }, { status: 400 });
   }
   const content = parsed.data.content;
+  const profileId = parsed.data.profileId ?? null;
   const sb = getSupabaseServerClient();
 
   const { data: conv, error: convErr } = await sb
@@ -123,7 +132,9 @@ export async function POST(
       .eq("external_id", ghlMessageId)
       .maybeSingle();
     if (existing) {
-      return NextResponse.json({ ok: true, message: existing, stored: true, ghlSynced: await tagSync });
+      const ghlSynced = await tagSync;
+      const pendingResolved = await resolveAfterReply(conversationId, profileId);
+      return NextResponse.json({ ok: true, message: existing, stored: true, ghlSynced, pendingResolved });
     }
   }
 
@@ -146,11 +157,25 @@ export async function POST(
 
   const ghlSynced = await tagSync;
 
+  // El mensaje salió: lo que el equipo tenía pendiente en esta conversación
+  // quedó atendido.
+  const pendingResolved = await resolveAfterReply(conversationId, profileId);
+
   if (msgErr || !msg) {
     // El mensaje YA salió por WhatsApp. No es un error de envío: el importador
     // de mensajes del equipo lo va a traer de GHL en su próxima pasada.
     console.error("[wa/messages] enviado pero no guardado:", msgErr?.message);
-    return NextResponse.json({ ok: true, message: null, stored: false, ghlSynced });
+    return NextResponse.json({ ok: true, message: null, stored: false, ghlSynced, pendingResolved });
   }
-  return NextResponse.json({ ok: true, message: msg, stored: true, ghlSynced });
+  return NextResponse.json({ ok: true, message: msg, stored: true, ghlSynced, pendingResolved });
+}
+
+async function resolveAfterReply(conversationId: string, profileId: string | null): Promise<boolean> {
+  const { error } = await resolveTeamInterventions(getSupabaseServerClient(), {
+    conversationId,
+    clientSlug: clientEnv.NEXT_PUBLIC_CLIENT_SLUG,
+    resolvedBy: profileId,
+  });
+  if (error) console.error("[wa/messages] no se pudo resolver la intervención:", error);
+  return !error;
 }

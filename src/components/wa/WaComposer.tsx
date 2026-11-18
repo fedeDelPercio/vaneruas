@@ -5,6 +5,7 @@ import toast from "react-hot-toast";
 import { AlertTriangle, ArrowUp, Bot, Loader2, UserRound } from "lucide-react";
 import type { Message } from "@/lib/supabase/types";
 import type { ConversationMode } from "./ModeToggle";
+import { useProfile } from "../ProfileProvider";
 
 // Cuadro de texto del chat de WhatsApp. Lo que se escribe acá le llega a la
 // clienta por WhatsApp, firmado por el equipo (POST /api/wa/messages/[id]).
@@ -35,6 +36,7 @@ export function WaComposer({
   /** Último mensaje de la clienta, para avisar de la ventana de 24 hs de WhatsApp. */
   lastCustomerMessageAt: string | null;
 }) {
+  const { profile } = useProfile();
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   // El último envío quedó sin confirmar: no reenviar a ciegas.
@@ -64,13 +66,16 @@ export function WaComposer({
       const r = await fetch(`/api/wa/messages/${conversationId}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ content }),
+        // El perfil queda como quien atendió las intervenciones que se
+        // resuelven solas con este envío.
+        body: JSON.stringify({ content, profileId: profile?.id ?? null }),
       });
       const j = (await r.json().catch(() => ({}))) as {
         error?: string;
         uncertain?: boolean;
         message?: Message | null;
         ghlSynced?: boolean;
+        pendingResolved?: boolean;
       };
       if (!r.ok) {
         setUncertain(Boolean(j.uncertain));
@@ -79,6 +84,8 @@ export function WaComposer({
       }
       setUncertain(false);
       setText("");
+      // Las intervenciones abiertas se resolvieron solas: badges y lista al día.
+      if (j.pendingResolved) window.dispatchEvent(new Event("atp:notifications-changed"));
       onSent(j.message ?? null, j.ghlSynced !== false);
     } catch {
       setUncertain(true);

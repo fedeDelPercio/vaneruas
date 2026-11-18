@@ -5,6 +5,7 @@ import {
   EMAIL_REQUEST_MESSAGE,
 } from "../payments/messages";
 import { TIENDUP_ACCESS_MESSAGE } from "../tiendup/messages";
+import { resolveTeamInterventions } from "../team-interventions";
 
 // ===========================================================================
 // Importador de los mensajes que escribe el EQUIPO desde GoHighLevel.
@@ -247,6 +248,10 @@ export async function importarMensajesDelEquipo(
     ? convs.slice(0, opts.maxConversaciones)
     : convs;
 
+  // Con service role (script de backfill) no hay RLS: el slug va explícito.
+  // Sin slug conocido no se resuelve nada (nunca tocar otros tenants).
+  const slugParaResolver = opts?.clientSlug ?? process.env.NEXT_PUBLIC_CLIENT_SLUG ?? null;
+
   let importados = 0;
   for (const gc of limitadas) {
     if (!gc.contactId) continue;
@@ -282,6 +287,9 @@ export async function importarMensajesDelEquipo(
       }
     }
 
+    // Último mensaje del equipo importado en esta conversación: cierra las
+    // intervenciones abiertas ANTES de ese momento.
+    let ultimoImportadoMs = 0;
     for (const m of await mensajesDeConversacion(gc.id)) {
       if (!m.dateAdded || !m.id) continue;
       if ((m.direction ?? "").toLowerCase() !== "outbound") continue;
@@ -316,6 +324,7 @@ export async function importarMensajesDelEquipo(
       // (el importador es best-effort, corre de nuevo en la próxima pasada).
       if (!error) {
         importados++;
+        ultimoImportadoMs = Math.max(ultimoImportadoMs, t);
         if (new Date(conv.updated_at).getTime() < t) {
           await sb
             .from("conversations")
@@ -323,6 +332,18 @@ export async function importarMensajesDelEquipo(
             .eq("id", conv.id);
         }
       }
+    }
+
+    // El equipo respondió desde la app de WhatsApp Business / GHL: lo que
+    // tenía pendiente quedó atendido (resolved_by null: no sabemos quién).
+    if (ultimoImportadoMs > 0 && slugParaResolver) {
+      const { error } = await resolveTeamInterventions(sb, {
+        conversationId: conv.id,
+        clientSlug: slugParaResolver,
+        resolvedBy: null,
+        before: new Date(ultimoImportadoMs).toISOString(),
+      });
+      if (error) console.error("[ghl-human] no se pudo resolver la intervención:", error);
     }
   }
 
