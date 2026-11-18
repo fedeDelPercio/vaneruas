@@ -308,15 +308,20 @@ export function DashboardSidebar() {
   function navigation(compact: boolean, mobile: boolean) {
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <div className={`flex h-16 shrink-0 items-center ${compact ? "justify-center px-1" : "justify-between px-5"}`}>
+        {/* Cabecera como la de Hábitat: logo arriba y "Agentic Panel" chico
+            abajo; contraído, el monograma. */}
+        <div className={`flex h-20 shrink-0 items-center ${compact ? "justify-center px-1" : "justify-between px-5"}`}>
           <Link
             href={home}
             onClick={() => setMobileOpen(false)}
-            aria-label="Agentic Panel · Inicio"
-            className="flex items-center gap-2.5 rounded-sm text-[13px] font-medium tracking-tight-er text-neutral-900 outline-none transition-opacity hover:opacity-75 focus-visible:ring-2 focus-visible:ring-gold/60 dark:text-neutral-50"
+            aria-label="Vanesa Rúas · Inicio"
+            title={compact ? "Vanesa Rúas · Agentic Panel" : undefined}
+            className="rounded-sm outline-none transition-opacity hover:opacity-75 focus-visible:ring-2 focus-visible:ring-gold/60"
           >
-            <BrandLogo />
-            {!compact && <span>Agentic&nbsp;Panel</span>}
+            <BrandLogo variant={compact ? "compact" : "sidebar"} />
+            {!compact && (
+              <span className="mt-1 block text-[11px] text-neutral-500 dark:text-neutral-400">Agentic Panel</span>
+            )}
           </Link>
           {mobile && (
             <button type="button" autoFocus aria-label="Cerrar menú" onClick={() => setMobileOpen(false)} className={iconButton}>
@@ -413,10 +418,10 @@ export function DashboardSidebar() {
         </button>
         <Link
           href={home}
-          aria-label="Agentic Panel · Inicio"
+          aria-label="Vanesa Rúas · Inicio"
           className="flex shrink-0 items-center rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
         >
-          <BrandLogo />
+          <BrandLogo variant="topbar" />
         </Link>
         <span className="min-w-0 flex-1 truncate border-l border-neutral-200 pl-3 text-[12px] text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
           {active?.label ?? "Panel"}
