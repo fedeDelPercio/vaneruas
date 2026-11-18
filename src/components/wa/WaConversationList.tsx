@@ -13,6 +13,7 @@ import {
   TriangleAlert,
   UserRound,
 } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { CriticalPill } from "../CriticalPill";
 import { clientEnv } from "@/lib/env";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -33,6 +34,27 @@ import type {
 type Filter = "all" | "intervencion" | "aprobar" | "criticos" | "humano";
 
 const PAGE = 40;
+
+/**
+ * Filtro desde ?filter= de la URL. Acepta las claves internas y los nombres de
+ * los botones (links guardados: ?filter=derivadas, ?filter=falta-aprobar).
+ */
+function parseFilter(raw: string | null): Filter {
+  switch (raw) {
+    case "intervencion":
+    case "derivadas":
+      return "intervencion";
+    case "aprobar":
+    case "falta-aprobar":
+      return "aprobar";
+    case "criticos":
+      return "criticos";
+    case "humano":
+      return "humano";
+    default:
+      return "all";
+  }
+}
 
 const FILTERS: {
   key: Filter;
@@ -129,7 +151,34 @@ export function WaConversationList({
 
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [filter, setFilter] = useState<Filter>("all");
+  // El filtro vive en la URL (?filter=): sobrevive a la recarga y se puede ir
+  // y volver con atrás / adelante. El estado local es para que el click
+  // responda al instante; el efecto lo alinea con la URL cuando cambia por
+  // fuera (atrás / adelante, un link).
+  const searchParams = useSearchParams();
+  const urlFilter = parseFilter(searchParams.get("filter"));
+  const [filter, setFilter] = useState<Filter>(urlFilter);
+  useEffect(() => {
+    setFilter(urlFilter);
+  }, [urlFilter]);
+
+  // Click en un filtro: lo activa; click en el que ya está activo vuelve a
+  // "Todas". Cada cambio es una entrada del historial (pushState: Next la
+  // refleja en useSearchParams sin ida y vuelta al servidor). Se conserva el
+  // resto de la URL (?id= de la conversación abierta).
+  const toggleFilter = useCallback(
+    (key: Filter) => {
+      const next: Filter = key === filter || key === "all" ? "all" : key;
+      if (next === filter) return;
+      setFilter(next);
+      const params = new URLSearchParams(window.location.search);
+      if (next === "all") params.delete("filter");
+      else params.set("filter", next);
+      const qs = params.toString();
+      window.history.pushState(null, "", `${window.location.pathname}${qs ? `?${qs}` : ""}`);
+    },
+    [filter],
+  );
 
   // Cuántas filas hay cargadas: al refrescar por Realtime se vuelve a pedir
   // la misma cantidad, para no perder el scroll de quien ya bajó.
@@ -358,7 +407,7 @@ export function WaConversationList({
               return (
                 <button
                   key={f.key}
-                  onClick={() => setFilter(f.key)}
+                  onClick={() => toggleFilter(f.key)}
                   aria-pressed={activeFilter}
                   title={f.title}
                   className={`flex min-h-[30px] items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12px] transition ${
