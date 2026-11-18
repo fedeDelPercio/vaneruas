@@ -5,8 +5,7 @@ import { SearchField } from "../SearchField";
 import { formatPhone } from "@/lib/search";
 import { eventBySlug } from "@/lib/payments/event-match";
 import { fmtAge, fmtAmount, type ReviewItem } from "./review-items";
-import { CriticalPill } from "../CriticalPill";
-import { AwaitingTitlePill, InterventionPill, KindPill } from "../StatusPills";
+import { ConversationStatusPills } from "../StatusPills";
 
 // Columna izquierda de /revision: la cola de pendientes (comprobantes y
 // títulos), con buscador server-side (el mismo ?q= de Aprobaciones).
@@ -114,7 +113,8 @@ function QueueRow({
   const amount = fmtAmount(item.amount, item.currency);
   const images = item.file.images?.length ?? 0;
   const meta = [
-    ev?.shortLabel ?? (item.kind === "comprobante" ? "Sin evento" : null),
+    item.kind === "titulo" ? "Título profesional" : ev?.shortLabel ?? "Sin evento",
+    item.awaitingTitle ? "retenido por título" : null,
     amount,
     images > 1 ? `${images} imágenes` : null,
   ]
@@ -143,7 +143,6 @@ function QueueRow({
             <span className="min-w-0 truncate text-[13px] font-medium text-neutral-900 dark:text-neutral-50">
               {item.name}
             </span>
-            {critical && <CriticalPill compact reason={critical.reason} />}
           </span>
           <span className="shrink-0 font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
             {fmtAge(item.createdAt)}
@@ -152,14 +151,15 @@ function QueueRow({
         {phone && (
           <span className="truncate font-mono text-[11px] text-neutral-500 dark:text-neutral-400">{phone}</span>
         )}
-        <div className="flex flex-wrap items-center gap-1.5">
-          <KindPill kind={item.kind} />
-          {item.awaitingTitle && <AwaitingTitlePill />}
-          {interventions > 0 && <InterventionPill count={interventions} />}
-          {meta && (
-            <span className="truncate text-[11.5px] text-neutral-500 dark:text-neutral-400">{meta}</span>
-          )}
-        </div>
+        {/* Mismos pills que la lista de /wa (Aprobación, Derivada, Crítico). */}
+        <ConversationStatusPills
+          comprobantes={item.kind === "comprobante" ? 1 : 0}
+          titulos={item.kind === "titulo" ? 1 : 0}
+          awaitingTitle={Boolean(item.awaitingTitle)}
+          derivations={interventions}
+          critical={critical}
+        />
+        {meta && <span className="truncate text-[11.5px] text-neutral-500 dark:text-neutral-400">{meta}</span>}
       </button>
     </li>
   );

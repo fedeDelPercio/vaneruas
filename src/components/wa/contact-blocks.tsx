@@ -127,12 +127,12 @@ export function fmtRelative(iso: string): string {
   return `hace ${d} días`;
 }
 
-/** "18 nov 2026, 14:30". */
+/** "18/11/2026 14:30". */
 export function fmtDateTime(iso: string): string {
   const d = new Date(iso);
-  const date = d.toLocaleDateString("es-AR", { day: "numeric", month: "short", year: "numeric" });
+  const date = d.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
   const time = d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false });
-  return `${date}, ${time}`;
+  return `${date} ${time}`;
 }
 
 // --- Intervenciones ---------------------------------------------------------

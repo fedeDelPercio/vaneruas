@@ -3,20 +3,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Bot,
-  ClipboardCheck,
-  Flag,
   Hand,
   Inbox,
   Loader2,
   MessagesSquare,
   Paperclip,
   SearchX,
-  TriangleAlert,
   UserRound,
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { CriticalPill } from "../CriticalPill";
-import { ConversationStatusPills } from "../StatusPills";
+import { ConversationStatusPills, STATUS_ICON, STATUS_TONE, type StatusTone } from "../StatusPills";
 import { clientEnv } from "@/lib/env";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { formatPhone } from "@/lib/search";
@@ -64,8 +60,10 @@ const FILTERS: {
   label: string;
   title: string;
   Icon?: typeof Hand;
-  /** El contador se pinta en dorado cuando hay pendientes (ver FilterChip). */
+  /** El contador se pinta con el color del filtro cuando hay pendientes (ver FilterChip). */
   attention?: boolean;
+  /** Color e ícono del pill gemelo de la fila (StatusPills, D-66). */
+  tone?: StatusTone;
 }[] = [
   { key: "all", label: "Todas", title: "Todas las conversaciones", Icon: Inbox },
   // Conversaciones con notificaciones al equipo sin resolver (derivaciones,
@@ -76,24 +74,27 @@ const FILTERS: {
     key: "intervencion",
     label: "Derivadas",
     title: "Conversaciones que necesitan intervención del equipo",
-    Icon: Hand,
+    Icon: STATUS_ICON.derived,
     attention: true,
+    tone: "derived",
   },
   // Comprobante pendiente o título sin revisar: mismo criterio que /revision.
   {
     key: "aprobar",
     label: "Falta aprobar",
     title: "Con un comprobante o un título esperando aprobación",
-    Icon: ClipboardCheck,
+    Icon: STATUS_ICON.approval,
     attention: true,
+    tone: "approval",
   },
   // Tag "Crítico" del clasificador (src/lib/critical/).
   {
     key: "criticos",
     label: "Críticos",
     title: "Conversaciones marcadas como críticas (enojo, reclamo, amenaza)",
-    Icon: TriangleAlert,
+    Icon: STATUS_ICON.critical,
     attention: true,
+    tone: "critical",
   },
 ];
 
@@ -412,6 +413,7 @@ export function WaConversationList({
                   Icon={f.Icon}
                   count={f.key === "all" || !loaded ? null : counts[f.key]}
                   attention={f.attention}
+                  tone={f.tone}
                 />
               ))}
             </FilterChips>
@@ -535,7 +537,6 @@ export function WaConversationList({
                           >
                             {c.displayName}
                           </span>
-                          {c.critical && <CriticalPill compact reason={c.criticalReason} />}
                           <span className="ml-auto shrink-0 font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
                             {shortWhen(when)}
                           </span>
@@ -559,10 +560,11 @@ export function WaConversationList({
                           </span>
                           {c.needsTeam && !c.status.derivations && (
                             // Intervención solo por un comprobante a revisar:
-                            // el pill "Comprobante" ya lo dice; la bandera
-                            // queda para que se vea que es del equipo.
-                            <span title="Necesita intervención del equipo" className="shrink-0 text-warn">
-                              <Flag className="h-3 w-3" strokeWidth={2} />
+                            // el pill "Aprobación" ya lo dice; la mano (la del
+                            // filtro "Derivadas") queda para que se vea que
+                            // es del equipo.
+                            <span title="Necesita intervención del equipo" className={`shrink-0 ${STATUS_TONE.derived.icon}`}>
+                              <Hand className="h-3 w-3" strokeWidth={2} />
                             </span>
                           )}
                           {waiting && !c.needsTeam && (
@@ -572,13 +574,15 @@ export function WaConversationList({
                             />
                           )}
                         </span>
-                        {/* Mismos pills que la cola de /revision. */}
+                        {/* Mismos pills que la cola de /revision: Aprobación,
+                            Derivada y Crítico en una sola línea. */}
                         <ConversationStatusPills
                           className="mt-1.5"
                           comprobantes={c.status.comprobantes}
                           titulos={c.status.titulos}
                           awaitingTitle={c.status.awaitingTitle}
                           derivations={c.status.derivations}
+                          critical={c.critical ? { reason: c.criticalReason } : null}
                         />
                         {debouncedQuery && c.phone && (
                           <span className="mt-0.5 block truncate font-mono text-[10.5px] text-neutral-400 dark:text-neutral-500">
