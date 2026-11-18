@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import { AlertTriangle, Check, ExternalLink, FileText, GraduationCap, Loader2, X } from "lucide-react";
+import { AlertTriangle, Check, ExternalLink, FileText, GraduationCap, Loader2, Maximize2, X } from "lucide-react";
 import { useProfile } from "../ProfileProvider";
+import { MediaViewerModal, ViewerModal } from "../FileViewerModal";
 import { eventBySlug } from "@/lib/payments/event-match";
 import type { ContactFile } from "@/app/api/wa/contact/[conversationId]/route";
 
@@ -13,11 +14,13 @@ import type { ContactFile } from "@/app/api/wa/contact/[conversationId]/route";
 //     aprobar uno retenido por título). Al validar corre el alta automática en
 //     Tiendup y se cierran las notificaciones de pago, igual que en /payments.
 //   - título: PATCH /api/titles/[id] (approve / reject).
-// Rechazar pide confirmación, como en Aprobaciones. Esc y click afuera cierran
-// (salvo con una acción en curso).
+// Rechazar pide confirmación, como en Aprobaciones. El contenedor es el visor
+// modal único del panel (ViewerModal): X, Esc y click afuera cierran (salvo
+// con una acción en curso).
 //
 // El contenido (archivo + botones) vive en FileReviewPanel, que también usa
-// /revision en línea, sin modal.
+// /revision en línea, sin modal. Ahí el archivo se amplía en el mismo visor
+// (MediaViewerModal), sin abrir otra pestaña.
 
 function fmtAmount(amount: number | null, currency: string | null): string | null {
   if (amount === null) return null;
@@ -122,6 +125,8 @@ export function FileReviewPanel({
   const ev = isPayment ? eventBySlug(file.eventSlug) : null;
   const amount = fmtAmount(file.amount, file.currency);
   const inline = variant === "inline";
+  // /revision: el archivo se amplía en el visor modal.
+  const [viewerOpen, setViewerOpen] = useState(false);
 
   async function act(action: FileReviewAction, force = false) {
     setBusy(action);
@@ -184,7 +189,7 @@ export function FileReviewPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-start justify-between gap-3">
+      <div className={`flex items-start justify-between gap-3 ${inline ? "" : "pr-10"}`}>
         <div className="min-w-0">
           <h2 className="flex items-center gap-2 text-[15px] font-medium tracking-tight-er text-neutral-900 dark:text-neutral-50">
             {isPayment ? (
@@ -244,18 +249,41 @@ export function FileReviewPanel({
               Abrir el PDF <ExternalLink className="h-3 w-3" strokeWidth={1.75} />
             </a>
           </object>
+        ) : inline ? (
+          <button
+            type="button"
+            onClick={() => setViewerOpen(true)}
+            title="Ampliar"
+            className="flex h-full w-full cursor-zoom-in items-center justify-center"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={file.url}
+              alt={isPayment ? "Comprobante" : "Título profesional"}
+              className="max-h-[55vh] w-auto max-w-full object-contain"
+            />
+          </button>
         ) : (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={file.url}
             alt={isPayment ? "Comprobante" : "Título profesional"}
-            className={`w-auto max-w-full object-contain ${inline ? "max-h-[55vh]" : "max-h-[62vh]"}`}
+            className="max-h-[62vh] w-auto max-w-full object-contain"
           />
         )}
       </div>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-        {file.url ? (
+        {file.url && inline ? (
+          <button
+            type="button"
+            onClick={() => setViewerOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+          >
+            <Maximize2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+            Ampliar
+          </button>
+        ) : file.url ? (
           <a
             href={file.url}
             target="_blank"
@@ -263,7 +291,7 @@ export function FileReviewPanel({
             className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
           >
             <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.75} />
-            {inline ? "Abrir" : "Abrir en otra pestaña"}
+            Abrir en otra pestaña
           </a>
         ) : (
           <span />
@@ -365,6 +393,15 @@ export function FileReviewPanel({
             </div>
           ))}
       </div>
+      {viewerOpen && (
+        <MediaViewerModal
+          url={file.url}
+          fileType={file.fileType}
+          title={isPayment ? "Comprobante" : file.titleName ?? "Título profesional"}
+          subtitle={status.text}
+          onClose={() => setViewerOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -383,40 +420,26 @@ export function FileReviewModal({
 }) {
   const [state, setState] = useState({ busy: false, confirming: false });
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      // Con una confirmación abierta, Esc la cancela (lo maneja el panel).
-      if (e.key !== "Escape" || state.busy || state.confirming) return;
-      onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose, state]);
-
+  // Mismo contenedor que el visor de adjuntos del chat (ViewerModal): X en la
+  // esquina, Esc y click afuera. Con una confirmación abierta, Esc la cancela
+  // (lo maneja el panel); con una acción en curso no se cierra.
   return (
-    <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-neutral-900/40 p-4 backdrop-blur-sm"
-      onClick={state.busy ? undefined : onClose}
+    <ViewerModal
+      onClose={onClose}
+      ariaLabel={file.kind === "comprobante" ? "Comprobante" : "Título profesional"}
+      busy={state.busy}
+      escDisabled={state.confirming}
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={file.kind === "comprobante" ? "Comprobante" : "Título profesional"}
-        className="flex max-h-[92vh] w-full max-w-2xl flex-col glass rounded-xl border border-neutral-200 p-5 shadow-soft dark:border-neutral-800 dark:shadow-soft-dark"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <FileReviewPanel
-          file={file}
-          variant="modal"
-          intent={intent}
-          onClose={onClose}
-          onStateChange={setState}
-          onDone={() => {
-            onDone();
-            onClose();
-          }}
-        />
-      </div>
-    </div>
+      <FileReviewPanel
+        file={file}
+        variant="modal"
+        intent={intent}
+        onStateChange={setState}
+        onDone={() => {
+          onDone();
+          onClose();
+        }}
+      />
+    </ViewerModal>
   );
 }

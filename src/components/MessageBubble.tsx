@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronRight, Bell, FileText } from "lucide-react";
 import type { Message, CommentKind } from "@/lib/supabase/types";
 import type { ViewMode } from "@/lib/profile";
@@ -11,6 +11,7 @@ import {
   type MessageReactionState,
 } from "./MessageReactions";
 import { QuickCommentBubble } from "./QuickCommentBubble";
+import { MediaViewerModal, isImageType, isPdfType } from "./FileViewerModal";
 import {
   AI_AUTHOR_LABEL,
   CUSTOMER_AUTHOR_LABEL,
@@ -68,12 +69,31 @@ function renderWithLinks(content: string, darkBubble: boolean): ReactNode {
   return parts.length > 0 ? parts : content;
 }
 
+// Las signed URLs del endpoint viven 5 minutos: si el visor se abre más tarde,
+// se pide una nueva antes de mostrarlo.
+const SIGNED_URL_FRESH_MS = 4 * 60_000;
+
+async function fetchSignedUrl(path: string): Promise<string | null> {
+  try {
+    const res = await fetch(`/api/comprobantes/signed-url?path=${encodeURIComponent(path)}`);
+    const data = await res.json();
+    return res.ok && data.url ? (data.url as string) : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Adjunto de un mensaje (comprobante de pago). El bucket es privado, así que
- * pedimos una signed URL de vida corta al endpoint y renderizamos la imagen
- * (o un link si es PDF).
+ * Adjunto de un mensaje (imagen o PDF). El bucket es privado: la signed URL de
+ * vida corta la genera el server (/api/comprobantes/signed-url, que valida que
+ * el path sea del client_slug activo).
+ *
+ * Se ve en miniatura (imagen recortada o tarjeta de PDF) y al click se abre el
+ * visor modal único del panel, centrado en la misma página. El visor es estado
+ * local de la burbuja: cerrar no navega, no remonta nada y no mueve el scroll
+ * del chat ni de la lista.
  */
-function ComprobanteAttachment({
+function MessageAttachment({
   path,
   type,
 }: {
@@ -82,27 +102,38 @@ function ComprobanteAttachment({
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const fetchedAt = useRef(0);
 
   useEffect(() => {
     let active = true;
-    (async () => {
-      try {
-        const res = await fetch(
-          `/api/comprobantes/signed-url?path=${encodeURIComponent(path)}`,
-        );
-        const data = await res.json();
-        if (active && res.ok && data.url) setUrl(data.url as string);
-        else if (active) setFailed(true);
-      } catch {
-        if (active) setFailed(true);
-      }
-    })();
+    void fetchSignedUrl(path).then((u) => {
+      if (!active) return;
+      if (u) {
+        fetchedAt.current = Date.now();
+        setUrl(u);
+      } else setFailed(true);
+    });
     return () => {
       active = false;
     };
   }, [path]);
 
-  const isPdf = type === "application/pdf";
+  const isPdf = isPdfType(type);
+  const isImage = !isPdf && isImageType(type);
+  const kindLabel = isPdf ? "PDF" : isImage ? "Imagen" : "Archivo";
+  const name = isPdf ? "Documento PDF" : isImage ? "Imagen adjunta" : "Archivo adjunto";
+
+  function open() {
+    setViewerOpen(true);
+    if (Date.now() - fetchedAt.current > SIGNED_URL_FRESH_MS) {
+      void fetchSignedUrl(path).then((u) => {
+        if (!u) return;
+        fetchedAt.current = Date.now();
+        setUrl(u);
+      });
+    }
+  }
 
   if (failed) {
     return (
@@ -113,32 +144,60 @@ function ComprobanteAttachment({
     );
   }
   if (!url) {
-    return (
-      <div className="mb-2 h-32 w-44 animate-pulse rounded-md bg-neutral-200 dark:bg-neutral-800" />
+    return isImage ? (
+      <div className="mb-2 h-32 w-44 animate-pulse rounded-lg bg-neutral-200 dark:bg-neutral-800" />
+    ) : (
+      <div className="mb-2 h-14 w-56 animate-pulse rounded-lg bg-neutral-200 dark:bg-neutral-800" />
     );
   }
-  if (isPdf) {
-    return (
-      <a
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="mb-2 flex items-center gap-1.5 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-[12px] text-neutral-700 transition hover:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800"
-      >
-        <FileText className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
-        Ver archivo (PDF)
-      </a>
-    );
-  }
+
   return (
-    <a href={url} target="_blank" rel="noopener noreferrer" className="block">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={url}
-        alt="Archivo adjunto"
-        className="mb-2 max-h-64 w-auto rounded-md border border-neutral-200 object-contain dark:border-neutral-800"
-      />
-    </a>
+    <>
+      {isImage ? (
+        <button
+          type="button"
+          onClick={open}
+          title="Ver imagen"
+          className="mb-2 block cursor-zoom-in overflow-hidden rounded-lg border border-neutral-200 bg-neutral-50 transition hover:opacity-90 hover:shadow-gold dark:border-neutral-800 dark:bg-neutral-900"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={url}
+            alt="Imagen adjunta"
+            loading="lazy"
+            decoding="async"
+            className="max-h-48 w-auto max-w-[240px] object-cover"
+          />
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={open}
+          title={`Ver ${kindLabel === "PDF" ? "PDF" : "archivo"}`}
+          className="mb-2 flex w-full max-w-[260px] items-center gap-3 rounded-lg border border-neutral-200 bg-white p-2.5 text-left transition hover:border-neutral-300 hover:shadow-gold dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700"
+        >
+          <span className="flex h-10 w-9 shrink-0 items-center justify-center rounded-md bg-red-600/10 text-red-700 dark:bg-red-500/15 dark:text-red-400">
+            <FileText className="h-5 w-5" strokeWidth={1.5} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[12.5px] font-medium text-neutral-800 dark:text-neutral-100">
+              {name}
+            </span>
+            <span className="mt-0.5 block font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+              {kindLabel} · Ver
+            </span>
+          </span>
+        </button>
+      )}
+      {viewerOpen && (
+        <MediaViewerModal
+          url={url}
+          fileType={type}
+          title={name}
+          onClose={() => setViewerOpen(false)}
+        />
+      )}
+    </>
   );
 }
 
@@ -291,7 +350,7 @@ export function MessageBubble({
               </p>
             )}
             {message.attachment_path && (
-              <ComprobanteAttachment path={message.attachment_path} type={message.attachment_type} />
+              <MessageAttachment path={message.attachment_path} type={message.attachment_type} />
             )}
             {unsupported ? (
               <span className="italic opacity-70">{displayContent}</span>
@@ -341,7 +400,7 @@ export function MessageBubble({
           className={`whitespace-pre-wrap break-words rounded-lg px-3.5 py-2.5 text-[13.5px] leading-relaxed ${bubbleClass}`}
         >
           {message.attachment_path && (
-            <ComprobanteAttachment
+            <MessageAttachment
               path={message.attachment_path}
               type={message.attachment_type}
             />
