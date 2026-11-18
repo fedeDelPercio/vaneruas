@@ -69,7 +69,12 @@ export function ViewerModal({
   return createPortal(
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-neutral-900/50 p-4 backdrop-blur-sm"
-      onClick={busy ? undefined : () => onCloseRef.current()}
+      // Los eventos de React atraviesan el portal hacia quien lo abrió (una
+      // burbuja del chat, la ficha): se cortan acá para no dispararle nada.
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!busy) onCloseRef.current();
+      }}
     >
       <div
         ref={panelRef}
