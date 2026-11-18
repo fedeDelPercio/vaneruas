@@ -38,7 +38,21 @@ interface Caso {
   n: string;
   m: string;
   espera: string;
+  /** Aserciones opcionales (se imprimen como ok / FALLA, no cortan la corrida). */
+  check?: {
+    /** Categoría de notify_team esperada, o false si NO tiene que derivar. */
+    deriva?: string | false;
+    /** El texto tiene que matchear todas. */
+    debe?: RegExp[];
+    /** El texto no tiene que matchear ninguna. */
+    noDebe?: RegExp[];
+  };
 }
+
+// Regla de dos correos: no ofrecer cambio ni consultar al equipo a cuál le llega.
+const OFRECE_CAMBIO = /(cambi|modific|actualiz|correg)\w*\s+(el|tu|de)?\s*(correo|mail)/i;
+const CONSULTA_EQUIPO = /(pregunt|consult|confirm|chequ|verific)\w*\s+(\w+\s+){0,3}(al|con el)\s+equipo|a\s+cu[aá]l\s+de\s+los\s+dos/i;
+const AL_DE_LA_WEB = /(web|p[aá]gina)/i;
 
 const CASOS: Caso[] = [
   { n: "Precio", m: "Hola! Cuanto sale la masterclass de peelings de verano?", espera: "$110.000 transferencia / $150.000 en 3 cuotas / USD 90 PayPal" },
@@ -50,7 +64,37 @@ const CASOS: Caso[] = [
   { n: "Hasta cuando el precio promo (no confirmado)", m: "Los $110.000 hasta cuando rigen? Despues sube?", espera: "Deriva, no lo sabemos" },
   { n: "Grupo de WhatsApp (no confirmado)", m: "Hay grupo de whatsapp para la masterclass?", espera: "Deriva, no lo sabemos" },
   { n: "Control: grabacion masterclass vieja", m: "Puedo ver todavia la grabacion de higiene facial?", espera: "Vencio el 21/08" },
+  {
+    n: "Dos correos: a cual me llega",
+    m: "hola tengo dos correos, a cual me llega el link del grupo?",
+    espera: "Le llega al correo que cargo en la web, que lo busque ahi (spam). Sin ofrecer cambio, sin derivar",
+    check: { deriva: false, debe: [AL_DE_LA_WEB], noDebe: [OFRECE_CAMBIO, CONSULTA_EQUIPO] },
+  },
+  {
+    n: "Dos correos: se inscribio con otro",
+    m: "me inscribi con otro mail, este es el que uso mas: lucia.prueba@gmail.com",
+    espera: "Le llega al correo de la web, que lo busque ahi. Sin ofrecer cambio, sin derivar, sin prometer el nuevo",
+    check: { deriva: false, debe: [AL_DE_LA_WEB], noDebe: [OFRECE_CAMBIO, CONSULTA_EQUIPO] },
+  },
+  {
+    n: "Dos correos: pide cambiarlo",
+    m: "quiero cambiar el correo del acceso a lucia.prueba@gmail.com",
+    espera: "Deriva escalado_manual (Pide cambiar el correo de acceso: lucia.prueba@gmail.com)",
+    check: { deriva: "escalado_manual" },
+  },
 ];
+
+/** Aplica las aserciones de un caso. Devuelve los motivos de falla. */
+function chequear(c: Caso, texto: string, cat: string | null): string[] {
+  const fallas: string[] = [];
+  const ck = c.check;
+  if (!ck) return fallas;
+  if (ck.deriva === false && cat) fallas.push(`derivó (${cat}) y no tenía que derivar`);
+  if (typeof ck.deriva === "string" && cat !== ck.deriva) fallas.push(`esperaba derivar con ${ck.deriva}, dio ${cat ?? "sin derivar"}`);
+  for (const re of ck.debe ?? []) if (!re.test(texto)) fallas.push(`no matchea ${re}`);
+  for (const re of ck.noDebe ?? []) if (re.test(texto)) fallas.push(`matchea ${re}`);
+  return fallas;
+}
 
 async function eventsBlock(): Promise<string> {
   const { data } = await sb
@@ -91,6 +135,7 @@ async function eventsBlock(): Promise<string> {
 async function main() {
   const eventos = await eventsBlock();
   console.log(`# Evals del agente\n\nModelo ${MODEL} · ahora simulado: ${AHORA}\n`);
+  let fallasTotales = 0;
 
   for (const c of CASOS) {
     const params: MessageCreateParamsNonStreaming = {
@@ -139,7 +184,13 @@ async function main() {
     for (const parte of texto.split(/\n\s*---\s*\n/)) console.log(`> ${parte.replace(/\n/g, "\n> ")}\n`);
     console.log(`**Deriva:** ${notify ? `sí (${cat})` : "no"}`);
     console.log(`**Esperado:** ${c.espera}\n`);
+    if (c.check) {
+      const fallas = chequear(c, texto, cat ?? null);
+      if (fallas.length) fallasTotales++;
+      console.log(fallas.length ? `**Chequeo:** FALLA · ${fallas.join(" · ")}\n` : "**Chequeo:** ok\n");
+    }
   }
+  console.log(fallasTotales ? `\n${fallasTotales} caso(s) con FALLA en el chequeo` : "\nChequeos ok");
 }
 
 void main();
