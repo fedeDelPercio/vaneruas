@@ -7,6 +7,86 @@ decidió, por qué, qué se descartó y qué costo o pendiente deja.
 
 ---
 
+## 18/11/2026 · Ficha reorganizada, Tiendup en vivo y pills gemelos de los filtros
+
+**Qué entró**
+
+- Ficha del contacto (`ContactPanel`) en cuatro bloques: En curso,
+  Intervención y título, Acceso a Tiendup (en vivo), Historial. Bloques
+  compartidos con /revision en `src/components/wa/contact-blocks.tsx`.
+- `GET /api/wa/tiendup-status/[id]` + `src/lib/tiendup/status.ts` (decisión
+  pura) + `status-server.ts` (lecturas y cache). El match contra el listado
+  pasa de `client.ts` a `match.ts` (puro; `client.ts` lo reexporta).
+- La ficha (`GET /api/wa/contact/[id]`) suma `reason` en las notificaciones y
+  `tiendupCheck`.
+- Pills Aprobación / Derivada / Crítico (`StatusPills.tsx`) con el ícono y el
+  color de su filtro; `FilterChip` acepta `tone`.
+- Test sin red: `scripts/test-tiendup-status.ts`.
+
+**D-65 · Orden de la ficha: en curso, intervención y título, Tiendup,
+historial.** "En curso" = eventos con algo para resolver (pago pendiente o
+retenido, comprobante extra sin revisar, acceso por dar o sin correo), con un
+archivo por aprobar, o en venta sin pago aprobado; más los títulos por
+revisar, con Aprobar / Validar a la vista. Todo lo demás (eventos finalizados,
+"Comprobante sin evento identificado" ya resuelto, derivaciones atendidas,
+reclamos de certificado atendidos) va al Historial, de a 3 por categoría con
+"Ver más (N)" / "Ver menos". Las intervenciones abiertas (incluidos los
+reclamos de certificado abiertos) muestran categoría legible (las marcas de
+sistema `tiendup_*` y `humano_sin_respuesta` se traducen), el motivo del
+agente, cuándo (relativo + fecha y hora) y el resumen completo. El título va
+como una línea: Validado (verde), Pendiente (ámbar), Rechazado (rojo), No
+enviado (neutro). /revision aplica el mismo orden debajo del archivo.
+
+**D-66 · Un color y un ícono por estado, igual en pill y en filtro.**
+Aprobación = amarillo + ClipboardCheck (filtro "Falta aprobar"), Derivada =
+naranja + Hand (filtro "Derivadas", mismo naranja que la línea lateral de
+intervención), Crítico = rojo + TriangleAlert. En el chip el color va en el
+ícono, el contador y el borde cuando hay pendientes, y el activo se rellena
+tenue con ese color; "Todas" y los chips de /payments siguen neutros. El pill
+"Comprobante" pasa a "Aprobación" (cubre comprobante, título y el retenido por
+título, que va en el tooltip; se sacó el pill aparte "Retenido por título").
+Pills en 10 px, sentence case y sin wrap: los tres entran en una línea en la
+columna de 340 px (medido con un nombre y un preview largos y "Derivada 3":
+sobran ~11 px). Crítico baja de la fila del nombre a la de pills, así el
+nombre es lo único que trunca. El pill grande del header del chat no cambia.
+
+**D-67 · Tiendup en vivo: solo lectura, cuándo se muestra y qué dice.** Se
+muestra si la conversación tiene correo con formato válido y hubo algún
+intento de alta en un curso mapeado: comprobante validado con
+`course_access_granted_at` o `course_access_error`, o una notificación
+`tiendup_alta_pendiente_<id>` / `tiendup_aviso_sin_enviar_<id>` de un
+comprobante suyo. Solo se consultan los cursos con intento (no los cursos
+viejos sin intento). Por curso: con el listado completo manda Tiendup
+(`enrolled` si figura con el correo, `other_email` si figura la persona con
+otro, enmascarado `ma***@gm***.com`); si no figura, `error` con el
+`course_access_error` guardado si el último intento falló (salvo que algún
+comprobante del curso tenga el acceso marcado), si no `not_found`; listado
+cortado, caído o sin key = `unavailable` (nunca se afirma "no figura" sin
+haberlo comprobado). Se busca con el mismo correo que usa el alta (typo de
+dominio corregido). Cache en memoria por curso: 5 min si el listado vino
+completo, 1 min si no; pedidos simultáneos comparten la misma lectura. La
+ficha lo pide una vez al abrirse, no con el realtime. Si algún curso está en
+rojo (`not_found` / `error`), el bloque sube arriba de todo (debajo de la
+identidad): es lo más urgente, la persona pagó y no tiene acceso; si no, va
+entre Intervención y Historial. Costo: el bloque puede aparecer un instante
+después que el resto y, si queda en rojo, la ficha se reacomoda una vez.
+
+**Para después (sin cambiar ahora):** "bloquear el alta si el correo no figura
+en Tiendup" puede usar `loadTiendupStatus` / `getEnrolledListing`
+(`status-server.ts`) y `decideTiendupStatus` (`status.ts`): el estado ya
+distingue `not_found` de `unavailable`, que es lo que esa regla necesita para
+no bloquear por una falla de red. Hoy `grant.ts` y `auto-enroll.ts` no lo
+consultan.
+
+### Pendientes que deja esta entrega
+
+- Probar con datos reales la ficha y el bloque de Tiendup (se verificó con la
+  API mockeada, sin red).
+- El cache vive por instancia de Vercel: dos lambdas pueden leer Tiendup cada
+  una.
+
+---
+
 ## 18/11/2026 · Panel de filtros, switch sutil, correo con todo aprobado y comprobantes agrupados
 
 **Qué entró**

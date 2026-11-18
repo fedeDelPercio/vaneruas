@@ -292,7 +292,7 @@ para que el teclado de Safari no tape el composer.
 
 | Ruta | Qué es |
 |---|---|
-| `/wa` | Bandeja de WhatsApp: lista paginada con buscador y panel "Filtros" (Todas, Derivadas, Falta aprobar, Críticos, en grilla de 2 columnas; `?filter=intervencion|derivadas|aprobar|criticos` en la API; "Con el equipo" se sacó el 18/11 y un `?filter=humano` viejo cae a Todas), línea ámbar en las filas que necesitan intervención, chat con el layout de Hábitat (clienta a la derecha, Valentina y el equipo a la izquierda con avatar, feedback por mensaje en las respuestas de Valentina, toggle IA / Humano, "Agregar nota", pill "Crítico" que se saca a mano), visto desde el equipo (tomar la conversación y escribirle a la clienta) y ficha del contacto con sus eventos, donde se ven y se aprueban o rechazan comprobantes y títulos. Componentes en `src/components/wa/`, rutas en `src/app/api/wa/` |
+| `/wa` | Bandeja de WhatsApp: lista paginada con buscador y panel "Filtros" (Todas, Derivadas, Falta aprobar, Críticos, en grilla de 2 columnas; `?filter=intervencion|derivadas|aprobar|criticos` en la API; "Con el equipo" se sacó el 18/11 y un `?filter=humano` viejo cae a Todas), línea ámbar en las filas que necesitan intervención, chat con el layout de Hábitat (clienta a la derecha, Valentina y el equipo a la izquierda con avatar, feedback por mensaje en las respuestas de Valentina, toggle IA / Humano, "Agregar nota", pill "Crítico" que se saca a mano), visto desde el equipo (tomar la conversación y escribirle a la clienta) y ficha del contacto (orden D-65: en curso, intervención abierta y título, Tiendup en vivo, historial de a 3 con "Ver más"), donde se ven y se aprueban o rechazan comprobantes y títulos. Pills de fila Aprobación (amarillo), Derivada (naranja) y Crítico (rojo), con el mismo ícono y color que su filtro (`StatusPills.tsx`, D-66). Componentes en `src/components/wa/`, rutas en `src/app/api/wa/` |
 | `/payments` (Aprobaciones) | Validar comprobantes. Pestaña **"Falta acceso"** = worklist de masterclass validadas sin acceso a Tiendup (incluye a quien no dejó correo, con aviso). `?filter=sin-acceso` abre directo en esa pestaña |
 | `/revision` (Revisión) | Vista consolidada para aprobar (3 columnas desde xl; debajo, pestañas): cola de comprobantes pendientes (incluidos los retenidos por título) y títulos para revisar, con indicador de derivación abierta; al medio el chat de WhatsApp (`WaChatPanel`); a la derecha el archivo con Aprobar / Rechazar (`FileReviewPanel`, mismas PATCH que Aprobaciones), derivaciones abiertas y estado del acceso a Tiendup (ficha de /wa). `?id=` = comprobante o título seleccionado. Tras cada acción pasa solo al siguiente. Sin endpoints propios: `GET /api/payments?with=interventions` |
 | `/interventions` (Derivaciones) | Lo que Valentina pasó al equipo (excluye comprobantes y certificados) |
@@ -317,6 +317,13 @@ Todas las bandejas tienen buscador por nombre o teléfono
 dicta: "011 15 ..."). La búsqueda la resuelve el servidor (`?q=`) sobre todo el
 historial; la lista muestra hasta 300 filas y el contador dice "300 de N".
 "Ver chat" abre la conversación en `/wa?id=`.
+
+**Tiendup en vivo en la ficha** (`GET /api/wa/tiendup-status/[id]`,
+`src/lib/tiendup/status.ts` + `status-server.ts`, D-67): si hay correo válido y
+algún intento de alta, consulta el listado de inscriptos (solo GET, cache de
+5 min por curso) y muestra por curso Inscripta / Mismo nombre con otro mail /
+El mail no figura / Error en el alta / No se pudo consultar. Solo lectura: el
+alta no lo usa todavía.
 
 La ficha del contacto (`GET /api/wa/contact/[id]`) une los comprobantes con su
 evento por `titleKeyword` de `event-match.ts` (la tabla `events` no guarda el
@@ -540,7 +547,7 @@ Sumá `OPENROUTER_API_KEY`, `GHL_API_KEY`, `NEXT_PUBLIC_GHL_LOCATION_ID`,
 | `scripts/import-mensajes-equipo.ts` | Backfill de mensajes del equipo desde GHL |
 | `scripts/tiendup-reconciliar-accesos.ts` | Marca como "acceso dado" a quien ya está en Tiendup (requiere `--apply`) |
 | `scripts/openrouter-cost-report.ts` | Costo real por período |
-| `scripts/test-*.ts` | Tests puntuales (debounce, traducción LLM, match de destinatario, clasificador "Crítico" e intervenciones automáticas, etc.) |
+| `scripts/test-*.ts` | Tests puntuales (debounce, traducción LLM, match de destinatario, clasificador "Crítico" e intervenciones automáticas, estado de Tiendup en vivo, etc.) |
 
 Validá siempre con `npx tsc --noEmit` y `npx next build` antes de commitear.
 
