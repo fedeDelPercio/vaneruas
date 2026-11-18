@@ -53,6 +53,16 @@ export function fileStatusLabel(f: ContactFile) {
 
 export type FileReviewAction = "approve" | "reject";
 
+/** Confirmación con la que abre el panel (botones Aprobar / Rechazar de la ficha). */
+export type FileReviewIntent = FileReviewAction;
+
+/** El archivo todavía se puede aprobar o rechazar. */
+export function canReviewFile(f: ContactFile): boolean {
+  return f.kind === "comprobante"
+    ? f.status === "pending" || f.status === "awaiting_title"
+    : f.status === "review";
+}
+
 /**
  * Archivo (imagen o PDF) con Aprobar / Rechazar. Se usa dentro del modal de la
  * ficha (variant "modal") y en la columna derecha de /revision ("inline").
@@ -63,9 +73,15 @@ export function FileReviewPanel({
   onDone,
   onClose,
   onStateChange,
+  intent,
 }: {
   file: ContactFile;
   variant: "modal" | "inline";
+  /**
+   * Abre directo en la confirmación de esa acción (la ficha tiene sus propios
+   * botones Aprobar / Rechazar: se ve el archivo y se confirma acá).
+   */
+  intent?: FileReviewIntent;
   /** Después de aprobar o rechazar con éxito. */
   onDone: (action: FileReviewAction) => void;
   /** Solo en el modal: botón de cerrar de la cabecera. */
@@ -75,7 +91,15 @@ export function FileReviewPanel({
 }) {
   const { profile } = useProfile();
   const [busy, setBusy] = useState<FileReviewAction | null>(null);
-  const [confirm, setConfirm] = useState<"reject" | "force" | null>(null);
+  const [confirm, setConfirm] = useState<"reject" | "force" | "approve" | null>(() =>
+    !intent || !canReviewFile(file)
+      ? null
+      : intent === "reject"
+        ? "reject"
+        : file.status === "awaiting_title"
+          ? "force"
+          : "approve",
+  );
 
   useEffect(() => {
     onStateChange?.({ busy: Boolean(busy), confirming: Boolean(confirm) });
@@ -93,9 +117,7 @@ export function FileReviewPanel({
 
   const isPdf = file.fileType === "application/pdf";
   const isPayment = file.kind === "comprobante";
-  const canAct = isPayment
-    ? file.status === "pending" || file.status === "awaiting_title"
-    : file.status === "review";
+  const canAct = canReviewFile(file);
   const status = fileStatusLabel(file);
   const ev = isPayment ? eventBySlug(file.eventSlug) : null;
   const amount = fmtAmount(file.amount, file.currency);
@@ -141,6 +163,8 @@ export function FileReviewPanel({
         );
       }
       setConfirm(null);
+      // La lista de /wa y los contadores escuchan este evento para refrescar.
+      window.dispatchEvent(new Event("atp:notifications-changed"));
       onDone(action);
     } catch {
       toast.error("Error de red");
@@ -268,6 +292,32 @@ export function FileReviewPanel({
                 Sí, rechazar
               </button>
             </div>
+          ) : confirm === "approve" ? (
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <span className="text-[12px] text-neutral-600 dark:text-neutral-300">
+                {isPayment ? "Aprobar este comprobante?" : "Validar este título?"}
+              </span>
+              <button
+                onClick={() => setConfirm(null)}
+                disabled={Boolean(busy)}
+                className="rounded-lg px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              >
+                Cancelar
+              </button>
+              <button
+                autoFocus
+                onClick={() => void act("approve")}
+                disabled={Boolean(busy)}
+                className="btn-gold flex items-center gap-1.5"
+              >
+                {busy === "approve" ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
+                ) : (
+                  <Check className="h-3.5 w-3.5" strokeWidth={2} />
+                )}
+                {isPayment ? "Sí, aprobar" : "Sí, validar"}
+              </button>
+            </div>
           ) : confirm === "force" ? (
             <div className="flex flex-wrap items-center justify-end gap-2">
               <span className="max-w-[260px] text-[12px] leading-snug text-neutral-600 dark:text-neutral-300">
@@ -323,8 +373,10 @@ export function FileReviewModal({
   file,
   onClose,
   onDone,
+  intent,
 }: {
   file: ContactFile;
+  intent?: FileReviewIntent;
   onClose: () => void;
   /** Después de aprobar o rechazar: refrescar la ficha. */
   onDone: () => void;
@@ -356,6 +408,7 @@ export function FileReviewModal({
         <FileReviewPanel
           file={file}
           variant="modal"
+          intent={intent}
           onClose={onClose}
           onStateChange={setState}
           onDone={() => {

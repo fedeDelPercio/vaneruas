@@ -25,14 +25,21 @@ import type {
   ContactFicha,
   ContactFile,
 } from "@/app/api/wa/contact/[conversationId]/route";
-import { FileReviewModal, fileStatusLabel } from "./FileReviewModal";
+import {
+  FileReviewModal,
+  canReviewFile,
+  fileStatusLabel,
+  type FileReviewIntent,
+} from "./FileReviewModal";
 
 // Ficha del contacto, al costado del chat: quién es y qué nos llegó de ella
 // para cada evento (comprobante, pago, acceso al curso), más su título
 // profesional, reclamos de certificado y derivaciones. Los comprobantes y
 // títulos se ven en miniatura y, al abrirlos, se aprueban o rechazan ahí mismo
-// (FileReviewModal, mismas rutas que Aprobaciones). Dar acceso sigue en
-// Aprobaciones; la ficha lleva ahí.
+// (FileReviewModal, mismas rutas PATCH que Aprobaciones y /revision). Lo que
+// está pendiente lleva además botones Aprobar / Rechazar a la vista: abren el
+// mismo modal con el archivo y la confirmación de esa acción. Dar acceso sigue
+// en Aprobaciones; la ficha lleva ahí.
 
 type Tone = "ok" | "warn" | "bad" | "idle";
 
@@ -208,6 +215,62 @@ function FileThumbs({
   );
 }
 
+type OpenFile = (f: ContactFile, intent?: FileReviewIntent) => void;
+
+/**
+ * Archivos pendientes con Aprobar / Rechazar a la vista. Cada botón abre el
+ * modal de revisión (se ve el archivo) con la confirmación de esa acción.
+ */
+function PendingFileActions({ files, onOpen }: { files: ContactFile[]; onOpen: OpenFile }) {
+  const pending = files.filter(canReviewFile);
+  if (!pending.length) return null;
+  return (
+    <ul className="mt-3 space-y-1.5">
+      {pending.map((f) => {
+        const isPayment = f.kind === "comprobante";
+        const amount = isPayment ? fmtAmount(f.amount, f.currency) : null;
+        const label = isPayment
+          ? ["Comprobante", amount].filter(Boolean).join(" · ")
+          : f.titleName ?? "Título profesional";
+        return (
+          <li
+            key={f.id}
+            className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 py-1.5 dark:border-neutral-800 dark:bg-neutral-900/40"
+          >
+            <button
+              onClick={() => onOpen(f)}
+              title="Ver el archivo"
+              className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-[12px] text-neutral-700 transition hover:text-neutral-900 dark:text-neutral-200 dark:hover:text-neutral-50"
+            >
+              {isPayment ? (
+                <FileText className="h-3.5 w-3.5 shrink-0 text-gold" strokeWidth={1.75} />
+              ) : (
+                <GraduationCap className="h-3.5 w-3.5 shrink-0 text-gold" strokeWidth={1.75} />
+              )}
+              <span className="truncate">{label}</span>
+            </button>
+            <button
+              onClick={() => onOpen(f, "reject")}
+              aria-label={isPayment ? "Rechazar comprobante" : "Rechazar título"}
+              className="shrink-0 rounded-lg px-2 py-1 text-[12px] font-medium text-red-700 transition hover:bg-red-600/[0.08] dark:text-red-300"
+            >
+              Rechazar
+            </button>
+            <button
+              onClick={() => onOpen(f, "approve")}
+              aria-label={isPayment ? "Aprobar comprobante" : "Validar título"}
+              className="btn-gold flex shrink-0 items-center gap-1 !px-2.5 !py-1 !text-[12px]"
+            >
+              <Check className="h-3 w-3" strokeWidth={2.25} />
+              {isPayment ? "Aprobar" : "Validar"}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 function EventCard({
   ev,
   paymentsHref,
@@ -217,7 +280,7 @@ function EventCard({
   ev: ContactEvent;
   paymentsHref: string;
   files: ContactFile[];
-  onOpenFile: (f: ContactFile) => void;
+  onOpenFile: OpenFile;
 }) {
   const steps = stepsFor(ev);
   const date = fmtEventDate(ev.eventAt);
@@ -284,6 +347,7 @@ function EventCard({
       </ol>
 
       <FileThumbs files={files} onOpen={onOpenFile} />
+      <PendingFileActions files={files} onOpen={onOpenFile} />
 
       {needsAction && (
         <Link
@@ -331,8 +395,10 @@ export function ContactPanel({
   const [error, setError] = useState<string | null>(null);
   // La conversación no existe (link roto): la ficha no tiene nada que mostrar.
   const [missing, setMissing] = useState(false);
-  // Comprobante o título abierto en el modal de revisión.
-  const [openFile, setOpenFile] = useState<ContactFile | null>(null);
+  // Comprobante o título abierto en el modal de revisión (con la acción que
+  // se eligió desde la ficha, si vino de los botones Aprobar / Rechazar).
+  const [openFile, setOpenFile] = useState<{ file: ContactFile; intent?: FileReviewIntent } | null>(null);
+  const openReview = useCallback<OpenFile>((file, intent) => setOpenFile({ file, intent }), []);
 
   const load = useCallback(async () => {
     try {
@@ -502,7 +568,7 @@ export function ContactPanel({
                       files={ficha.files.filter(
                         (f) => f.kind === "comprobante" && (f.eventSlug ?? "sin-evento") === ev.key,
                       )}
-                      onOpenFile={setOpenFile}
+                      onOpenFile={openReview}
                     />
                   ))}
                 </div>
@@ -538,7 +604,7 @@ export function ContactPanel({
                           {ficha.title.stage === "valid"
                             ? "Validado"
                             : ficha.title.stage === "review"
-                              ? "Para revisar en Aprobaciones"
+                              ? "Para revisar"
                               : "No se dio por válido"}
                         </StatusLine>
                       </div>
@@ -548,7 +614,11 @@ export function ContactPanel({
               </div>
               <FileThumbs
                 files={ficha.files.filter((f) => f.kind === "titulo")}
-                onOpen={setOpenFile}
+                onOpen={openReview}
+              />
+              <PendingFileActions
+                files={ficha.files.filter((f) => f.kind === "titulo")}
+                onOpen={openReview}
               />
             </Section>
 
@@ -612,8 +682,11 @@ export function ContactPanel({
       </aside>
       {openFile && (
         <FileReviewModal
-          file={openFile}
+          key={`${openFile.file.id}-${openFile.intent ?? "ver"}`}
+          file={openFile.file}
+          intent={openFile.intent}
           onClose={() => setOpenFile(null)}
+          // Refresca la ficha; la lista se entera por atp:notifications-changed.
           onDone={() => void load()}
         />
       )}
