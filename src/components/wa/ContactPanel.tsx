@@ -10,7 +10,6 @@ import {
   Clock,
   Copy,
   FileText,
-  Flag,
   GraduationCap,
   Loader2,
   Mail,
@@ -20,11 +19,24 @@ import {
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { formatPhone } from "@/lib/search";
 import { Avatar } from "../Avatar";
+import type { Tone } from "./contact-blocks";
 import type {
   ContactEvent,
   ContactFicha,
   ContactFile,
 } from "@/app/api/wa/contact/[conversationId]/route";
+import {
+  InterventionItem,
+  Section,
+  ShowMoreList,
+  StatusLine,
+  SubHeading,
+  TiendupLiveBlock,
+  TitleStatusRow,
+  fmtShortDate,
+  tiendupHasRed,
+  useTiendupStatus,
+} from "./contact-blocks";
 import {
   FileReviewModal,
   canReviewFile,
@@ -40,8 +52,12 @@ import {
 // está pendiente lleva además botones Aprobar / Rechazar a la vista: abren el
 // mismo modal con el archivo y la confirmación de esa acción. Dar acceso sigue
 // en Aprobaciones; la ficha lleva ahí.
+//
+// Orden (D-65): arriba lo que está en curso (eventos con algo pendiente y
+// títulos por revisar), después las intervenciones abiertas con su detalle y
+// el estado del título, el bloque de Tiendup en vivo (arriba de todo si hay
+// un curso en rojo) y al final el historial, de a 3 por categoría.
 
-type Tone = "ok" | "warn" | "bad" | "idle";
 
 interface Step {
   label: string;
@@ -281,6 +297,17 @@ function PendingFileActions({ files, onOpen }: { files: ContactFile[]; onOpen: O
   );
 }
 
+/** El evento tiene algo para resolver: pago por aprobar o retenido, acceso por dar. */
+function eventNeedsAction(ev: ContactEvent): boolean {
+  return (
+    ev.payment.extraPending > 0 ||
+    ev.payment.stage === "pending" ||
+    ev.payment.stage === "awaiting_title" ||
+    ev.access.stage === "missing" ||
+    ev.access.stage === "missing_email"
+  );
+}
+
 function EventCard({
   ev,
   paymentsHref,
@@ -294,12 +321,7 @@ function EventCard({
 }) {
   const steps = stepsFor(ev);
   const date = fmtEventDate(ev.eventAt);
-  const needsAction =
-    ev.payment.extraPending > 0 ||
-    ev.payment.stage === "pending" ||
-    ev.payment.stage === "awaiting_title" ||
-    ev.access.stage === "missing" ||
-    ev.access.stage === "missing_email";
+  const needsAction = eventNeedsAction(ev);
   return (
     <article
       className={`rounded-xl border p-3.5 ${
@@ -372,28 +394,6 @@ function EventCard({
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="border-t border-neutral-200 px-4 py-4 dark:border-neutral-800">
-      <h3 className="mb-2.5 font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-        {title}
-      </h3>
-      {children}
-    </section>
-  );
-}
-
-function StatusLine({ tone, children }: { tone: Tone; children: React.ReactNode }) {
-  const dot =
-    tone === "ok" ? "bg-ok" : tone === "warn" ? "bg-warn" : tone === "bad" ? "bg-red-500" : "bg-neutral-300 dark:bg-neutral-700";
-  return (
-    <span className="flex items-center gap-1.5 text-[11.5px] text-neutral-500 dark:text-neutral-400">
-      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
-      {children}
-    </span>
-  );
-}
-
 export function ContactPanel({
   conversationId,
   onClose,
@@ -409,6 +409,8 @@ export function ContactPanel({
   // se eligió desde la ficha, si vino de los botones Aprobar / Rechazar).
   const [openFile, setOpenFile] = useState<{ file: ContactFile; intent?: FileReviewIntent } | null>(null);
   const openReview = useCallback<OpenFile>((file, intent) => setOpenFile({ file, intent }), []);
+  // Estado de Tiendup en vivo: se pide una vez al abrir la ficha, si corresponde.
+  const tiendup = useTiendupStatus(ficha?.conversation.id === conversationId ? conversationId : null, Boolean(ficha?.tiendupCheck));
 
   const load = useCallback(async () => {
     try {
@@ -460,6 +462,48 @@ export function ContactPanel({
   const c = ficha?.conversation;
   const phone = formatPhone(c?.phone ?? null);
   const paymentsHref = `/payments?q=${encodeURIComponent(c?.phone?.replace(/\D/g, "") || c?.displayName || "")}`;
+
+  // --- Orden de la ficha (D-65) ---
+  // 1. En curso: eventos con algo pendiente (o en venta y sin pago aprobado) y
+  //    títulos por revisar. 2. Intervenciones abiertas + estado del título.
+  // 3. Tiendup en vivo (arriba de todo si algún curso está en rojo).
+  // 4. Historial: lo demás, de a 3 con "Ver más".
+  const filesOf = (ev: ContactEvent) =>
+    (ficha?.files ?? []).filter((f) => f.kind === "comprobante" && (f.eventSlug ?? "sin-evento") === ev.key);
+  const events = ficha?.events ?? [];
+  const isCurrent = (ev: ContactEvent) =>
+    eventNeedsAction(ev) ||
+    filesOf(ev).some(canReviewFile) ||
+    (ev.active && ev.payment.stage !== "validated");
+  const current = events.filter(isCurrent);
+  const past = events.filter((ev) => !isCurrent(ev));
+  const titleFiles = (ficha?.files ?? []).filter((f) => f.kind === "titulo");
+  const pendingTitles = titleFiles.filter(canReviewFile);
+  const openInterventions = [
+    ...(ficha?.derivaciones ?? []),
+    ...(ficha?.certificados ?? []),
+  ]
+    .filter((n) => !n.resolvedAt)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const closedInterventions = (ficha?.derivaciones ?? []).filter((n) => n.resolvedAt);
+  const certificados = (ficha?.certificados ?? []).filter((n) => n.resolvedAt);
+  const titleDetail = !ficha
+    ? null
+    : ficha.title.stage === "none"
+      ? ficha.events.some((e) => e.payment.stage === "awaiting_title")
+        ? "Tiene un pago retenido hasta validarlo"
+        : c?.isCustomer
+          ? "Ya estaba registrada, no hizo falta pedirlo"
+          : null
+      : [ficha.title.titleName, ficha.title.institution].filter(Boolean).join(" · ") || null;
+
+  const tiendupBlock =
+    tiendup.phase === "idle" || (tiendup.phase === "done" && !tiendup.data.show) ? null : (
+      <Section title="Acceso a Tiendup">
+        <TiendupLiveBlock fetchState={tiendup} email={c?.email ?? null} />
+      </Section>
+    );
+  const tiendupRed = tiendupHasRed(tiendup);
 
   if (missing) return null;
 
@@ -563,130 +607,115 @@ export function ContactPanel({
               </dl>
             </div>
 
-            <Section title="Eventos">
-              {ficha.events.length === 0 ? (
+            {tiendupRed && tiendupBlock}
+
+            <Section title="En curso">
+              {current.length === 0 && pendingTitles.length === 0 ? (
                 <p className="text-[12px] text-neutral-500 dark:text-neutral-400">
-                  No hay eventos en venta ni comprobantes de esta persona
+                  Nada pendiente con esta persona
                 </p>
               ) : (
                 <div className="space-y-2.5">
-                  {ficha.events.map((ev) => (
+                  {current.map((ev) => (
                     <EventCard
                       key={ev.key}
                       ev={ev}
                       paymentsHref={paymentsHref}
-                      files={ficha.files.filter(
-                        (f) => f.kind === "comprobante" && (f.eventSlug ?? "sin-evento") === ev.key,
-                      )}
+                      files={filesOf(ev)}
                       onOpenFile={openReview}
                     />
                   ))}
+                  {pendingTitles.length > 0 && (
+                    <article className="rounded-xl border border-gold/40 bg-gold/[0.03] p-3.5 dark:border-gold/30">
+                      <h4 className="flex items-center gap-1.5 text-[13px] font-medium leading-snug text-neutral-900 dark:text-neutral-50">
+                        <GraduationCap className="h-3.5 w-3.5 text-gold" strokeWidth={1.75} />
+                        Título profesional por revisar
+                      </h4>
+                      <PendingFileActions files={pendingTitles} onOpen={openReview} />
+                    </article>
+                  )}
                 </div>
               )}
             </Section>
 
-            <Section title="Título profesional">
-              <div className="flex items-start gap-2.5">
-                <GraduationCap className="mt-0.5 h-4 w-4 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={1.75} />
-                <div className="min-w-0">
-                  {ficha.title.stage === "none" ? (
-                    <p className="text-[12px] text-neutral-500 dark:text-neutral-400">
-                      {ficha.events.some((e) => e.payment.stage === "awaiting_title")
-                        ? "Todavía no lo envió. Tiene un pago retenido hasta validarlo"
-                        : c!.isCustomer
-                          ? "Ya estaba registrada, no hizo falta pedirlo"
-                          : "No lo envió"}
-                    </p>
-                  ) : (
-                    <>
-                      <p className="text-[12px] font-medium text-neutral-800 dark:text-neutral-100">
-                        {ficha.title.titleName ?? "Título enviado"}
-                      </p>
-                      {ficha.title.institution && (
-                        <p className="text-[11.5px] text-neutral-500 dark:text-neutral-400">
-                          {ficha.title.institution}
-                        </p>
-                      )}
-                      <div className="mt-1">
-                        <StatusLine
-                          tone={ficha.title.stage === "valid" ? "ok" : ficha.title.stage === "review" ? "warn" : "bad"}
-                        >
-                          {ficha.title.stage === "valid"
-                            ? "Validado"
-                            : ficha.title.stage === "review"
-                              ? "Para revisar"
-                              : "No se dio por válido"}
-                        </StatusLine>
-                      </div>
-                    </>
-                  )}
-                </div>
+            <Section title="Intervención y título">
+              {openInterventions.length === 0 ? (
+                <p className="text-[12px] text-neutral-500 dark:text-neutral-400">Sin intervenciones abiertas</p>
+              ) : (
+                <ShowMoreList
+                  items={openInterventions}
+                  render={(n) => <InterventionItem key={n.id} n={n} open />}
+                  className="space-y-3"
+                />
+              )}
+              <div className="mt-3.5 border-t border-neutral-200 pt-3 dark:border-neutral-800">
+                <TitleStatusRow stage={ficha.title.stage} detail={titleDetail} />
+                <FileThumbs files={titleFiles} onOpen={openReview} />
               </div>
-              <FileThumbs
-                files={ficha.files.filter((f) => f.kind === "titulo")}
-                onOpen={openReview}
-              />
-              <PendingFileActions
-                files={ficha.files.filter((f) => f.kind === "titulo")}
-                onOpen={openReview}
-              />
             </Section>
 
-            {ficha.certificados.length > 0 && (
-              <Section title="Reclamos de certificado">
-                <ul className="space-y-2.5">
-                  {ficha.certificados.map((n) => (
-                    <li key={n.id} className="flex items-start gap-2.5">
-                      <Award className="mt-0.5 h-4 w-4 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={1.75} />
-                      <div className="min-w-0">
-                        {n.summary && (
-                          <p className="line-clamp-3 text-[12px] leading-relaxed text-neutral-700 dark:text-neutral-200">
-                            {n.summary}
-                          </p>
-                        )}
-                        <div className="mt-1">
-                          <StatusLine tone={n.resolvedAt ? "ok" : "warn"}>
-                            {n.resolvedAt ? `Atendido el ${fmtDate(n.resolvedAt)}` : `Pendiente desde el ${fmtDate(n.createdAt)}`}
-                          </StatusLine>
-                        </div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </Section>
-            )}
+            {!tiendupRed && tiendupBlock}
 
-            {ficha.derivaciones.length > 0 && (
-              <Section title="Derivaciones al equipo">
-                <ul className="space-y-2.5">
-                  {ficha.derivaciones.slice(0, 4).map((n) => (
-                    <li key={n.id} className="flex items-start gap-2.5">
-                      <Flag className="mt-0.5 h-4 w-4 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={1.75} />
-                      <div className="min-w-0">
-                        {n.summary && (
-                          <p
-                            title={n.summary}
-                            className="line-clamp-3 text-[12px] leading-relaxed text-neutral-700 dark:text-neutral-200"
-                          >
-                            {n.summary}
-                          </p>
+            <Section title="Historial">
+              {past.length === 0 && closedInterventions.length === 0 && certificados.length === 0 ? (
+                <p className="text-[12px] text-neutral-500 dark:text-neutral-400">Sin historial</p>
+              ) : (
+                <div className="space-y-4">
+                  {past.length > 0 && (
+                    <div>
+                      <SubHeading count={past.length}>Eventos</SubHeading>
+                      <ShowMoreList
+                        items={past}
+                        render={(ev) => (
+                          <EventCard
+                            key={ev.key}
+                            ev={ev}
+                            paymentsHref={paymentsHref}
+                            files={filesOf(ev)}
+                            onOpenFile={openReview}
+                          />
                         )}
-                        <div className="mt-1">
-                          <StatusLine tone={n.resolvedAt ? "ok" : "warn"}>
-                            {n.resolvedAt ? `Atendida el ${fmtDate(n.resolvedAt)}` : `Pendiente desde el ${fmtDate(n.createdAt)}`}
-                          </StatusLine>
-                        </div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-                {ficha.derivaciones.length > 4 && (
-                  <p className="mt-2.5 text-[11.5px] text-neutral-400 dark:text-neutral-500">
-                    Y {ficha.derivaciones.length - 4} más antiguas
-                  </p>
-                )}
-              </Section>
-            )}
+                      />
+                    </div>
+                  )}
+                  {closedInterventions.length > 0 && (
+                    <div>
+                      <SubHeading count={closedInterventions.length}>Derivaciones atendidas</SubHeading>
+                      <ShowMoreList
+                        items={closedInterventions}
+                        render={(n) => <InterventionItem key={n.id} n={n} open={false} />}
+                        className="space-y-3"
+                      />
+                    </div>
+                  )}
+                  {certificados.length > 0 && (
+                    <div>
+                      <SubHeading count={certificados.length}>Reclamos de certificado</SubHeading>
+                      <ShowMoreList
+                        items={certificados}
+                        render={(n) => (
+                          <div key={n.id} className="flex items-start gap-2.5">
+                            <Award className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={1.75} />
+                            <div className="min-w-0">
+                              {n.summary && (
+                                <p className="whitespace-pre-line break-words text-[12px] leading-relaxed text-neutral-700 dark:text-neutral-200">
+                                  {n.summary}
+                                </p>
+                              )}
+                              <div className="mt-1">
+                                <StatusLine tone="ok">
+                                  {`Atendido el ${fmtShortDate(n.resolvedAt)} · pedido el ${fmtShortDate(n.createdAt)}`}
+                                </StatusLine>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </Section>
           </div>
         )}
       </aside>

@@ -2,29 +2,30 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, Flag, KeyRound, Loader2, Mail, MessageCircle } from "lucide-react";
+import { AlertTriangle, ArrowRight, KeyRound, Loader2, Mail, MessageCircle } from "lucide-react";
 import { FileReviewPanel, type FileReviewAction } from "../wa/FileReviewModal";
 import type { ContactEvent, ContactFicha } from "@/app/api/wa/contact/[conversationId]/route";
-import { fmtAge, type ReviewItem } from "./review-items";
+import { type ReviewItem } from "./review-items";
+import {
+  InterventionItem,
+  Section,
+  ShowMoreList,
+  TiendupLiveBlock,
+  TitleStatusRow,
+  fmtShortDate,
+  tiendupHasRed,
+  useTiendupStatus,
+  type Tone,
+} from "../wa/contact-blocks";
 
 // Columna derecha de /revision:
 //   1. El archivo con Aprobar / Rechazar (FileReviewPanel, mismas rutas PATCH
 //      que Aprobaciones y la ficha de /wa).
-//   2. Derivaciones abiertas de la conversación.
-//   3. Estado del acceso a Tiendup y correo capturado.
-// 2 y 3 salen de la ficha del contacto de /wa (GET /api/wa/contact/[id]), sin
-// endpoints nuevos.
+//   2. Intervenciones abiertas con su detalle y el estado del título.
+//   3. Acceso a Tiendup: estado guardado por evento y el bloque en vivo
+//      (GET /api/wa/tiendup-status/[id]); si está en rojo sube arriba de 2.
+// Mismo orden y mismos bloques que la ficha de /wa (contact-blocks.tsx, D-65).
 
-const CATEGORY_LABELS: Record<string, string> = {
-  fuera_de_conocimiento: "Fuera de conocimiento",
-  escalado_manual: "Escalado manual",
-  reclamo_certificado: "Reclamo de certificado",
-  cliente_existente: "Cliente existente",
-  interes_compra: "Interés de compra",
-  falla_tecnica: "Falla técnica",
-};
-
-type Tone = "ok" | "warn" | "bad" | "idle";
 
 function Dot({ tone }: { tone: Tone }) {
   const cls =
@@ -32,10 +33,7 @@ function Dot({ tone }: { tone: Tone }) {
   return <span className={`mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full ${cls}`} />;
 }
 
-function fmtDate(iso: string | null): string {
-  if (!iso) return "";
-  return new Date(iso).toLocaleDateString("es-AR", { day: "numeric", month: "short" });
-}
+const fmtDate = fmtShortDate;
 
 function accessLine(ev: ContactEvent): { text: string; tone: Tone; detail: string | null } {
   const a = ev.access;
@@ -59,17 +57,6 @@ function accessLine(ev: ContactEvent): { text: string; tone: Tone; detail: strin
     default:
       return { text: "No aplica", tone: "idle", detail: null };
   }
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="border-t border-neutral-200 px-4 py-4 dark:border-neutral-800">
-      <h3 className="mb-2.5 font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-        {title}
-      </h3>
-      {children}
-    </section>
-  );
 }
 
 const linkCls =
@@ -118,6 +105,12 @@ export function ReviewDetail({
     void loadFicha();
   }, [loadFicha, refreshKey]);
 
+  const tiendup = useTiendupStatus(
+    ficha && ficha.conversation.id === convId ? convId : null,
+    Boolean(ficha?.tiendupCheck),
+  );
+  const tiendupRed = tiendupHasRed(tiendup);
+
   const p = item.payment;
   const warnings = p
     ? [
@@ -129,9 +122,7 @@ export function ReviewDetail({
   const open = ficha
     ? [
         ...ficha.derivaciones.filter((d) => !d.resolvedAt),
-        ...ficha.certificados
-          .filter((c) => !c.resolvedAt)
-          .map((c) => ({ ...c, category: "reclamo_certificado" })),
+        ...ficha.certificados.filter((c) => !c.resolvedAt),
       ].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     : [];
   const accessEvents = ficha
@@ -176,43 +167,18 @@ export function ReviewDetail({
           )}
         </Section>
       ) : (
-        <>
-          <Section title="Intervención">
+        <div className="flex flex-col">
+          <Section title="Intervención y título" className={tiendupRed ? "order-2" : "order-1"}>
             {open.length === 0 ? (
               <p className="text-[12px] text-neutral-500 dark:text-neutral-400">
-                Sin derivaciones abiertas
+                Sin intervenciones abiertas
               </p>
             ) : (
-              <ul className="space-y-2.5">
-                {open.slice(0, 4).map((n) => (
-                  <li key={n.id} className="flex items-start gap-2.5">
-                    <Flag className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warn" strokeWidth={2} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <p className="truncate text-[12px] font-medium text-neutral-800 dark:text-neutral-100">
-                          {CATEGORY_LABELS[n.category] ?? n.category}
-                        </p>
-                        <span className="shrink-0 font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-                          {fmtAge(n.createdAt)}
-                        </span>
-                      </div>
-                      {n.summary && (
-                        <p
-                          title={n.summary}
-                          className="mt-0.5 line-clamp-3 text-[12px] leading-relaxed text-neutral-500 dark:text-neutral-400"
-                        >
-                          {n.summary}
-                        </p>
-                      )}
-                    </div>
-                  </li>
-                ))}
-                {open.length > 4 && (
-                  <li className="text-[11.5px] text-neutral-400 dark:text-neutral-500">
-                    Y {open.length - 4} más
-                  </li>
-                )}
-              </ul>
+              <ShowMoreList
+                items={open}
+                render={(n) => <InterventionItem key={n.id} n={n} open />}
+                className="space-y-3"
+              />
             )}
             <div className="mt-2.5 flex flex-wrap gap-1">
               <Link href={`/wa?id=${convId}`} className={linkCls}>
@@ -226,10 +192,17 @@ export function ReviewDetail({
                 </Link>
               )}
             </div>
+            <div className="mt-3 border-t border-neutral-200 pt-3 dark:border-neutral-800">
+              <TitleStatusRow
+                stage={ficha.title.stage}
+                detail={[ficha.title.titleName, ficha.title.institution].filter(Boolean).join(" · ") || null}
+              />
+            </div>
           </Section>
 
-          <Section title="Acceso a Tiendup">
-            <div className="flex items-center gap-2 text-[12px] text-neutral-700 dark:text-neutral-200">
+          <Section title="Acceso a Tiendup" className={tiendupRed ? "order-1" : "order-2"}>
+            <TiendupLiveBlock fetchState={tiendup} email={null} />
+            <div className={`${tiendup.phase === "idle" || (tiendup.phase === "done" && !tiendup.data.show) ? "" : "mt-3 "}flex items-center gap-2 text-[12px] text-neutral-700 dark:text-neutral-200`}>
               <Mail className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={1.75} />
               {ficha.conversation.email ? (
                 <span className="min-w-0 truncate">{ficha.conversation.email}</span>
@@ -275,7 +248,7 @@ export function ReviewDetail({
               <ArrowRight className="h-3 w-3" strokeWidth={2} />
             </Link>
           </Section>
-        </>
+        </div>
       )}
     </div>
   );
