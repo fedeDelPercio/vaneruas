@@ -5,6 +5,7 @@ import { SearchField } from "../SearchField";
 import { formatPhone } from "@/lib/search";
 import { eventBySlug } from "@/lib/payments/event-match";
 import { fmtAge, fmtAmount, type ReviewItem } from "./review-items";
+import { CriticalPill } from "../CriticalPill";
 
 // Columna izquierda de /revision: la cola de pendientes (comprobantes y
 // títulos), con buscador server-side (el mismo ?q= de Aprobaciones).
@@ -18,6 +19,7 @@ export function ReviewQueue({
   selectedId,
   onSelect,
   interventions,
+  critical = {},
   onRetry,
 }: {
   items: ReviewItem[] | null;
@@ -29,6 +31,8 @@ export function ReviewQueue({
   onSelect: (id: string) => void;
   /** id de conversación → derivaciones abiertas. */
   interventions: Record<string, number>;
+  /** id de conversación → motivo del tag "Crítico". */
+  critical?: Record<string, string | null>;
   onRetry: () => void;
 }) {
   return (
@@ -77,6 +81,7 @@ export function ReviewQueue({
                 item={it}
                 active={it.id === selectedId}
                 interventions={it.conversationId ? interventions[it.conversationId] ?? 0 : 0}
+                critical={it.conversationId && it.conversationId in critical ? { reason: critical[it.conversationId] ?? null } : null}
                 onSelect={() => onSelect(it.id)}
               />
             ))}
@@ -94,11 +99,13 @@ function QueueRow({
   item,
   active,
   interventions,
+  critical,
   onSelect,
 }: {
   item: ReviewItem;
   active: boolean;
   interventions: number;
+  critical: { reason: string | null } | null;
   onSelect: () => void;
 }) {
   const phone = formatPhone(item.phone);
@@ -126,8 +133,11 @@ function QueueRow({
           />
         )}
         <div className="flex items-center justify-between gap-2">
-          <span className="min-w-0 truncate text-[13px] font-medium text-neutral-900 dark:text-neutral-50">
-            {item.name}
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="min-w-0 truncate text-[13px] font-medium text-neutral-900 dark:text-neutral-50">
+              {item.name}
+            </span>
+            {critical && <CriticalPill compact reason={critical.reason} />}
           </span>
           <span className="shrink-0 font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
             {fmtAge(item.createdAt)}

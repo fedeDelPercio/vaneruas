@@ -41,6 +41,7 @@ export function ReviewWorkspace() {
 
   const [items, setItems] = useState<ReviewItem[] | null>(null);
   const [interventions, setInterventions] = useState<Record<string, number>>({});
+  const [critical, setCritical] = useState<Record<string, string | null>>({});
   const [error, setError] = useState<string | null>(null);
   // Sube con cada recarga: la ficha de la derecha se vuelve a pedir.
   const [refreshKey, setRefreshKey] = useState(0);
@@ -97,6 +98,7 @@ export function ReviewWorkspace() {
         setError(null);
         setItems(next);
         setInterventions((j.interventions as Record<string, number>) ?? {});
+        setCritical((j.critical as Record<string, string | null>) ?? {});
         setRefreshKey((k) => k + 1);
 
         // Selección: se mantiene si sigue en la cola; si no, el siguiente de
@@ -214,6 +216,7 @@ export function ReviewWorkspace() {
             selectedId={selectedId}
             onSelect={(id) => select(id, { openDetail: true })}
             interventions={interventions}
+            critical={critical}
             onRetry={() => void load(searchQuery)}
           />
         </section>

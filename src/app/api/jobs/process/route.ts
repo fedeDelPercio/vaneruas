@@ -9,6 +9,7 @@ import { resolveWhatsAppTurn } from "@/lib/agent/debounce";
 import { extractContactEmail, normalizeContactEmail } from "@/lib/contact-email";
 import { autoEnrollConversation } from "@/lib/tiendup/auto-enroll";
 import { sendTeamNotificationAlert } from "@/lib/email/sender";
+import { evaluateConversationCritical } from "@/lib/critical/evaluate";
 import {
   HUMAN_WAITING_CATEGORY,
   HUMAN_WAITING_REASON,
@@ -186,6 +187,12 @@ async function processJob(job: AgentJob): Promise<void> {
         error: "Conversación en modo humano: la atiende un asesor.",
       })
       .eq("id", job.id);
+    // Tag "Crítico" también con la IA en pausa. Una vez por turno: solo el job
+    // del último mensaje de la contacta evalúa (el debounce ya demoró el job;
+    // los de mensajes anteriores del mismo tirón se saltean).
+    if (convState.source === "whatsapp" && (await isLatestInbound(job))) {
+      await evaluateConversationCritical(job.conversation_id);
+    }
     return;
   }
 
@@ -359,6 +366,24 @@ async function processJob(job: AgentJob): Promise<void> {
       trace_id: result.traceId,
     })
     .eq("id", job.id);
+
+  // Tag "Crítico": una vez por turno ya consolidado (después del debounce y de
+  // la respuesta, para no demorarla). Apagado salvo CRITICAL_CLASSIFIER_ENABLED;
+  // nunca lanza.
+  if (isWhatsApp) await evaluateConversationCritical(job.conversation_id);
+}
+
+/** ¿El mensaje de este job es el último que mandó la contacta? */
+async function isLatestInbound(job: AgentJob): Promise<boolean> {
+  const { data } = await getSupabaseServerClient()
+    .from("messages")
+    .select("id")
+    .eq("conversation_id", job.conversation_id)
+    .eq("role", "user")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data?.id === job.user_message_id;
 }
 
 /**

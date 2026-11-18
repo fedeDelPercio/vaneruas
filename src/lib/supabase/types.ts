@@ -123,6 +123,11 @@ export type Database = {
           agendada: boolean;
           created_at: string;
           updated_at: string;
+          // Migración 034 (puede no estar aplicada: leer con fallback).
+          critical?: boolean | null;
+          critical_reason?: string | null;
+          critical_at?: string | null;
+          critical_evaluated_at?: string | null;
         };
         Insert: {
           id?: string;
@@ -141,6 +146,10 @@ export type Database = {
           agendada?: boolean;
           created_at?: string;
           updated_at?: string;
+          critical?: boolean | null;
+          critical_reason?: string | null;
+          critical_at?: string | null;
+          critical_evaluated_at?: string | null;
         };
         Update: {
           id?: string;
@@ -159,6 +168,10 @@ export type Database = {
           agendada?: boolean;
           created_at?: string;
           updated_at?: string;
+          critical?: boolean | null;
+          critical_reason?: string | null;
+          critical_at?: string | null;
+          critical_evaluated_at?: string | null;
         };
         Relationships: [];
       };

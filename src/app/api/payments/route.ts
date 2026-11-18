@@ -487,5 +487,33 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ items, titleReviews, stats, ...(interventions ? { interventions } : {}) });
+  // Mismo pedido (/revision): conversaciones con el tag "Crítico" → motivo.
+  // Son pocas filas; si la migración 034 no está aplicada, sale sin el dato.
+  let critical: Record<string, string | null> | undefined;
+  if (req.nextUrl.searchParams.get("with") === "interventions") {
+    try {
+      const rows = await fetchAllRows((from, to) =>
+        sb
+          .from("conversations")
+          .select("id, critical_reason")
+          .eq("client_slug", clientEnv.NEXT_PUBLIC_CLIENT_SLUG)
+          .eq("critical", true)
+          .order("id", { ascending: true })
+          .range(from, to),
+      );
+      const shown = new Set<string>([...convIds, ...reviewConvIds]);
+      critical = {};
+      for (const r of rows) if (shown.has(r.id)) critical[r.id] = r.critical_reason ?? null;
+    } catch {
+      // Sin columnas critical_* (o fallo puntual): la cola sale sin el pill.
+    }
+  }
+
+  return NextResponse.json({
+    items,
+    titleReviews,
+    stats,
+    ...(interventions ? { interventions } : {}),
+    ...(critical ? { critical } : {}),
+  });
 }

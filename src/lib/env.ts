@@ -143,6 +143,13 @@ const serverSchema = z.object({
   // Portal de AI ScaleMap: el botón de feedback del panel crea ahí el ticket
   // (POST /api/intake/tickets). La clave va en integration_tokens, no acá.
   AISCALEMAP_URL: z.string().url().default("https://app.aiscalemap.com"),
+  // Tag "Crítico" (src/lib/critical/): clasificador LLM que corre una vez por
+  // turno de la contacta. APAGADO por defecto hasta que Federico lo revise:
+  // se prende con "true". El modelo es barato (Haiku) y usa el mismo
+  // proveedor/fallback que el agente (llm-call.ts; con OpenRouter va a
+  // OPENROUTER_MODEL_LIGHT).
+  CRITICAL_CLASSIFIER_ENABLED: z.string().optional(),
+  CRITICAL_CLASSIFIER_MODEL: z.string().default("claude-haiku-4-5"),
 });
 
 export type ServerEnv = z.infer<typeof serverSchema>;
@@ -185,6 +192,8 @@ export function serverEnv(): ServerEnv {
     GMAIL_APP_PASSWORD: process.env.GMAIL_APP_PASSWORD,
     EMAIL_NOTIFY_TO: process.env.EMAIL_NOTIFY_TO,
     AISCALEMAP_URL: process.env.AISCALEMAP_URL || undefined,
+    CRITICAL_CLASSIFIER_ENABLED: process.env.CRITICAL_CLASSIFIER_ENABLED,
+    CRITICAL_CLASSIFIER_MODEL: process.env.CRITICAL_CLASSIFIER_MODEL || undefined,
   });
   if (!parsed.success) {
     throw new Error(

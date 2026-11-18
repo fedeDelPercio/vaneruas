@@ -6,6 +6,7 @@ import {
   loadPendingApprovalConversationIds,
 } from "@/lib/interventions";
 import { clientEnv } from "@/lib/env";
+import { isMissingColumnError, withOptionalColumns } from "@/lib/critical/classifier";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +16,8 @@ export const dynamic = "force-dynamic";
 //
 // Filtros: "intervencion" (botón "Derivadas", también acepta ?filter=derivadas),
 // "aprobar" (botón "Falta aprobar": comprobante pending o título sin revisar,
-// mismo criterio que /revision) y "humano" (con el equipo).
+// mismo criterio que /revision), "criticos" (tag "Crítico") y "humano" (con el
+// equipo).
 //
 // Lista del chat de WhatsApp. Reemplaza la carga directa desde el navegador,
 // que tenía tres problemas con el volumen real (más de 1.500 conversaciones):
@@ -35,8 +37,17 @@ const PREVIEW_CHUNK = 50;
 const DB_PAGE = 1000;
 const CONV_COLS =
   "id, display_name, wa_jid, contact_email, mode, updated_at, is_existing_customer";
+// Columnas del tag "Crítico" (migración 034). Si la migración no está aplicada
+// la lectura falla con 42703: se recuerda un rato y se sigue sin el tag.
+const CRITICAL_COLS = ", critical, critical_reason";
+const CRITICAL_RETRY_MS = 10 * 60_000;
+let criticalMissingSince = 0;
 
-type Filter = "all" | "intervencion" | "aprobar" | "humano";
+function criticalAvailable(): boolean {
+  return Date.now() - criticalMissingSince > CRITICAL_RETRY_MS;
+}
+
+type Filter = "all" | "intervencion" | "aprobar" | "criticos" | "humano";
 
 interface ConvRow {
   id: string;
@@ -46,6 +57,8 @@ interface ConvRow {
   mode: string;
   updated_at: string;
   is_existing_customer: boolean;
+  critical?: boolean | null;
+  critical_reason?: string | null;
 }
 
 export interface WaPreview {
@@ -67,6 +80,9 @@ export interface WaConversationItem {
   needsTeam: boolean;
   /** Tiene un comprobante o un título esperando aprobación. */
   pendingApproval: boolean;
+  /** Tag "Crítico" (false si la migración 034 no está aplicada). */
+  critical: boolean;
+  criticalReason: string | null;
   preview: WaPreview | null;
 }
 
@@ -75,7 +91,7 @@ export interface WaConversationsResponse {
   /** Total que coincide con la búsqueda y el filtro (no solo esta página). */
   total: number;
   hasMore: boolean;
-  counts: { all: number; intervencion: number; aprobar: number; humano: number };
+  counts: { all: number; intervencion: number; aprobar: number; criticos: number; humano: number };
 }
 
 // Texto fijo (en inglés) que manda GHL cuando la clienta envía algo que no
@@ -98,7 +114,10 @@ export async function GET(req: NextRequest) {
   const q = (sp.get("q") ?? "").trim().slice(0, 80);
   const filterParam = sp.get("filter");
   const filter: Filter =
-    filterParam === "intervencion" || filterParam === "humano" || filterParam === "aprobar"
+    filterParam === "intervencion" ||
+    filterParam === "humano" ||
+    filterParam === "aprobar" ||
+    filterParam === "criticos"
       ? filterParam
       : // Nombre del botón (y links guardados).
         filterParam === "derivadas"
@@ -144,49 +163,66 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const [allCount, humanCount] = await Promise.all([
+  const [allCount, humanCount, criticalCount] = await Promise.all([
     sb.from("conversations").select("id", { count: "exact", head: true }).eq("source", "whatsapp"),
     sb
       .from("conversations")
       .select("id", { count: "exact", head: true })
       .eq("source", "whatsapp")
       .eq("mode", "HUMAN"),
+    criticalAvailable()
+      ? sb
+          .from("conversations")
+          .select("id", { count: "exact", head: true })
+          .eq("source", "whatsapp")
+          .eq("client_slug", clientEnv.NEXT_PUBLIC_CLIENT_SLUG)
+          .eq("critical", true)
+      : Promise.resolve({ count: 0, error: null }),
   ]);
+  if (criticalCount.error && isMissingColumnError(criticalCount.error)) {
+    criticalMissingSince = Date.now();
+  }
 
   let pageRows: ConvRow[];
   let total: number;
 
   if (!q && filter === "all") {
     // Camino frecuente: solo la página pedida.
-    const { data, error } = await sb
-      .from("conversations")
-      .select(CONV_COLS)
-      .eq("source", "whatsapp")
-      .order("updated_at", { ascending: false })
-      .order("id", { ascending: true })
-      .range(offset, offset + limit - 1);
+    const page = (cols: string) =>
+      sb
+        .from("conversations")
+        .select(cols)
+        .eq("source", "whatsapp")
+        .order("updated_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(offset, offset + limit - 1);
+    const { data, error } = await withCriticalFallback(page);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    pageRows = (data ?? []) as ConvRow[];
+    pageRows = (data ?? []) as unknown as ConvRow[];
     total = allCount.count ?? pageRows.length;
   } else {
     // Con búsqueda o filtro: se traen todas (livianas) y se filtra en memoria,
     // así la búsqueda ignora tildes y encuentra el teléfono por cualquier tramo.
     const all: ConvRow[] = [];
     for (let from = 0; ; from += DB_PAGE) {
-      let query = sb.from("conversations").select(CONV_COLS).eq("source", "whatsapp");
-      if (filter === "humano") query = query.eq("mode", "HUMAN");
-      const { data, error } = await query
-        .order("updated_at", { ascending: false })
-        .order("id", { ascending: true })
-        .range(from, from + DB_PAGE - 1);
+      const chunk = (cols: string) => {
+        let query = sb.from("conversations").select(cols).eq("source", "whatsapp");
+        if (filter === "humano") query = query.eq("mode", "HUMAN");
+        return query
+          .order("updated_at", { ascending: false })
+          .order("id", { ascending: true })
+          .range(from, from + DB_PAGE - 1);
+      };
+      const { data, error } = await withCriticalFallback(chunk);
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-      all.push(...((data ?? []) as ConvRow[]));
+      all.push(...((data ?? []) as unknown as ConvRow[]));
       if (!data || data.length < DB_PAGE) break;
     }
     const filtered = all.filter(
       (c) =>
         (filter !== "intervencion" || needsTeam.has(c.id)) &&
         (filter !== "aprobar" || pendingApproval.has(c.id)) &&
+        (filter !== "criticos" || c.critical === true) &&
         matchesContactQuery(q, {
           texts: [c.display_name, c.contact_email],
           phones: [c.wa_jid],
@@ -254,6 +290,8 @@ export async function GET(req: NextRequest) {
     isCustomer: c.is_existing_customer,
     needsTeam: needsTeam.has(c.id),
     pendingApproval: pendingApproval.has(c.id),
+    critical: c.critical === true,
+    criticalReason: c.critical === true ? c.critical_reason ?? null : null,
     preview: previews.get(c.id) ?? null,
   }));
 
@@ -265,8 +303,18 @@ export async function GET(req: NextRequest) {
       all: allCount.count ?? 0,
       intervencion: needsTeam.size,
       aprobar: pendingApproval.size,
+      criticos: criticalCount.count ?? 0,
       humano: humanCount.count ?? 0,
     },
   };
   return NextResponse.json(body);
+}
+
+/** Consulta de conversaciones con las columnas del tag "Crítico" si existen. */
+async function withCriticalFallback<T extends { error: { code?: string; message: string } | null }>(
+  run: (cols: string) => PromiseLike<T>,
+): Promise<T> {
+  const { res, missing } = await withOptionalColumns(run, CONV_COLS, CRITICAL_COLS, criticalAvailable());
+  if (missing) criticalMissingSince = Date.now();
+  return res;
 }

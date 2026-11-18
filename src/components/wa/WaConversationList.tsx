@@ -10,8 +10,10 @@ import {
   MessagesSquare,
   Paperclip,
   SearchX,
+  TriangleAlert,
   UserRound,
 } from "lucide-react";
+import { CriticalPill } from "../CriticalPill";
 import { clientEnv } from "@/lib/env";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { formatPhone } from "@/lib/search";
@@ -28,11 +30,18 @@ import type {
 // respaldo: si el canal se cae, se recrea, y al volver a la pestaña se
 // refresca igual.
 
-type Filter = "all" | "intervencion" | "aprobar" | "humano";
+type Filter = "all" | "intervencion" | "aprobar" | "criticos" | "humano";
 
 const PAGE = 40;
 
-const FILTERS: { key: Filter; label: string; title: string; Icon?: typeof Hand }[] = [
+const FILTERS: {
+  key: Filter;
+  label: string;
+  title: string;
+  Icon?: typeof Hand;
+  /** Color del botón cuando tiene algo pendiente (ámbar por defecto). */
+  tone?: "warn" | "red";
+}[] = [
   { key: "all", label: "Todas", title: "Todas las conversaciones" },
   // Conversaciones con notificaciones al equipo sin resolver (derivaciones,
   // reclamos, altas de Tiendup pendientes, comprobantes sin revisar, la
@@ -50,6 +59,14 @@ const FILTERS: { key: Filter; label: string; title: string; Icon?: typeof Hand }
     label: "Falta aprobar",
     title: "Con un comprobante o un título esperando aprobación",
     Icon: ClipboardCheck,
+  },
+  // Tag "Crítico" del clasificador (src/lib/critical/).
+  {
+    key: "criticos",
+    label: "Críticos",
+    title: "Conversaciones marcadas como críticas (enojo, reclamo, amenaza)",
+    Icon: TriangleAlert,
+    tone: "red",
   },
   { key: "humano", label: "Con el equipo", title: "Conversaciones en modo Humano" },
 ];
@@ -101,6 +118,7 @@ export function WaConversationList({
     all: 0,
     intervencion: 0,
     aprobar: 0,
+    criticos: 0,
     humano: 0,
   });
   const [error, setError] = useState<string | null>(null);
@@ -348,7 +366,9 @@ export function WaConversationList({
                   } ${
                     activeFilter
                       ? "border-neutral-900 bg-neutral-900 text-white dark:border-neutral-50 dark:bg-neutral-50 dark:text-neutral-950"
-                      : flagged
+                      : flagged && f.tone === "red"
+                        ? "border-red-600/40 bg-white text-red-700 hover:bg-neutral-50 dark:border-red-400/50 dark:bg-neutral-950 dark:text-red-400 dark:hover:bg-neutral-900"
+                        : flagged
                         ? "border-amber-700/40 bg-white text-warn-fg hover:bg-neutral-50 dark:border-amber-500/50 dark:bg-neutral-950 dark:text-warn dark:hover:bg-neutral-900"
                         : f.Icon
                           ? "border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-400 dark:hover:bg-neutral-900"
@@ -420,6 +440,8 @@ export function WaConversationList({
                     ? "Ninguna necesita intervención"
                     : filter === "aprobar"
                       ? "Nada esperando aprobación"
+                      : filter === "criticos"
+                        ? "Ninguna conversación crítica"
                     : filter === "humano"
                       ? "Ninguna conversación con el equipo"
                       : "Sin conversaciones de WhatsApp todavía"}
@@ -485,6 +507,7 @@ export function WaConversationList({
                           >
                             {c.displayName}
                           </span>
+                          {c.critical && <CriticalPill compact reason={c.criticalReason} />}
                           <span className="ml-auto shrink-0 font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
                             {shortWhen(when)}
                           </span>

@@ -15,7 +15,9 @@ import {
   Pencil,
   Phone,
   StickyNote,
+  X,
 } from "lucide-react";
+import { CriticalPill } from "../CriticalPill";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { CommentKind, Conversation, Message } from "@/lib/supabase/types";
 import type { ViewMode } from "@/lib/profile";
@@ -115,6 +117,7 @@ export function WaChatPanel({
   const [thinking, setThinking] = useState(false);
   const [pending, setPending] = useState<PendingNotification[]>([]);
   const [resolving, setResolving] = useState(false);
+  const [clearingCritical, setClearingCritical] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
   // El modo quedó guardado acá pero la etiqueta de GHL no: se ofrece reintentar.
   const [tagSyncFailed, setTagSyncFailed] = useState(false);
@@ -542,6 +545,25 @@ export function WaChatPanel({
     }
   }
 
+  async function clearCritical() {
+    if (clearingCritical) return;
+    setClearingCritical(true);
+    try {
+      const r = await fetch(`/api/wa/critical/${conversationId}`, { method: "DELETE" });
+      const j = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) {
+        toast.error(j.error ?? "No se pudo quitar el tag");
+        return;
+      }
+      setConversation((c) => (c ? { ...c, critical: false, critical_reason: null, critical_at: null } : c));
+      window.dispatchEvent(new Event("atp:notifications-changed"));
+    } catch {
+      toast.error("Error de red");
+    } finally {
+      setClearingCritical(false);
+    }
+  }
+
   async function resolvePending() {
     if (resolving || pending.length === 0) return;
     setResolving(true);
@@ -649,6 +671,25 @@ export function WaChatPanel({
               </button>
             )}
             <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+              {conversation?.critical && (
+                <span className="flex items-center gap-1">
+                  <CriticalPill reason={conversation.critical_reason} />
+                  <button
+                    type="button"
+                    onClick={() => void clearCritical()}
+                    disabled={clearingCritical}
+                    title="Quitar el tag Crítico (se vuelve a evaluar con el próximo mensaje de la clienta)"
+                    aria-label="Quitar el tag Crítico"
+                    className="flex h-5 w-5 items-center justify-center rounded-full text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 disabled:opacity-50 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                  >
+                    {clearingCritical ? (
+                      <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2} />
+                    ) : (
+                      <X className="h-3 w-3" strokeWidth={2} />
+                    )}
+                  </button>
+                </span>
+              )}
               {phone &&
                 (phoneDigits ? (
                   <a
