@@ -424,6 +424,11 @@ ahí (incluido "Masterizado" y la "falla intermitente" de Tiendup) es correcto.
   mismo mensaje de la aprobación; nunca al recibir comprobante ni título. El
   agente recibe "Pedir correo: SÍ / NO / NO todavía" ya calculado en código
   (`run.ts`), también el evaluator. Si la persona lo ofrece antes, se acepta.
+- **Dos correos (D-72, D-73):** si la persona tiene dos correos o da otro, el
+  acceso le llega al que cargó en la web; Valentina no ofrece cambiarlo y solo
+  deriva si lo pide explícitamente. En código, un segundo correo pisa al
+  primero solo si todavía no hubo pago validado ni intento de alta; si no, queda
+  una nota de sistema con el nuevo para el equipo.
 - Textos fijos del flujo de comprobante en `src/lib/payments/messages.ts`. Si
   cambiás uno, dejá el viejo en `TEXTOS_DE_PLANTILLA` de `ghl-human.ts` para
   que el importador lo siga reconociendo como nuestro.

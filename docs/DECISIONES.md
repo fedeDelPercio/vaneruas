@@ -7,6 +7,59 @@ decidió, por qué, qué se descartó y qué costo o pendiente deja.
 
 ---
 
+## 18/11/2026 · Regla de Valentina "dos correos"
+
+**Qué entró**
+
+- `orchestrator.md` (paso 6, "Dos correos", y paso 8), `knowledge-base.md`
+  (validación de pagos y "después de la masterclass") y `evaluator.md`.
+- `decideContactEmailUpdate` y `secondEmailNote` en `src/lib/contact-email.ts`
+  (puros), usados por `captureContactEmail` en `src/app/api/jobs/process/route.ts`.
+- La línea "Pedir correo: NO" (`email-ask.ts`) y el bloque de clienta
+  (`prompt-builder.ts`) recuerdan que el acceso llega al correo de la web.
+- 3 casos en `scripts/evals-agente.ts` con aserciones opcionales (`check`). No
+  se corrieron (llaman al LLM).
+
+**D-72 · Con dos correos, el acceso llega al de la web y no se ofrece
+cambio.** Pedido de Federico: en un chat real Valentina le dijo a una clienta
+que le iba a preguntar al equipo a cuál de los dos correos le llegaba. Ahora
+responde ella que llega al correo que cargó en la página donde se inscribió y
+pagó, y que lo busque ahí (spam, no deseado, promociones). No ofrece cambiarlo
+ni deriva para confirmar. Solo deriva (`escalado_manual`, summary "Pide
+cambiar el correo de acceso: <correo>") si lo pide explícitamente o dice que
+quedó mal escrito. La respuesta modelo está en la base, no solo en el
+orquestador, porque el evaluator no ve `orchestrator.md`. El evaluator marca
+como error ofrecer el cambio o consultar al equipo a cuál le llega. No había
+ningún camino de código ni plantilla que generara ese texto: lo redactaba el
+modelo.
+
+**D-73 · Un segundo correo no pisa el primero si ya hubo pago validado o
+intento de alta.** Antes, "lo último que mande pisa lo anterior". Ahora, si la
+conversación ya tiene un correo válido y llega otro distinto:
+se pisa solo si no hay ningún `payment_validations` de la conversación con
+`status = 'validated'`, `course_access_granted_at` o `course_access_error`
+(la persona lo está corrigiendo antes de que se use). Si lo hay, se deja el
+primero, no se actualiza GHL, no se dispara el alta y se inserta una nota de
+sistema en el chat ("Otro correo en el chat: <nuevo> · El acceso sigue con
+<actual>", una sola vez por par). Si la lectura de pagos falla, no se pisa.
+Sin cambio de esquema. Por qué: el alta usa ese correo; pisarlo con uno que no
+es cliente de Tiendup frena el alta automática (D-68) o, por el botón, crea un
+cliente nuevo con el correo equivocado. Si la persona pide el cambio, el
+equipo lo hace a mano desde la derivación. Costo: si el primer correo era el
+equivocado y el segundo el bueno, el alta queda frenada hasta que el equipo
+lo vea (la nota y la notificación "Alta en Tiendup pendiente" lo muestran).
+
+### Pendientes que deja esta entrega
+
+- **Correo de GHL al validar el título** (`titles/handle.ts`): si la contacta
+  figura registrada en GHL, el correo de GHL se guarda aunque la conversación
+  ya tuviera otro. Pasa antes del pago validado, así que no se tocó; revisar
+  si conviene que solo complete un correo vacío.
+- **Correr los evals** de dos correos (`scripts/evals-agente.ts`) antes del
+  deploy de los prompts.
+
+---
+
 ## 18/11/2026 · El alta automática no crea clientes nuevos en Tiendup
 
 **Qué entró**
