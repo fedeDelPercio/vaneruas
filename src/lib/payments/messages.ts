@@ -28,9 +28,47 @@ export const ATTACHMENT_RECEIVED_MESSAGE =
 
 
 /**
- * Pedido del correo cuando llega un comprobante y todavía no tenemos a dónde
- * mandarle el acceso. Va en una burbuja aparte, después de la confirmación.
- * También figura en knowledge-base.md (el evaluator no ve el orquestador).
+ * Confirmación de pago aprobado (PATCH /api/payments/[id]) cuando ya tenemos
+ * el correo de la persona (o ya se lo pedimos por este pago). Voz de
+ * Valentina: cálida, con emoji, sin punto final.
+ */
+export const PAYMENT_APPROVED_MESSAGE =
+  "Buenísimo, tu pago quedó verificado ✅ En breve te enviamos el acceso a tu correo, cualquier cosa quedamos en contacto 🙌🏻";
+
+/**
+ * Confirmación de pago aprobado cuando todavía NO tenemos su correo: reemplaza
+ * a PAYMENT_APPROVED_MESSAGE (un solo mensaje, no dos). Es el ÚNICO momento en
+ * que se pide el correo: con el pago verificado y el título (si hacía falta)
+ * aprobado. También figura en knowledge-base.md (el evaluator no ve el
+ * orquestador).
+ */
+export const PAYMENT_APPROVED_ASK_EMAIL_MESSAGE =
+  "Buenísimo, tu pago quedó verificado ✅ Para darte el acceso, me pasás el correo con el que te inscribiste en la web? 📩";
+
+/**
+ * Título validado cuando el pago YA estaba verificado (aprobación forzada) y
+ * falta el correo: confirma el título y pide el correo en el mismo mensaje.
+ */
+export const TITLE_VALIDATED_ASK_EMAIL_MESSAGE =
+  "Listo, validé tu título ✨ Tu pago ya está verificado, para darte el acceso me pasás el correo con el que te inscribiste en la web? 📩";
+
+/** Título validado cuando el pago ya estaba verificado y tenemos el correo. */
+export const TITLE_VALIDATED_PAYMENT_OK_MESSAGE =
+  "Listo, validé tu título ✨ Tu pago ya está verificado, en breve te enviamos el acceso a tu correo 🙌";
+
+/**
+ * Pedido del correo suelto. Hasta el 18/11/2026 se mandaba en una burbuja
+ * aparte al recibir el comprobante, antes de que nada estuviera aprobado (se
+ * leía inconexo). Ya no se manda: queda para que el importador de mensajes del
+ * equipo siga reconociendo los envíos viejos y para el chequeo de "ya se lo
+ * pedimos".
  */
 export const EMAIL_REQUEST_MESSAGE =
   "Para darte el acceso, me pasás el correo con el que te inscribiste en la web? 📩";
+
+/** Todos los textos que piden el correo (para no pedirlo dos veces por el mismo pago). */
+export const EMAIL_ASK_MESSAGES: readonly string[] = [
+  PAYMENT_APPROVED_ASK_EMAIL_MESSAGE,
+  TITLE_VALIDATED_ASK_EMAIL_MESSAGE,
+  EMAIL_REQUEST_MESSAGE,
+];

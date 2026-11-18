@@ -9,12 +9,8 @@ import { downloadComprobante } from "./storage";
 import { extractPaymentData, type PaymentExtraction } from "./extract";
 import { resolveStoredEventSlug } from "./event-match";
 import { assistantSaidRecently } from "@/lib/messages/dedup";
-import {
-  ATTACHMENT_RECEIVED_MESSAGE,
-  COMPROBANTE_RECEIVED_MESSAGE,
-  EMAIL_REQUEST_MESSAGE,
-} from "./messages";
-import { extractContactEmail, normalizeContactEmail } from "@/lib/contact-email";
+import { ATTACHMENT_RECEIVED_MESSAGE, COMPROBANTE_RECEIVED_MESSAGE } from "./messages";
+import { findGroupOf, groupPendingPayments } from "./grouping";
 
 export const PAYMENT_NOTIFICATION_CATEGORY = "validacion_pago";
 
@@ -108,12 +104,19 @@ export async function handlePaymentComprobante(
     console.error("[payments] no se pudo registrar el pago:", insertErr.message);
   }
 
+  // ¿Es otra imagen del MISMO pago que ya está esperando revisión (grouping.ts)?
+  // Entonces el equipo ya tiene su notificación validacion_pago abierta: no se
+  // abre una segunda (ni otro email). En el panel se ve como un solo ítem.
+  const joinsGroup = inserted?.id
+    ? await joinsOpenPaymentGroup(args.conversationId, inserted.id)
+    : false;
+
   // Comprobante RETENIDO: el pago NO se manda a validar todavía (falta el
   // título). Pero sí avisamos al equipo que hay una contacta esperando acreditar
   // su título, así no queda en silencio: aparece en el panel y, si quiere, una
   // persona puede mirar el caso (validar el título o forzar la aprobación).
   if (awaitingTitle) {
-    await notifyTeamOfPayment({
+    if (!joinsGroup) await notifyTeamOfPayment({
       conversationId: args.conversationId,
       messageId: args.messageId,
       paymentId: inserted?.id ?? null,
@@ -124,6 +127,8 @@ export async function handlePaymentComprobante(
       extraNote:
         "Comprobante RETENIDO: esperando que la contacta acredite su título. Validá el título desde el panel para habilitarlo, o forzá la aprobación si corresponde.",
     });
+    // El correo NO se pide acá: se pide recién cuando el pago quede aprobado
+    // (PATCH /api/payments/[id], ver email-ask.ts).
     await supabase.from("messages").insert({
       conversation_id: args.conversationId,
       role: "system",
@@ -144,19 +149,21 @@ export async function handlePaymentComprobante(
         content: titleAskMsg,
       });
     }
-    await askEmailIfMissing(args.conversationId, args.caption);
     await touchConversation(args.conversationId);
     return;
   }
 
-  // 3. Avisar al equipo: agent_notifications + email + webhook.
-  await notifyTeamOfPayment({
-    conversationId: args.conversationId,
-    messageId: args.messageId,
-    paymentId: inserted?.id ?? null,
-    extraction,
-    isDuplicate,
-  });
+  // 3. Avisar al equipo: agent_notifications + email + webhook. Una vez por
+  //    pago: otra imagen del mismo grupo no vuelve a avisar.
+  if (!joinsGroup) {
+    await notifyTeamOfPayment({
+      conversationId: args.conversationId,
+      messageId: args.messageId,
+      paymentId: inserted?.id ?? null,
+      extraction,
+      isDuplicate,
+    });
+  }
 
   // ¿La imagen REALMENTE es un comprobante? Solo lo confirmamos si el extractor
   // lo leyó como tal (is_payment_receipt === true). Si dice que NO lo es, o si
@@ -198,59 +205,41 @@ export async function handlePaymentComprobante(
     });
   }
 
-  // 5b. Si es un comprobante y no tenemos su correo, se lo pedimos (sin el
-  //     correo no hay a dónde darle el acceso en Tiendup).
-  if (looksLikeReceipt) await askEmailIfMissing(args.conversationId, args.caption);
+  // 5b. El correo NO se pide acá (antes iba en una burbuja aparte y se leía
+  //     inconexo): se pide al aprobar el pago, en el mismo mensaje de la
+  //     aprobación (PATCH /api/payments/[id], ver email-ask.ts).
 
   // 6. Reordenar la conversación.
   await touchConversation(args.conversationId);
 }
 
-/** Mensajes de la contacta que se miran buscando un correo que ya dejó. */
-const EMAIL_LOOKBACK = 15;
-/** No repetir el pedido del correo si ya se lo pedimos en este lapso. */
-const EMAIL_ASK_WINDOW_MS = 24 * 60 * 60 * 1000;
-
 /**
- * Le pide el correo a la contacta si todavía no lo tenemos: ni guardado en la
- * conversación, ni en el texto del adjunto, ni en sus últimos mensajes (el
- * worker lo guarda después de este flujo). Burbuja aparte, una vez por día.
- * Best-effort: nunca corta el registro del comprobante.
+ * ¿El comprobante recién registrado se suma a un grupo pendiente que ya tiene
+ * otra imagen y una notificación validacion_pago abierta? Best-effort: ante
+ * error, false (mejor una notificación de más que ninguna).
  */
-async function askEmailIfMissing(conversationId: string, caption?: string | null): Promise<void> {
+async function joinsOpenPaymentGroup(conversationId: string, paymentId: string): Promise<boolean> {
   try {
     const supabase = getSupabaseServerClient();
-    const { data: conv } = await supabase
-      .from("conversations")
-      .select("contact_email")
-      .eq("id", conversationId)
-      .maybeSingle();
-    if (normalizeContactEmail(conv?.contact_email)) return;
-    if (extractContactEmail(caption)) return;
-    const { data: previos, error } = await supabase
-      .from("messages")
-      .select("content")
+    const { data: pend, error } = await supabase
+      .from("payment_validations")
+      .select("id, conversation_id, event_slug, status, amount, operation_number, created_at")
       .eq("conversation_id", conversationId)
-      .eq("role", "user")
-      .order("created_at", { ascending: false })
-      .limit(EMAIL_LOOKBACK);
-    if (error) return;
-    if ((previos ?? []).some((m) => extractContactEmail(m.content))) return;
-    if (await assistantSaidRecently(conversationId, EMAIL_REQUEST_MESSAGE, EMAIL_ASK_WINDOW_MS)) {
-      return;
-    }
-    const { data: ask } = await supabase
-      .from("messages")
-      .insert({ conversation_id: conversationId, role: "assistant", content: EMAIL_REQUEST_MESSAGE })
+      .eq("status", "pending")
+      .order("created_at", { ascending: true });
+    if (error) return false;
+    const g = findGroupOf(pend ?? [], paymentId);
+    if (!g || g.members.length < 2) return false;
+    const { data: open } = await supabase
+      .from("agent_notifications")
       .select("id")
-      .single();
-    await deliverAssistantToWhatsApp({
-      conversationId,
-      messageId: ask?.id,
-      content: EMAIL_REQUEST_MESSAGE,
-    });
-  } catch (err) {
-    console.error("[payments] no se pudo pedir el correo:", err);
+      .eq("conversation_id", conversationId)
+      .eq("category", PAYMENT_NOTIFICATION_CATEGORY)
+      .is("resolved_at", null)
+      .limit(1);
+    return Boolean(open?.length);
+  } catch {
+    return false;
   }
 }
 
@@ -265,19 +254,23 @@ export async function releaseAwaitingComprobantes(
   const supabase = getSupabaseServerClient();
   const { data: rows, error } = await supabase
     .from("payment_validations")
-    .select("id, message_id, extraction")
+    .select("id, conversation_id, event_slug, status, amount, operation_number, created_at, message_id, extraction")
     .eq("conversation_id", conversationId)
     .eq("awaiting_title", true)
     .eq("status", "pending");
   if (error || !rows?.length) return 0;
 
-  let released = 0;
   for (const row of rows) {
     await supabase
       .from("payment_validations")
       .update({ awaiting_title: false, updated_at: new Date().toISOString() })
       .eq("id", row.id);
+  }
 
+  // Una notificación por PAGO, no por imagen (varias capturas del mismo pago
+  // son un solo comprobante a revisar, ver grouping.ts).
+  for (const g of groupPendingPayments(rows)) {
+    const row = g.canonical;
     const extraction = (row.extraction as unknown as PaymentExtraction) ?? null;
     await notifyTeamOfPayment({
       conversationId,
@@ -287,9 +280,8 @@ export async function releaseAwaitingComprobantes(
       isDuplicate: false,
       extraNote: "Título profesional validado por IA antes de habilitar el pago.",
     });
-    released++;
   }
-  return released;
+  return rows.length;
 }
 
 /**

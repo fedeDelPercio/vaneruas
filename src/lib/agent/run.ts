@@ -19,6 +19,8 @@ import type {
 } from "./types";
 import type { Json } from "@/lib/supabase/types";
 import { normalizeContactEmail } from "@/lib/contact-email";
+import { emailAskState, emailContextLine } from "@/lib/payments/email-ask";
+import { esAgrupado } from "@/lib/payments/dismiss";
 import { AGENT_HANDOFF_FILTER } from "@/lib/team-interventions";
 
 /**
@@ -273,6 +275,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
       assistantResponse: orch.responseText,
       history: input.history,
       eventsBlock,
+      paymentContext,
     });
 
     if (evaluation.pass) {
@@ -362,20 +365,29 @@ async function loadPaymentContext(conversationId: string): Promise<string> {
 }
 
 /**
- * Estado del correo para el acceso, solo si la conversación ya tiene algún
- * comprobante: así Valentina sabe si tiene que pedirlo (o no repetirlo).
+ * Estado del correo para el acceso, ya resuelto en código (email-ask.ts): solo
+ * se pide con el pago verificado (y el título, si hacía falta, aprobado).
+ * Antes le decía "pedile el correo" apenas había un comprobante y Valentina lo
+ * pedía antes de tiempo. Vacío si no hay comprobantes.
  */
 async function loadEmailContext(conversationId: string): Promise<string> {
   try {
     const sb = getSupabaseServerClient();
     const [{ data: pays }, { data: conv }] = await Promise.all([
-      sb.from("payment_validations").select("id").eq("conversation_id", conversationId).limit(1),
+      sb
+        .from("payment_validations")
+        .select("status, awaiting_title, validation_note")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: false })
+        .limit(50),
       sb.from("conversations").select("contact_email").eq("id", conversationId).maybeSingle(),
     ]);
-    if (!pays?.length) return "";
-    return normalizeContactEmail(conv?.contact_email)
-      ? "Ya tenemos su correo para el acceso: no se lo pidas de nuevo."
-      : "Todavía NO tenemos su correo para el acceso: pedile el correo con el que se inscribió en la web (una sola vez).";
+    const state = emailAskState({
+      hasEmail: Boolean(normalizeContactEmail(conv?.contact_email)),
+      hasPayment: (pays ?? []).some((p) => !esAgrupado(p)),
+      hasApprovedPayment: (pays ?? []).some((p) => p.status === "validated" && !p.awaiting_title),
+    });
+    return emailContextLine(state);
   } catch (err) {
     console.error("[run] no se pudo cargar el estado del correo:", err);
     return "";

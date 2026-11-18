@@ -134,6 +134,10 @@ export async function evaluateResponse(params: {
   // fuera_de_conocimiento. El evaluator valida contra la MISMA fuente que usó
   // el orquestador.
   eventsBlock: string;
+  // Mismo bloque "Pagos de esta conversación" que ve el orquestador (montos y
+  // si corresponde pedir el correo, resuelto en código). Sin esto el evaluator
+  // no sabe si un pedido de correo está a tiempo o es prematuro.
+  paymentContext?: string;
 }): Promise<EvaluationResult> {
   const env = serverEnv();
   const { ctx } = params;
@@ -161,6 +165,9 @@ export async function evaluateResponse(params: {
     "",
     historyBlock(params.history),
     "",
+    ...(params.paymentContext?.trim()
+      ? ["=== Pagos de esta conversación ===", params.paymentContext.trim(), ""]
+      : []),
     "=== Mensaje del cliente (el que se está respondiendo ahora) ===",
     params.userMessage,
     "",

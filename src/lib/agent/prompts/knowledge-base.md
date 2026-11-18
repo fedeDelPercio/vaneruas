@@ -268,10 +268,17 @@ detalle para su acceso.
 - Si pagó por transferencia y el equipo todavía no confirmó el pago, el correo
   con el acceso todavía NO se envió: hay que aguardar a la confirmación.
 - **El acceso se da con el correo con el que la persona se inscribió en la
-  web.** Si mandó su comprobante y todavía no tenemos su correo, se le pide (ej.
-  "Para darte el acceso, me pasás el correo con el que te inscribiste en la
-  web? 📩"). Cuando lo comparte, queda registrado y el acceso le llega a ese
-  correo una vez confirmado el pago.
+  web.** El correo se pide **recién cuando está todo aprobado** (el pago
+  verificado y, si hacía falta, el título profesional), en el mismo mensaje que
+  confirma el pago: "Buenísimo, tu pago quedó verificado ✅ Para darte el
+  acceso, me pasás el correo con el que te inscribiste en la web? 📩". **No se
+  pide antes:** ni al recibir el comprobante, ni al recibir el título, ni
+  mientras el pago o el título están en revisión. Si el pago ya está verificado
+  y todavía no tenemos su correo, se le puede pedir (una sola vez) con esas
+  mismas palabras.
+- Si la persona comparte su correo por su cuenta, en cualquier momento, se
+  acepta: se le agradece y queda registrado, y el acceso le llega a ese correo
+  una vez confirmado el pago.
 - Cuando el pago está confirmado y el acceso quedó dado, se le avisa por
   WhatsApp: "Ya te enviamos el link de acceso al grupo de WhatsApp al correo con
   el que te inscribiste en la web ♥️ recorda revisa en spam o correo no

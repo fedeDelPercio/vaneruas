@@ -14,6 +14,12 @@ import { assistantSaidRecently } from "@/lib/messages/dedup";
 import { captionLooksLikePayment } from "@/lib/payments/signals";
 import { autoEnrollConversation } from "@/lib/tiendup/auto-enroll";
 import { normalizeContactEmail } from "@/lib/contact-email";
+import { titleValidatedMessage } from "@/lib/payments/email-ask";
+import {
+  emailAlreadyAsked,
+  paymentPeriodStart,
+  resolveConversationEmail,
+} from "@/lib/payments/email-request";
 
 // ===========================================================================
 // Gate de validación de título profesional.
@@ -305,11 +311,49 @@ export async function markConversationTitleValidated(
     hasComprobante = Boolean(pv?.length);
   }
 
+  // ¿El pago ya estaba verificado (aprobación forzada antes del título)? Con
+  // todo aprobado es el momento de pedir el correo, si falta y no se lo
+  // pedimos ya por este pago (al aprobarlo). Un solo mensaje (email-ask.ts).
+  let afterPayment: string | null = null;
+  try {
+    const { data: okPay } = await supabase
+      .from("payment_validations")
+      .select("id, event_slug")
+      .eq("conversation_id", conversationId)
+      .eq("status", "validated")
+      .eq("awaiting_title", false)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (okPay) {
+      const email = await resolveConversationEmail(supabase, conversationId);
+      const alreadyAsked = email
+        ? true
+        : await emailAlreadyAsked(
+            supabase,
+            conversationId,
+            await paymentPeriodStart(supabase, {
+              conversationId,
+              eventSlug: okPay.event_slug ?? null,
+              paymentId: okPay.id,
+            }),
+          );
+      afterPayment = titleValidatedMessage({
+        paymentValidated: true,
+        hasEmail: Boolean(email),
+        alreadyAsked,
+      });
+    }
+  } catch (err) {
+    console.error("[titles] no se pudo leer el estado del pago:", err);
+  }
+
   await insertAssistant(
     conversationId,
-    hasComprobante
-      ? "Listo, validé tu título ✨ Ya tengo tu comprobante, el equipo revisa la inscripción y te confirma a la brevedad 🙌"
-      : "Listo, validé tu título ✨ Si ya hiciste el pago, con el comprobante confirmamos tu inscripción 🙌",
+    afterPayment ??
+      (hasComprobante
+        ? "Listo, validé tu título ✨ Ya tengo tu comprobante, el equipo revisa la inscripción y te confirma a la brevedad 🙌"
+        : "Listo, validé tu título ✨ Si ya hiciste el pago, con el comprobante confirmamos tu inscripción 🙌"),
   );
   await touchConversation(conversationId);
   return released;

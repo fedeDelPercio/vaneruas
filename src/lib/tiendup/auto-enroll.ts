@@ -79,7 +79,7 @@ function waitsForAccess(p: PaymentRow): boolean {
 function pendingReason(o: GrantOutcome): string | null {
   switch (o.kind) {
     case "no_email":
-      return "todavía no tenemos su correo (Valentina se lo pide)";
+      return "todavía no tenemos su correo (se le pidió al confirmar el pago)";
     case "invalid_email":
       return "el correo que dejó no tiene un formato válido";
     case "name_conflict":
