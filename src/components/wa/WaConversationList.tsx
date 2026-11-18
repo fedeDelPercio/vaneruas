@@ -21,6 +21,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { formatPhone } from "@/lib/search";
 import { Avatar } from "../Avatar";
 import { SearchField } from "../SearchField";
+import { FilterChip, FilterChips } from "../ui/FilterChips";
 import type {
   WaConversationItem,
   WaConversationsResponse,
@@ -62,8 +63,8 @@ const FILTERS: {
   label: string;
   title: string;
   Icon?: typeof Hand;
-  /** Color del botón cuando tiene algo pendiente (ámbar por defecto). */
-  tone?: "warn" | "red";
+  /** El contador se pinta en dorado cuando hay pendientes (ver FilterChip). */
+  attention?: boolean;
 }[] = [
   { key: "all", label: "Todas", title: "Todas las conversaciones" },
   // Conversaciones con notificaciones al equipo sin resolver (derivaciones,
@@ -75,6 +76,7 @@ const FILTERS: {
     label: "Derivadas",
     title: "Conversaciones que necesitan intervención del equipo",
     Icon: Hand,
+    attention: true,
   },
   // Comprobante pendiente o título sin revisar: mismo criterio que /revision.
   {
@@ -82,6 +84,7 @@ const FILTERS: {
     label: "Falta aprobar",
     title: "Con un comprobante o un título esperando aprobación",
     Icon: ClipboardCheck,
+    attention: true,
   },
   // Tag "Crítico" del clasificador (src/lib/critical/).
   {
@@ -89,9 +92,15 @@ const FILTERS: {
     label: "Críticos",
     title: "Conversaciones marcadas como críticas (enojo, reclamo, amenaza)",
     Icon: TriangleAlert,
-    tone: "red",
+    attention: true,
   },
-  { key: "humano", label: "Con el equipo", title: "Conversaciones en modo Humano" },
+  // Estado, no pendiente: contador neutro.
+  {
+    key: "humano",
+    label: "Con el equipo",
+    title: "Conversaciones en modo Humano",
+    Icon: UserRound,
+  },
 ];
 
 /** Hora si es de hoy, "Ayer", día de la semana si es de esta semana, o fecha. */
@@ -398,48 +407,20 @@ export function WaConversationList({
             placeholder="Buscar por nombre o teléfono"
             className="mt-3"
           />
-          <div className="mt-2.5 flex flex-wrap items-center gap-1">
-            {FILTERS.map((f) => {
-              const count = f.key === "all" ? null : counts[f.key];
-              const activeFilter = filter === f.key;
-              // Look de Hábitat: los botones con ícono se marcan en ámbar
-              // cuando tienen algo pendiente, aunque no estén activos.
-              const flagged = Boolean(f.Icon) && (count ?? 0) > 0;
-              return (
-                <button
-                  key={f.key}
-                  onClick={() => toggleFilter(f.key)}
-                  aria-pressed={activeFilter}
-                  title={f.title}
-                  className={`flex min-h-[30px] items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12px] transition ${
-                    f.Icon ? "border font-medium" : ""
-                  } ${
-                    activeFilter
-                      ? "border-neutral-900 bg-neutral-900 text-white dark:border-neutral-50 dark:bg-neutral-50 dark:text-neutral-950"
-                      : flagged && f.tone === "red"
-                        ? "border-red-600/40 bg-white text-red-700 hover:bg-neutral-50 dark:border-red-400/50 dark:bg-neutral-950 dark:text-red-400 dark:hover:bg-neutral-900"
-                        : flagged
-                        ? "border-amber-700/40 bg-white text-warn-fg hover:bg-neutral-50 dark:border-amber-500/50 dark:bg-neutral-950 dark:text-warn dark:hover:bg-neutral-900"
-                        : f.Icon
-                          ? "border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-400 dark:hover:bg-neutral-900"
-                          : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-900"
-                  }`}
-                >
-                  {f.Icon && <f.Icon aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />}
-                  {f.label}
-                  {count !== null && (count > 0 || (Boolean(f.Icon) && loaded)) && (
-                    <span
-                      className={`min-w-3 text-center font-mono text-[10.5px] tabular-nums ${
-                        activeFilter ? "opacity-70" : flagged ? "" : "text-neutral-400 dark:text-neutral-500"
-                      }`}
-                    >
-                      {count}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+          <FilterChips label="Filtros de conversaciones" className="mt-2.5">
+            {FILTERS.map((f) => (
+              <FilterChip
+                key={f.key}
+                active={filter === f.key}
+                onClick={() => toggleFilter(f.key)}
+                label={f.label}
+                title={f.title}
+                Icon={f.Icon}
+                count={f.key === "all" || !loaded ? null : counts[f.key]}
+                attention={f.attention}
+              />
+            ))}
+          </FilterChips>
         </div>
 
         <div
