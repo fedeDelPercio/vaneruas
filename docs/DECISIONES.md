@@ -7,6 +7,103 @@ decidió, por qué, qué se descartó y qué costo o pendiente deja.
 
 ---
 
+## 18/11/2026 · Intervención automática, chat y lista estilo Hábitat, tag "Crítico"
+
+**Qué entró**
+
+- `src/lib/team-interventions.ts`: resolver las intervenciones abiertas cuando
+  el equipo responde (panel, importador de GHL y webhook outbound) y abrir
+  `humano_sin_respuesta` cuando la contacta escribe con la IA en pausa.
+- Chat de /wa con el layout de Hábitat (`MessageAvatar`, burbujas, toggle IA /
+  Humano, "Agregar nota"). /revision lo hereda.
+- Lista de /wa: línea de atención, botones "Derivadas", "Falta aprobar" y
+  "Críticos" con contador.
+- Tag "Crítico": migración `034_conversation_critical.sql` (sin aplicar),
+  `src/lib/critical/` (clasificador + evaluación), pill `CriticalPill`,
+  `DELETE /api/wa/critical/[id]`, `scripts/test-critical-classifier.ts`.
+
+**D-36 · Qué cierra una respuesta del equipo.** Responder resuelve las
+derivaciones del agente y la `humano_sin_respuesta`. No toca `validacion_pago`
+(se cierra al revisar el comprobante), `reclamo_certificado` (tiene su cola y
+contestar no es resolver el certificado; mismo criterio que "Marcar atendida"
+del chat) ni las de sistema `tiendup_*` (se cierran cuando el alta sale).
+Desde el panel `resolved_by` es el perfil que escribió (el composer lo manda;
+el panel no tiene sesión de servidor). Desde GHL (importador o webhook
+outbound) `resolved_by` queda null y solo se cierran las creadas ANTES del
+mensaje humano. Patrón de Hábitat (`human-reply.ts`), que resuelve todo sin
+excepción: acá hay categorías con cierre propio.
+
+**D-37 · `humano_sin_respuesta` usa `escalado_manual`.** El CHECK de categorías
+de la base no admite una nueva sin migración (ver CONTEXTO, sección 4). La marca
+va en `reason`. Una sola abierta por conversación: si ya hay cualquier
+intervención que se cierre respondiendo, no se abre otra ni se manda email. Se
+abre en el worker (rama de modo Humano), así los comprobantes y títulos, que
+corta antes el intake con su `validacion_pago`, no la duplican. El agente
+(`AGENT_HANDOFF_FILTER` en run.ts) y las métricas de derivaciones la ignoran,
+igual que a las `tiendup_*`. No inserta cartel de sistema en el chat (se
+repetiría cada vez que la contacta vuelve a escribir).
+
+**D-38 · Chat igual a Hábitat, colores de la marca.** Mismo layout: la clienta
+a la derecha con burbuja oscura e iniciales, la IA y el equipo a la izquierda.
+La IA lleva el robot en dorado (donde Hábitat usa su verde) y la etiqueta
+"Valentina · IA" (el equipo ya la conoce como Valentina; descartado "IA · Vanesa
+Rúas"). El equipo, que en Hábitat es ámbar, acá es neutro sólido para no
+confundirse con el dorado. Etiqueta "Equipo": los mensajes no guardan quién del
+equipo los escribió (falta columna, ya anotado en el QA). El feedback por
+mensaje es el mismo concepto que Hábitat (tabla `comments`, `target_type
+message`, positivo / neutro / negativo); se mantuvo el flujo de vaneruas
+(`QuickCommentBubble` + `/api/comments`) sin el borrador autoguardado ni la
+clasificación de Hábitat, que piden columnas que acá no están.
+
+**D-39 · "Derivadas" y "Falta aprobar".** En Hábitat el botón de la mano dice
+"Pendientes"; acá dice "Derivadas" por pedido de Federico, con el mismo look
+(borde ámbar cuando hay algo). El criterio no cambió (`interventions.ts`).
+"Falta aprobar" = comprobante `pending` (incluidos los retenidos) o título sin
+revisar, igual que la cola de /revision; se traen las dos listas paginadas con
+`client_slug` explícito y se cruzan en memoria.
+
+**D-40 · "Crítico": clasificador aparte, no dentro del agente.** Hábitat calcula
+"caliente" dentro de la misma llamada del orquestador (campo `ai_temperature`
+del `lead_state`, salida estructurada) más reglas en código y override manual.
+Acá no se tocó el prompt de Valentina (el evaluator y el caching dependen de
+él): es una llamada aparte a Haiku, una vez por turno, solo si entró un
+mensaje de la contacta después de la última evaluación (`critical_evaluated_at`).
+En modo IA corre después de responder (no demora la respuesta); en modo Humano,
+solo el job del último mensaje. Usa `createConversationMessage` (mismo
+proveedor y fallback que el agente). El costo queda en el log
+(`[critical] ... in= out= cost_usd=`) y no en `agent_trace_steps`, que exige un
+trace del agente: crear uno por clasificación ensuciaba métricas y trazas.
+
+**D-41 · El tag es pegajoso y lo apaga el equipo.** El modelo lo prende pero no
+lo apaga: que la contacta se calme en el último mensaje no significa que alguien
+la atendió. Al limpiarlo a mano no se toca `critical_evaluated_at`, así que se
+vuelve a evaluar con el próximo mensaje de la contacta.
+
+**D-42 · Columnas nuevas en vez de jsonb.** `conversations` no tiene un jsonb
+reutilizable (el `lead_state` es de Hábitat). Cuatro columnas nullable sin
+default: en Postgres es un cambio de metadata, no reescribe la tabla
+compartida, y los otros tenants quedan en null. Sin índice nuevo (tabla chica).
+Todo el código degrada si la migración no está: la lista y /revision reintentan
+sin las columnas (y lo recuerdan 10 minutos), el worker no llama al modelo.
+
+**D-43 · Flag apagado por defecto.** `CRITICAL_CLASSIFIER_ENABLED` arranca
+apagado hasta que Federico revise el criterio con casos reales. Modelo en
+`CRITICAL_CLASSIFIER_MODEL` (default `claude-haiku-4-5`).
+
+### Pendientes que deja esta entrega
+
+- Aplicar `034_conversation_critical.sql` y prender el flag.
+- Probar todo contra datos reales: nada corrió con red.
+- `humano_sin_respuesta` puede mandar un email cada vez que la contacta vuelve a
+  escribir después de que el equipo respondió. Si molesta, agregar una ventana
+  mínima entre emails.
+- Dos jobs simultáneos de la misma conversación pueden abrir dos
+  `humano_sin_respuesta` (no hay índice único). Bajo volumen, se aceptó.
+- La etiqueta del equipo dice "Equipo": para mostrar el nombre hace falta una
+  columna `sender_profile_id` en `messages`.
+
+---
+
 ## 17/11/2026 · Panel consolidado de revisión (`/revision`)
 
 **Qué entró**

@@ -4,7 +4,7 @@ Documento para agentes de código (Claude, Codex, Grok, etc.) que trabajan en
 este repo. Leelo entero antes de tocar el agente, la base de datos o el panel.
 Para reglas visuales del panel, ver `design-system.md` y `CLAUDE.md`.
 
-Actualizado al 17/11/2026.
+Actualizado al 18/11/2026.
 
 ---
 
@@ -127,6 +127,22 @@ Exige modo `HUMAN` y respeta `GHL_SEND_ALLOWLIST`. El importador de mensajes
 del equipo reconoce esos envíos por el id y no los duplica; su marca de agua
 solo mira mensajes sin `delivered_at` (los importados).
 
+**Intervenciones automáticas** (`src/lib/team-interventions.ts`, D-36/D-37):
+cuando el equipo responde (panel, importador de GHL o webhook outbound) las
+intervenciones abiertas de la conversación se resuelven solas, salvo
+`validacion_pago`, `reclamo_certificado` y las `tiendup_*`. Desde GHL solo las
+creadas antes del mensaje humano. Y si la conversación está en `HUMAN` y la
+contacta escribe, el worker abre una `escalado_manual` con `reason`
+`humano_sin_respuesta` (una sola abierta, email solo la primera vez). El agente
+y las métricas la ignoran como derivación (`AGENT_HANDOFF_FILTER`).
+
+**Tag "Crítico"** (`src/lib/critical/`, D-40 a D-43): clasificador Haiku que
+corre en el worker una vez por turno de la contacta (modo IA y Humano) si hay
+un mensaje suyo posterior a `critical_evaluated_at`. Lee los últimos 10
+mensajes de texto y devuelve `{critical, reason}`. Lo prende el modelo y lo
+apaga el equipo a mano (header del chat). Flag `CRITICAL_CLASSIFIER_ENABLED`,
+apagado por defecto. Necesita la migración 034; sin ella, todo sigue sin tag.
+
 **Debounce:** `MESSAGE_DEBOUNCE_SECONDS` (~60 s en prod). Toda respuesta de
 WhatsApp espera ese silencio antes de contestar. Es una decisión aceptada.
 
@@ -238,16 +254,17 @@ cliente". No es un bug del agente.
 ## 6. Base de datos
 
 Proyecto Supabase compartido, schema `public`, migraciones en
-`supabase/migrations/` (001 a 033). No hay MCP de Supabase siempre disponible:
+`supabase/migrations/` (001 a 034; la 034, columnas `critical_*` en
+`conversations`, está escrita pero sin aplicar al 18/11/2026). No hay MCP de Supabase siempre disponible:
 para leer o escribir datos se usan scripts con service role.
 
 | Tabla | Para qué |
 |---|---|
-| `conversations` | Una por contacto. `external_id` = contactId de GHL, `source` (`whatsapp`/`test`), `mode` (`AI`/`HUMAN`), `contact_email`, `is_existing_customer`, `agendada`, `ghl_conversation_id`, `display_name` |
+| `conversations` | Una por contacto. `external_id` = contactId de GHL, `source` (`whatsapp`/`test`), `mode` (`AI`/`HUMAN`), `contact_email`, `is_existing_customer`, `agendada`, `ghl_conversation_id`, `display_name`, `critical*` (tag "Crítico", migración 034) |
 | `messages` | `role`: `user` (clienta), `assistant` (Valentina o el panel), `human` (equipo, importado de GHL), `system` (carteles). `external_id` = id de GHL. **Tiene `client_slug` NOT NULL**: con service role hay que setearlo al insertar |
 | `agent_jobs` | Cola del worker, con `process_after` para el debounce |
 | `agent_traces` / `agent_trace_steps` | Una corrida del agente y sus pasos (tokens, cache, costo) |
-| `agent_notifications` | Derivaciones al equipo (`category`, `reason`, `summary`, `resolved_at`/`resolved_by`). Las de sistema de Tiendup van como `escalado_manual` con `reason` que empieza con `tiendup_` |
+| `agent_notifications` | Derivaciones al equipo (`category`, `reason`, `summary`, `resolved_at`/`resolved_by`). Las de sistema de Tiendup van como `escalado_manual` con `reason` que empieza con `tiendup_`; "escribió con la IA en pausa", como `escalado_manual` con `reason` `humano_sin_respuesta` |
 | `payment_validations` | Comprobantes: monto leído por OCR, `event_slug`, `status` (`pending`/`validated`/`rejected`), `awaiting_title`, `course_access_granted_at`, `delivery_failed` |
 | `professional_titles` | Títulos enviados para el gate |
 | `agent_settings` | Settings por tenant (una fila por `client_slug`, RLS `tenant_isolation`). Ya existía en el Supabase compartido; `033_agent_settings.sql` solo la documenta. Este panel usa `auto_send.tiendup_auto_enroll` (+ `_updated_by` / `_updated_at`) para el interruptor del alta automática. La fila se crea con upsert desde el panel con el cliente JWT; al escribir se mergea el jsonb para no pisar otras keys |
@@ -262,7 +279,7 @@ Roles y rutas del panel: `ROLE_ACCESS` en `src/lib/profile.ts`.
 
 | Ruta | Qué es |
 |---|---|
-| `/wa` | Bandeja de WhatsApp: lista paginada con buscador y filtros (Todas, Intervención, Con el equipo), chat visto desde el equipo (tomar la conversación y escribirle a la clienta) y ficha del contacto con sus eventos, donde se ven y se aprueban o rechazan comprobantes y títulos. Componentes en `src/components/wa/`, rutas en `src/app/api/wa/` |
+| `/wa` | Bandeja de WhatsApp: lista paginada con buscador y filtros (Todas, Derivadas, Falta aprobar, Críticos, Con el equipo; `?filter=intervencion|derivadas|aprobar|criticos|humano` en la API), línea ámbar en las filas que necesitan intervención, chat con el layout de Hábitat (clienta a la derecha, Valentina y el equipo a la izquierda con avatar, feedback por mensaje en las respuestas de Valentina, toggle IA / Humano, "Agregar nota", pill "Crítico" que se saca a mano), visto desde el equipo (tomar la conversación y escribirle a la clienta) y ficha del contacto con sus eventos, donde se ven y se aprueban o rechazan comprobantes y títulos. Componentes en `src/components/wa/`, rutas en `src/app/api/wa/` |
 | `/payments` (Aprobaciones) | Validar comprobantes. Pestaña **"Falta acceso"** = worklist de masterclass validadas sin acceso a Tiendup (incluye a quien no dejó correo, con aviso). `?filter=sin-acceso` abre directo en esa pestaña |
 | `/revision` (Revisión) | Vista consolidada para aprobar: cola de comprobantes pendientes (incluidos los retenidos por título) y títulos para revisar, con indicador de derivación abierta; al medio el chat de WhatsApp (`WaChatPanel`); a la derecha el archivo con Aprobar / Rechazar (`FileReviewPanel`, mismas PATCH que Aprobaciones), derivaciones abiertas y estado del acceso a Tiendup (ficha de /wa). `?id=` = comprobante o título seleccionado. Tras cada acción pasa solo al siguiente. Sin endpoints propios: `GET /api/payments?with=interventions` |
 | `/interventions` (Derivaciones) | Lo que Valentina pasó al equipo (excluye comprobantes y certificados) |
@@ -492,7 +509,7 @@ Sumá `OPENROUTER_API_KEY`, `GHL_API_KEY`, `NEXT_PUBLIC_GHL_LOCATION_ID`,
 | `scripts/import-mensajes-equipo.ts` | Backfill de mensajes del equipo desde GHL |
 | `scripts/tiendup-reconciliar-accesos.ts` | Marca como "acceso dado" a quien ya está en Tiendup (requiere `--apply`) |
 | `scripts/openrouter-cost-report.ts` | Costo real por período |
-| `scripts/test-*.ts` | Tests puntuales (debounce, traducción LLM, match de destinatario, etc.) |
+| `scripts/test-*.ts` | Tests puntuales (debounce, traducción LLM, match de destinatario, clasificador "Crítico" e intervenciones automáticas, etc.) |
 
 Validá siempre con `npx tsc --noEmit` y `npx next build` antes de commitear.
 
