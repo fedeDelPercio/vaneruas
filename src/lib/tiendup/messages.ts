@@ -40,3 +40,32 @@ export function enrollmentPendingSummary(motivo: string): string {
 
 export const ACCESS_NOTICE_FAILED_SUMMARY =
   "Se le dio el acceso en Tiendup, pero no se le pudo avisar por WhatsApp (probable ventana de 24 h vencida). Avisale a mano que el link del grupo le llegó al correo con el que se inscribió";
+
+// --- Error "el mail no figura en Tiendup" -----------------------------------
+//
+// Cuando el alta automática se frena porque el correo no existe como cliente
+// de la tienda, se guarda en payment_validations.course_access_error con este
+// prefijo estable (sin schema nuevo). La ficha (status.ts) lo reconoce y lo
+// muestra como `not_found` aunque la consulta en vivo a Tiendup falle. Se
+// limpia solo cuando el acceso queda dado (markGranted pone el error en null)
+// o lo pisa un error posterior del alta.
+
+export const NOT_IN_TIENDUP_PREFIX = "NOT_IN_TIENDUP:";
+export const NOT_IN_TIENDUP_TEXT = "El mail no figura en Tiendup";
+
+/** Valor de course_access_error para "el mail no figura en Tiendup". */
+export function notInTiendupError(): string {
+  return `${NOT_IN_TIENDUP_PREFIX} ${NOT_IN_TIENDUP_TEXT}`;
+}
+
+/** ¿El error guardado es el de "el mail no figura en Tiendup"? */
+export function isNotInTiendupError(error: string | null | undefined): boolean {
+  return Boolean(error?.trim().startsWith(NOT_IN_TIENDUP_PREFIX));
+}
+
+/** Error guardado para mostrar en el panel: sin el prefijo técnico. */
+export function displayCourseAccessError(error: string | null | undefined): string | null {
+  const e = error?.trim();
+  if (!e) return null;
+  return isNotInTiendupError(e) ? e.slice(NOT_IN_TIENDUP_PREFIX.length).trim() || NOT_IN_TIENDUP_TEXT : e;
+}

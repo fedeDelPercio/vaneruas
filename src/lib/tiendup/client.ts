@@ -7,16 +7,28 @@ import "server-only";
 // header `x-api-key`. La key vive en `TIENDUP_API_KEY` (server-only). El host se
 // puede override con `TIENDUP_BASE_URL`.
 //
-// Enroll confirmado en vivo:
+// Llamadas que usamos (todas con la misma key):
 //   POST /learning/courses/{courseId}/enroll
-//   body: { customer: { email, name?, last_name? }, enrollment_type: "paid" }
-//   → crea el cliente en Tiendup si no existe + lo inscribe. Idempotente.
+//     body: { customer: { email, name?, last_name? }, enrollment_type: "paid" }
+//     → crea el cliente en Tiendup si no existe + lo inscribe. Idempotente.
+//     ÚNICA llamada que escribe.
+//   GET  /learning/courses/{courseId}/enrolled?limit=100&page=N
+//     → inscriptos al curso (listEnrolled / listEnrolledChecked).
+//   GET  /customers?limit=100&page=N
+//     → TODOS los clientes de la tienda (listCustomersChecked, customers.ts).
+//     No hay búsqueda por correo: se recorre el listado y se busca en memoria.
 // ===========================================================================
 
 import type { TiendupEnrolled } from "./match";
+import {
+  createCustomersCache,
+  fetchAllCustomers,
+  type CustomersListing,
+} from "./customers";
 
 // El match contra el listado (puro, testeable sin red) vive en match.ts.
 export { findExistingEnrollment, type ExistingEnrollment, type TiendupEnrolled } from "./match";
+export { findCustomerByEmail, type CustomersListing, type TiendupCustomer } from "./customers";
 
 const DEFAULT_BASE_URL = "https://vanesaruas.public-api.tiendup.com";
 const TIMEOUT_MS = 20000;
@@ -186,6 +198,23 @@ export async function listEnrolledChecked(
     // best-effort: si falla, devolvemos lo que juntamos.
   }
   return { enrolled: out, complete };
+}
+
+// --- Clientes de la tienda --------------------------------------------------
+
+const customersCache = createCustomersCache();
+
+/**
+ * Listado COMPLETO de clientes de la tienda (solo GET, paginado en orden),
+ * con cache en memoria compartida por el alta (botón y automática) y la ficha:
+ * 10 min si vino completo, 1 min si no. `maxAgeMs` acota la edad aceptada
+ * (0 = releer). Sin key → { ok:false, complete:false }. Nunca lanza.
+ */
+export async function listCustomersChecked(opts: { maxAgeMs?: number } = {}): Promise<CustomersListing> {
+  return customersCache.get({
+    maxAgeMs: opts.maxAgeMs,
+    loader: () => fetchAllCustomers({ apiKey: process.env.TIENDUP_API_KEY, baseUrl: baseUrl() }),
+  });
 }
 
 /**
