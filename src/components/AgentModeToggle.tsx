@@ -84,7 +84,7 @@ export function AgentModeToggle({
           <span className="whitespace-nowrap text-[12px] font-medium text-neutral-400 dark:text-neutral-500">IA</span>
         )}
         <span aria-hidden className="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-neutral-200 opacity-60 dark:bg-neutral-800">
-          <span className="flex h-4 w-4 translate-x-0.5 items-center justify-center rounded-full bg-white shadow-sm dark:bg-neutral-600">
+          <span className="flex h-4 w-4 translate-x-0.5 items-center justify-center rounded-full bg-white dark:bg-neutral-600">
             <Loader2 className="h-2.5 w-2.5 animate-spin text-neutral-400" strokeWidth={2} />
           </span>
         </span>
@@ -113,8 +113,9 @@ export function AgentModeToggle({
       )}
       {/* Switch real (track + thumb). Tocarlo no cambia el modo en el acto:
           abre la confirmación de siempre; aria-checked refleja el estado
-          vigente. Prendido = dorado de marca (mismo switch que el alta
-          automática de Tiendup), apagado = neutro. */}
+          vigente. Sutil a propósito (no tiene que resaltar en el menú):
+          prendido = track neutro oscuro (claro en dark), apagado = gris. Sin
+          dorado ni glow. */}
       <button
         type="button"
         role="switch"
@@ -134,9 +135,7 @@ export function AgentModeToggle({
       >
         {!compact && (
           <span
-            className={`whitespace-nowrap text-[12px] font-medium ${
-              isAI ? "text-neutral-900 dark:text-neutral-50" : "text-neutral-500 dark:text-neutral-400"
-            }`}
+            className="whitespace-nowrap text-[12px] font-medium text-neutral-600 dark:text-neutral-400"
           >
             {isAI ? "IA activa" : "IA apagada"}
           </span>
@@ -145,13 +144,15 @@ export function AgentModeToggle({
           aria-hidden
           className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition ${
             isAI
-              ? "bg-gradient-to-br from-gold to-gold-start group-hover:shadow-gold"
-              : "bg-neutral-200 group-hover:bg-neutral-300 dark:bg-neutral-700 dark:group-hover:bg-neutral-600"
+              ? "bg-neutral-800 dark:bg-neutral-300"
+              : "bg-neutral-200 group-hover:bg-neutral-300 dark:bg-neutral-800 dark:group-hover:bg-neutral-700"
           } ${busy ? "opacity-60" : ""}`}
         >
           <span
-            className={`flex h-4 w-4 items-center justify-center rounded-full bg-white shadow-sm transition ${
-              isAI ? "translate-x-[18px]" : "translate-x-0.5"
+            className={`flex h-4 w-4 items-center justify-center rounded-full transition ${
+              isAI
+                ? "translate-x-[18px] bg-white dark:bg-neutral-900"
+                : "translate-x-0.5 bg-white dark:bg-neutral-500"
             }`}
           >
             {busy && <Loader2 className="h-2.5 w-2.5 animate-spin text-neutral-500" strokeWidth={2} />}
