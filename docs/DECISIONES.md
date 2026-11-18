@@ -7,6 +7,117 @@ decidió, por qué, qué se descartó y qué costo o pendiente deja.
 
 ---
 
+## 18/11/2026 · Panel de filtros, switch sutil, correo con todo aprobado y comprobantes agrupados
+
+**Qué entró**
+
+- `FilterPanel` (tarjeta con título "Filtros") y `FilterChips columns` (grilla
+  de columnas iguales). /wa: Todas, Derivadas, Falta aprobar y Críticos en dos
+  columnas; se sacó "Con el equipo". /payments: estado y evento en el mismo
+  panel.
+- `AgentModeToggle` sin dorado ni glow.
+- `src/lib/payments/email-ask.ts` (regla pura) + `email-request.ts`
+  (lecturas): el correo se pide solo con todo aprobado.
+- `src/lib/payments/grouping.ts`: varias imágenes del mismo pago = un ítem.
+
+**D-60 · Switch de IA neutro (reemplaza a D-59 en el color).** Prendido:
+track `neutral-800` (`neutral-300` en dark) con thumb blanco (`neutral-900` en
+dark); apagado: gris. Sin gradiente, sin `shadow-gold`, label en texto
+secundario para los dos estados. Por qué: en el menú destacaba más que la
+navegación. La acción y la confirmación no cambian.
+
+**D-61 · Filtros en grilla y dentro de un panel.** Todos los chips del mismo
+alto y ancho: `grid-cols-2` en la columna de 340 px de /wa, 5 columnas (3 en
+celular) para el estado y 3 para el evento en Aprobaciones. En grilla el label
+se trunca y el contador va a la derecha. "Todas" suma el ícono `Inbox` para
+que las cuatro celdas se lean iguales. Título del panel: `text-[11px]
+uppercase tracking-wide` muted, tarjeta `rounded-xl` con borde neutro.
+
+**D-62 · "Con el equipo" fuera, también de la API.** Quedaba sin uso: se
+sacaron el chip, el contador `humano` y el filtro `mode = HUMAN` de
+`/api/wa/conversations`. Un `?filter=humano` guardado cae a "Todas" (cliente y
+API) sin error.
+
+**D-63 · El correo se pide una sola vez y con todo aprobado.** Antes, al
+recibir el comprobante, salía "Comprobante recibido, esperando validación del
+título" + el pedido del título + otra burbuja pidiendo el correo, que se leía
+inconexa. Ahora:
+- Al recibir comprobante o título no se pide nada (se sacó
+  `askEmailIfMissing`).
+- Al aprobar (`PATCH /api/payments/[id]`) el gate ya pasó (retenido = 409 o
+  forzado), así que es el momento: si no hay correo (ni guardado ni en los
+  últimos 15 mensajes de la contacta, que se rescata y guarda), la
+  confirmación de pago se reemplaza por `PAYMENT_APPROVED_ASK_EMAIL_MESSAGE`:
+  confirma y pide el correo en el mismo mensaje.
+- Título validado con el pago ya verificado (aprobación forzada antes):
+  `TITLE_VALIDATED_ASK_EMAIL_MESSAGE` si falta el correo.
+- Idempotencia: si desde el primer comprobante de ese evento ya salió alguno
+  de los textos que piden el correo (`EMAIL_ASK_MESSAGES`, incluido el suelto
+  viejo), va la confirmación de siempre. Ante error de lectura, no se pide
+  (un pedido repetido confunde más; el equipo ve "falta correo" en Falta
+  acceso).
+- El envío es el de siempre (`deliverAssistantToWhatsApp`): respeta
+  `GHL_SEND_ALLOWLIST` y modo Humano (skipped, el texto queda en el panel) y la
+  ventana de 24 h (failed → `delivery_failed` + "No se avisó al cliente").
+  Costo aceptado: si salió skipped por modo Humano, cuenta como "ya pedido".
+- El alta automática "sin correo" sigue abriendo su notificación al equipo; el
+  motivo ahora dice "se le pidió al confirmar el pago". No manda otro pedido.
+- Agente: `run.ts` pasa "Pedir correo: SÍ / NO / NO todavía" calculado en
+  código (SÍ solo con un pago `validated` sin retención y sin correo). El
+  bloque va también al evaluator (antes solo lo veía el orquestador). KB y
+  orquestador dicen que no se pide antes de tiempo y que si lo ofrece se
+  acepta.
+
+**D-64 · Imágenes del mismo pago: agrupar en lectura, resolver en grupo.**
+Se agrupan los `pending` de la misma conversación y el mismo `event_slug` (los
+null de una conversación juntos). No se guarda el grupo: se calcula en vivo
+con la misma función pura en GET /api/payments, la ficha de /wa, los contadores
+(`/api/counts`, "Falta aprobar", pills), métricas y la PATCH. Así los 30 grupos
+que ya existen se ven bien sin backfill.
+- **Canónico:** el más viejo con monto y N° de operación; si no, con monto; si
+  no, el más viejo. Es el que muestra la lista y el id que manda el panel.
+- **Aprobar:** el canónico queda `validated`; el resto `rejected` con
+  `mergedNote(canónico)` ("Agrupado con el comprobante <id>"). Rechazar o
+  descartar: todos con la misma nota. Volver a pendiente: vuelven también los
+  agrupados con él. Aviso por WhatsApp, alta en Tiendup y cierre de
+  `validacion_pago`, una vez. La PATCH acepta `group: false` para resolver uno
+  solo (nadie lo usa hoy).
+- **Por qué `rejected` + nota y no `validated` + nota:** con `validated` las
+  imágenes extra entraban a "Falta acceso" (un ítem por imagen), al alta
+  automática de Tiendup, a la métrica de confirmados y a la suma del monto
+  aprobado de la ficha cuando no hay N° de operación leído (ahí no se puede
+  deduplicar). Con `rejected` solo había que excluirlas de lo que mira
+  rechazos: métricas (fuera del total, ni rechazado ni descartado), ficha
+  (fuera de eventos y de archivos sueltos) y listas (colgadas del canónico,
+  nunca como "Rechazado"). La PATCH de rechazo no manda WhatsApp, así que no
+  hay aviso que evitar. El CHECK de `status` no admite otro valor y no se tocó
+  el esquema.
+- **Pagos realmente distintos:** N° de operación leídos distintos → un ítem por
+  N° (la imagen sin N° va con el más viejo). Montos distintos con el mismo N°
+  o sin N° → un ítem con el aviso "Parecen pagos distintos" (el OCR a veces lee
+  mal el monto; separar a ciegas era peor).
+- **Notificación:** una imagen nueva que cae en un grupo pendiente con
+  `validacion_pago` abierta no abre otra (ni email). Al liberar retenidos por
+  título, una notificación por grupo.
+- **UI:** pill "Comprobante" sin número; "N envíos" fuera de la ficha; ítem con
+  "N imágenes" (cola de /revision, fila de la ficha); el modal y /revision
+  navegan entre imágenes con miniaturas y flechas; Aprobaciones muestra las
+  otras imágenes chicas bajo la principal.
+
+### Pendientes que deja esta entrega
+
+- Probar en un navegador real con datos (light y dark): panel de filtros en
+  /wa y Aprobaciones, switch en el menú contraído, grupo de 3 imágenes en la
+  ficha, /revision y Aprobaciones.
+- Correr `scripts/evals-agente.ts` con un caso "mandó comprobante, pago en
+  revisión" y otro "pago verificado sin correo" para ver que Valentina no pida
+  el correo antes de tiempo y que el evaluator no rechace el pedido a tiempo
+  (no se corrió: usa red).
+- La cartelera de sistema "Comprobante de pago recibido" se sigue escribiendo
+  una vez por imagen (es solo para el equipo en el chat).
+
+---
+
 ## 18/11/2026 · Componente de filtros e interruptor "IA activa / IA apagada"
 
 **Qué entró**

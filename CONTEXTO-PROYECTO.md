@@ -292,7 +292,7 @@ para que el teclado de Safari no tape el composer.
 
 | Ruta | Qué es |
 |---|---|
-| `/wa` | Bandeja de WhatsApp: lista paginada con buscador y filtros (Todas, Derivadas, Falta aprobar, Críticos, Con el equipo; `?filter=intervencion|derivadas|aprobar|criticos|humano` en la API), línea ámbar en las filas que necesitan intervención, chat con el layout de Hábitat (clienta a la derecha, Valentina y el equipo a la izquierda con avatar, feedback por mensaje en las respuestas de Valentina, toggle IA / Humano, "Agregar nota", pill "Crítico" que se saca a mano), visto desde el equipo (tomar la conversación y escribirle a la clienta) y ficha del contacto con sus eventos, donde se ven y se aprueban o rechazan comprobantes y títulos. Componentes en `src/components/wa/`, rutas en `src/app/api/wa/` |
+| `/wa` | Bandeja de WhatsApp: lista paginada con buscador y panel "Filtros" (Todas, Derivadas, Falta aprobar, Críticos, en grilla de 2 columnas; `?filter=intervencion|derivadas|aprobar|criticos` en la API; "Con el equipo" se sacó el 18/11 y un `?filter=humano` viejo cae a Todas), línea ámbar en las filas que necesitan intervención, chat con el layout de Hábitat (clienta a la derecha, Valentina y el equipo a la izquierda con avatar, feedback por mensaje en las respuestas de Valentina, toggle IA / Humano, "Agregar nota", pill "Crítico" que se saca a mano), visto desde el equipo (tomar la conversación y escribirle a la clienta) y ficha del contacto con sus eventos, donde se ven y se aprueban o rechazan comprobantes y títulos. Componentes en `src/components/wa/`, rutas en `src/app/api/wa/` |
 | `/payments` (Aprobaciones) | Validar comprobantes. Pestaña **"Falta acceso"** = worklist de masterclass validadas sin acceso a Tiendup (incluye a quien no dejó correo, con aviso). `?filter=sin-acceso` abre directo en esa pestaña |
 | `/revision` (Revisión) | Vista consolidada para aprobar (3 columnas desde xl; debajo, pestañas): cola de comprobantes pendientes (incluidos los retenidos por título) y títulos para revisar, con indicador de derivación abierta; al medio el chat de WhatsApp (`WaChatPanel`); a la derecha el archivo con Aprobar / Rechazar (`FileReviewPanel`, mismas PATCH que Aprobaciones), derivaciones abiertas y estado del acceso a Tiendup (ficha de /wa). `?id=` = comprobante o título seleccionado. Tras cada acción pasa solo al siguiente. Sin endpoints propios: `GET /api/payments?with=interventions` |
 | `/interventions` (Derivaciones) | Lo que Valentina pasó al equipo (excluye comprobantes y certificados) |
@@ -326,7 +326,20 @@ Aprobaciones, detalles que importan:
 
 - **Aprobar** manda por WhatsApp: "Buenísimo, tu pago quedó verificado ✅ En
   breve te enviamos el acceso a tu correo, cualquier cosa quedamos en contacto
-  🙌🏻".
+  🙌🏻". Si todavía no tenemos su correo, ese mensaje se reemplaza por uno que
+  confirma el pago y pide el correo en el mismo texto
+  (`PAYMENT_APPROVED_ASK_EMAIL_MESSAGE`). Es el único momento en que se pide el
+  correo, una vez por pago (`src/lib/payments/email-ask.ts`, D-63).
+- **Varias imágenes del mismo pago son un solo comprobante**
+  (`src/lib/payments/grouping.ts`, D-64): los pendientes de la misma
+  conversación y evento se muestran como un ítem (canónico + miniaturas) en
+  Aprobaciones, /revision, la ficha y la lista de /wa, y se aprueban o
+  rechazan juntos con la misma PATCH. Al aprobar, el canónico queda
+  `validated` y los demás `rejected` con la nota "Agrupado con el comprobante
+  <id>" (`mergedNote`, `esAgrupado` en `dismiss.ts`): no son rechazos, quedan
+  fuera de métricas, ficha y listas. N° de operación leídos distintos = pagos
+  distintos (ítems separados); montos distintos = aviso "Parecen pagos
+  distintos". Una imagen nueva del mismo pago no abre otra `validacion_pago`.
 - **Rechazar pide confirmación** (antes era un click y se rechazaron pagos
   buenos por error). **Descartar** (la cruz) es para imágenes que no eran un
   comprobante; deja `validation_note` con `DISMISS_NOTE`
@@ -386,8 +399,11 @@ ahí (incluido "Masterizado" y la "falla intermitente" de Tiendup) es correcto.
 - El correo para dar acceso se captura de la conversación y se valida el
   formato antes de guardarlo (`src/lib/contact-email.ts`). Si llega en un
   mensaje y el adjunto en el siguiente, igual se rescata (busca en los últimos
-  15 mensajes cuando la conversación no tiene correo). Si llega un comprobante
-  y no hay correo, Valentina lo pide (`EMAIL_REQUEST_MESSAGE`, burbuja aparte).
+  15 mensajes cuando la conversación no tiene correo). **El correo se pide
+  recién con todo aprobado** (pago verificado y título si hacía falta), en el
+  mismo mensaje de la aprobación; nunca al recibir comprobante ni título. El
+  agente recibe "Pedir correo: SÍ / NO / NO todavía" ya calculado en código
+  (`run.ts`), también el evaluator. Si la persona lo ofrece antes, se acepta.
 - Textos fijos del flujo de comprobante en `src/lib/payments/messages.ts`. Si
   cambiás uno, dejá el viejo en `TEXTOS_DE_PLANTILLA` de `ghl-human.ts` para
   que el importador lo siga reconociendo como nuestro.
@@ -429,7 +445,9 @@ ahí (incluido "Masterizado" y la "falla intermitente" de Tiendup) es correcto.
 - Antes del 31/08/2026 no hay registro de los mensajes del equipo: esos
   períodos salen como "sin datos" o con aviso de que el número queda alto.
 - El donut de comprobantes confirmados excluye los **descartados** (imágenes
-  que no eran comprobantes: nota de descarte o sin monto leído).
+  que no eran comprobantes: nota de descarte o sin monto leído) y las
+  **agrupadas** (imágenes extra del mismo pago). Los pendientes se cuentan por
+  grupo.
 
 ---
 
