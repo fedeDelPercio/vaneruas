@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { ChevronRight, Bell, Bot, FileText, UserRound } from "lucide-react";
+import { ChevronRight, Bell, FileText } from "lucide-react";
 import type { Message, CommentKind } from "@/lib/supabase/types";
 import type { ViewMode } from "@/lib/profile";
 import { MessageTrace } from "./MessageTrace";
@@ -11,6 +11,12 @@ import {
   type MessageReactionState,
 } from "./MessageReactions";
 import { QuickCommentBubble } from "./QuickCommentBubble";
+import {
+  AI_AUTHOR_LABEL,
+  CUSTOMER_AUTHOR_LABEL,
+  MessageAvatar,
+  TEAM_AUTHOR_LABEL,
+} from "./MessageAvatar";
 
 // Burbuja de un mensaje. En vista avanzada, los mensajes del agente con trace
 // se pueden expandir para ver el detalle agentico.
@@ -143,6 +149,7 @@ export function MessageBubble({
   onSubmitReaction,
   perspective = "tester",
   showAuthor = true,
+  customerName = null,
 }: {
   message: Message;
   viewMode: ViewMode;
@@ -156,6 +163,8 @@ export function MessageBubble({
   perspective?: "tester" | "team";
   /** En "team": mostrar quién escribió (se apaga en mensajes seguidos del mismo autor). */
   showAuthor?: boolean;
+  /** En "team": nombre de la contacta, para las iniciales de su avatar. */
+  customerName?: string | null;
   reactions?: MessageReactionState;
   // El usuario abre el menú y elige sentimiento (positivo/neutro/negativo).
   // Al elegir, se dispara con content=null (voto inmediato). Si después
@@ -189,18 +198,12 @@ export function MessageBubble({
   const isUser = message.role === "user";
   const isAgent = message.role === "assistant";
   const isTeamView = perspective === "team";
-  // En la bandeja real, lo nuestro (Valentina o el equipo) va a la derecha.
-  const alignRight = isTeamView ? !isUser : isUser;
-  const bubbleClass = !isTeamView
-    ? isUser
-      ? "rounded-br-sm bg-neutral-900 text-white dark:bg-neutral-50 dark:text-neutral-950"
-      : "rounded-bl-sm border border-neutral-200 bg-white text-neutral-800 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
-    : isUser
-      ? "rounded-bl-sm bg-neutral-100 text-neutral-900 dark:bg-neutral-800/80 dark:text-neutral-100"
-      : isAgent
-        ? "rounded-br-sm border border-neutral-200 bg-white text-neutral-800 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
-        : "rounded-br-sm bg-neutral-900 text-white dark:bg-neutral-50 dark:text-neutral-950";
-  const darkBubble = isTeamView ? !isUser && !isAgent : isUser;
+  // Banco de pruebas: quien prueba hace de cliente (a la derecha, oscuro).
+  const alignRight = isUser;
+  const bubbleClass = isUser
+    ? "rounded-br-sm bg-neutral-900 text-white dark:bg-neutral-50 dark:text-neutral-950"
+    : "rounded-bl-sm border border-neutral-200 bg-white text-neutral-800 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100";
+  const darkBubble = isUser;
   // Las respuestas largas de Valentina se guardan con "---" entre burbujas.
   // GHL manda este texto fijo, en inglés, cuando la clienta envía algo que no
   // sabe pasar (un sticker, una encuesta, un contacto): no lo escribió ella.
@@ -242,6 +245,90 @@ export function MessageBubble({
     />
   ) : null;
 
+  const time = new Date(message.created_at).toLocaleTimeString("es-AR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+
+  // Bandeja real de WhatsApp: mismo layout que el chat de Hábitat. La clienta a
+  // la derecha (burbuja oscura, avatar con iniciales); Valentina y el equipo a
+  // la izquierda (burbuja clara, avatar de robot dorado o del equipo), con la
+  // etiqueta del autor arriba del texto y la hora abajo. El feedback por
+  // mensaje va al lado de la hora, solo en los mensajes de Valentina.
+  if (isTeamView) {
+    const author = isUser ? CUSTOMER_AUTHOR_LABEL : isAgent ? AI_AUTHOR_LABEL : TEAM_AUTHOR_LABEL;
+    const teamBubble = isUser
+      ? "rounded-br-sm bg-neutral-900 text-white dark:bg-neutral-50 dark:text-neutral-950"
+      : "rounded-bl-sm border border-neutral-200 bg-white text-neutral-800 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100";
+    // Mensajes seguidos del mismo autor: sin avatar repetido, con el hueco
+    // para que las burbujas queden alineadas.
+    const avatar = showAuthor ? (
+      <MessageAvatar
+        kind={isUser ? "customer" : isAgent ? "ai" : "team"}
+        name={isUser ? customerName : null}
+      />
+    ) : (
+      <span aria-hidden className="w-7 shrink-0" />
+    );
+    return (
+      <div
+        id={`message-${message.id}`}
+        className={`flex items-start gap-2 px-1 py-0.5 ${isUser ? "justify-end" : "justify-start"}`}
+      >
+        {!isUser && avatar}
+        <div className="min-w-0 max-w-[calc(100%_-_2.5rem)] sm:max-w-[78%]">
+          <div
+            className={`whitespace-pre-wrap break-words rounded-lg px-3.5 py-2.5 text-[13.5px] leading-relaxed ${teamBubble}`}
+          >
+            {showAuthor && (
+              <p
+                className={`mb-1 text-[11px] font-medium ${
+                  isAgent ? "text-gold-fg dark:text-gold" : "opacity-80"
+                }`}
+              >
+                {author}
+              </p>
+            )}
+            {message.attachment_path && (
+              <ComprobanteAttachment path={message.attachment_path} type={message.attachment_type} />
+            )}
+            {unsupported ? (
+              <span className="italic opacity-70">{displayContent}</span>
+            ) : (
+              displayContent.trim() && renderWithLinks(displayContent, isUser)
+            )}
+          </div>
+
+          <div
+            className={`mt-1 flex flex-wrap items-center gap-2 px-1 font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500 ${
+              isUser ? "justify-end" : "justify-start"
+            }`}
+          >
+            <time dateTime={message.created_at}>{time}</time>
+            {canExpand && (
+              <button
+                onClick={() => setTraceOpen((v) => !v)}
+                className="flex items-center gap-0.5 transition hover:text-neutral-700 dark:hover:text-neutral-200"
+              >
+                <ChevronRight
+                  className={`h-3 w-3 transition ${traceOpen ? "rotate-90" : ""}`}
+                  strokeWidth={1.75}
+                />
+                trace
+              </button>
+            )}
+            {reactionsCol}
+          </div>
+
+          {quickBubble && <div className="mt-2 flex">{quickBubble}</div>}
+          {traceOpen && canExpand && message.trace_id && <MessageTrace traceId={message.trace_id} />}
+        </div>
+        {isUser && avatar}
+      </div>
+    );
+  }
+
   return (
     <div
       id={`message-${message.id}`}
@@ -249,23 +336,7 @@ export function MessageBubble({
         alignRight ? "justify-end" : "justify-start"
       }`}
     >
-      {isTeamView && quickBubble}
-      {isTeamView && reactionsCol}
       <div className="min-w-0 max-w-[85%] sm:max-w-[78%]">
-        {isTeamView && !isUser && showAuthor && (
-          <p
-            className={`mb-1 flex items-center justify-end gap-1 px-1 text-[10.5px] font-medium ${
-              isAgent ? "text-gold-fg dark:text-gold" : "text-neutral-500 dark:text-neutral-400"
-            }`}
-          >
-            {isAgent ? (
-              <Bot className="h-3 w-3" strokeWidth={1.75} />
-            ) : (
-              <UserRound className="h-3 w-3" strokeWidth={1.75} />
-            )}
-            {isAgent ? "Valentina · IA" : "Equipo"}
-          </p>
-        )}
         <div
           className={`whitespace-pre-wrap break-words rounded-lg px-3.5 py-2.5 text-[13.5px] leading-relaxed ${bubbleClass}`}
         >
@@ -313,8 +384,8 @@ export function MessageBubble({
           <MessageTrace traceId={message.trace_id} />
         )}
       </div>
-      {!isTeamView && !isUser && reactionsCol}
-      {!isTeamView && !isUser && quickBubble}
+      {!isUser && reactionsCol}
+      {!isUser && quickBubble}
     </div>
   );
 }
