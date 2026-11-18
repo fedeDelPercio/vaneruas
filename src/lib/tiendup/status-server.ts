@@ -4,7 +4,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/types";
 import { normalizeContactEmail } from "@/lib/contact-email";
 import { eventBySlug } from "@/lib/payments/event-match";
-import { fixDominioDeCorreo, listEnrolledChecked, tiendupCourseIdForEvent } from "./client";
+import {
+  fixDominioDeCorreo,
+  listCustomersChecked,
+  listEnrolledChecked,
+  tiendupCourseIdForEvent,
+  type CustomersListing,
+} from "./client";
 import type { TiendupEnrolled } from "./match";
 import {
   decideTiendupStatus,
@@ -18,9 +24,10 @@ import {
 // GET a Tiendup). Lo sirve GET /api/wa/tiendup-status/[conversationId] para el
 // bloque "Tiendup" de la ficha; la decisión pura está en status.ts.
 //
-// Reutilizable: `loadTiendupStatus` y `getEnrolledListing` son lo que usaría
-// una regla futura de "bloquear el alta si el correo no figura en Tiendup"
-// (ver D-67). Hoy el alta no los llama.
+// Además del listado de inscriptos (cache acá, 5 min por curso) consulta el
+// listado de clientes de la tienda (listCustomersChecked, cache de 10 min
+// compartida con el alta) solo si la persona no figura en algún curso, para
+// distinguir `customer_not_enrolled` de `not_found`.
 // ===========================================================================
 
 type Db = SupabaseClient<Database>;
@@ -119,6 +126,12 @@ export async function loadTiendupStatus(
   }
   if (!byCourse.size) return { show: false, courses: [] };
 
+  // Clientes de la tienda: se lee una sola vez por request, y solo si hace
+  // falta (alguien no figura en el curso). Sin key → null.
+  let customersP: Promise<CustomersListing | null> | null = null;
+  const getCustomers = () =>
+    (customersP ??= process.env.TIENDUP_API_KEY ? listCustomersChecked() : Promise.resolve(null));
+
   const courses: TiendupCourseStatus[] = await Promise.all(
     Array.from(byCourse.entries()).map(async ([courseId, pays]) => {
       // Error del último intento: solo si ningún comprobante de ese curso
@@ -132,7 +145,13 @@ export async function loadTiendupStatus(
             .map((p) => p.course_access_error?.trim() || null)
             .find(Boolean) ?? null;
       const listing = await getEnrolledListing(courseId);
-      const decided = decideTiendupStatus({ listing, email, fullName: conv.display_name, lastError });
+      let decided = decideTiendupStatus({ listing, email, fullName: conv.display_name, lastError });
+      if (decided.state === "not_found" || decided.state === "unavailable") {
+        const customers = await getCustomers();
+        if (customers) {
+          decided = decideTiendupStatus({ listing, customers, email, fullName: conv.display_name, lastError });
+        }
+      }
       return {
         courseId,
         title: eventBySlug(pays[0]!.event_slug)?.label ?? `Curso ${courseId}`,

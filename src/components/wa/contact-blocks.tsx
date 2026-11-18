@@ -11,6 +11,7 @@ import {
   KeyRound,
   Loader2,
   MailX,
+  UserRound,
 } from "lucide-react";
 import type { ContactNotification } from "@/app/api/wa/contact/[conversationId]/route";
 import type { TiendupCourseStatus, TiendupLiveState, TiendupStatusResponse } from "@/lib/tiendup/status";
@@ -321,6 +322,7 @@ const LIVE: Record<
 > = {
   enrolled: { text: "Inscripta en el curso", tone: "ok", Icon: CircleCheck },
   other_email: { text: "Mismo nombre con otro mail", tone: "warn", Icon: AtSign },
+  customer_not_enrolled: { text: "Cliente en Tiendup, sin acceso al curso", tone: "warn", Icon: UserRound },
   not_found: { text: "El mail no figura en Tiendup", tone: "bad", Icon: MailX },
   error: { text: "Error en el alta", tone: "bad", Icon: CircleAlert },
   unavailable: { text: "No se pudo consultar Tiendup", tone: "idle", Icon: CloudOff },

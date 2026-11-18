@@ -11,6 +11,7 @@ import { groupPendingPayments } from "@/lib/payments/grouping";
 import { normalizeContactEmail } from "@/lib/contact-email";
 import { tiendupCourseIdForEvent } from "@/lib/tiendup/client";
 import { paymentsWithEnrollAttempt } from "@/lib/tiendup/status";
+import { displayCourseAccessError } from "@/lib/tiendup/messages";
 
 export const dynamic = "force-dynamic";
 
@@ -281,7 +282,7 @@ export async function GET(
       const granted = own.find((p) => p.course_access_granted_at);
       // Motivo del alta que no salió (otro correo en Tiendup, falla, etc.).
       const error =
-        validatedAll.map((p) => p.course_access_error?.trim() || null).find(Boolean) ?? null;
+        validatedAll.map((p) => displayCourseAccessError(p.course_access_error)).find(Boolean) ?? null;
       if (granted) {
         access = { stage: "granted", grantedAt: granted.course_access_granted_at, error: null };
       } else if (!validated) {

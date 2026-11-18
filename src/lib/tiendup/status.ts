@@ -4,17 +4,24 @@
 // Puro y sin "server-only" (tests sin red en scripts/test-tiendup-status.ts).
 // La lectura del listado y el cache viven en status-server.ts.
 //
-// Lo usa hoy el bloque "Tiendup" de la ficha del contacto (solo lectura). Está
-// pensado para reutilizarse cuando se quiera BLOQUEAR el alta si el correo no
-// figura en Tiendup: `decideTiendupStatus` ya distingue "no figura"
-// (`not_found`) de "no se pudo consultar" (`unavailable`), que es justo lo que
-// esa regla necesita para no bloquear por una falla de red. Hoy el alta
-// (grant.ts / auto-enroll.ts) NO lo consulta.
+// Lo usa el bloque "Tiendup" de la ficha del contacto (solo lectura). El alta
+// (grant.ts) aplica la misma idea con customer-gate.ts: si el correo no está
+// en el curso NI existe como cliente de la tienda, el alta automática no
+// inscribe y guarda "NOT_IN_TIENDUP: …" en course_access_error (messages.ts),
+// que acá se lee como `not_found` aunque Tiendup no responda.
 // ===========================================================================
 
+import { findCustomerByEmail, type TiendupCustomer } from "./customers";
 import { findExistingEnrollment, type TiendupEnrolled } from "./match";
+import { isNotInTiendupError } from "./messages";
 
-export type TiendupLiveState = "enrolled" | "other_email" | "not_found" | "error" | "unavailable";
+export type TiendupLiveState =
+  | "enrolled"
+  | "other_email"
+  | "customer_not_enrolled"
+  | "not_found"
+  | "error"
+  | "unavailable";
 
 export interface TiendupCourseStatus {
   courseId: number;
@@ -36,16 +43,27 @@ export interface TiendupStatusResponse {
 
 /**
  * Decide el estado de UN curso. Orden:
- *   1. Con el listado completo, manda lo que dice Tiendup: figura con el
- *      correo → `enrolled`; figura la persona con otro correo → `other_email`.
- *   2. Si no figura (o no se pudo leer) y el último intento de alta dejó un
- *      error guardado → `error`, con ese texto.
- *   3. Listado incompleto o caído (o sin key) → `unavailable`: no se afirma
- *      nada que no se pudo comprobar.
- *   4. Listado completo y no figura → `not_found`.
+ *   1. Con el listado de inscriptos completo, manda lo que dice Tiendup:
+ *      figura con el correo → `enrolled`; figura la persona con otro correo →
+ *      `other_email`.
+ *   2. Si el último intento de alta dejó un error real guardado → `error`, con
+ *      ese texto. (El marcador NOT_IN_TIENDUP no cuenta como error: es el
+ *      `not_found` que registró el alta automática.)
+ *   3. No inscripta (listado de inscriptos completo):
+ *      - el correo existe como cliente de la tienda → `customer_not_enrolled`
+ *        (alcanza con verlo en un listado de clientes parcial: es prueba
+ *        positiva);
+ *      - listado de clientes completo y no está → `not_found`;
+ *      - clientes sin datos completos → `not_found` si el alta dejó el
+ *        marcador NOT_IN_TIENDUP; si no, `unavailable`.
+ *   4. Inscriptos incompletos o caídos (o sin key): `not_found` si hay
+ *      marcador NOT_IN_TIENDUP (y Tiendup no muestra el correo como cliente),
+ *      si no `unavailable`: no se afirma nada que no se pudo comprobar.
  */
 export function decideTiendupStatus(args: {
   listing: { enrolled: TiendupEnrolled[]; complete: boolean } | null;
+  /** Clientes de la tienda (GET /customers). null = no se consultó / sin key. */
+  customers?: { customers: TiendupCustomer[]; complete: boolean } | null;
   email: string;
   fullName: string | null;
   lastError: string | null;
@@ -64,9 +82,18 @@ export function decideTiendupStatus(args: {
     }
   }
   const lastError = args.lastError?.trim() || null;
-  if (lastError) return { state: "error", error: lastError };
-  if (!complete) return { state: "unavailable" };
-  return { state: "not_found" };
+  const notInMarker = isNotInTiendupError(lastError);
+  if (lastError && !notInMarker) return { state: "error", error: lastError };
+
+  const customers = args.customers ?? null;
+  const isCustomer = Boolean(customers && findCustomerByEmail(customers.customers, args.email));
+  if (complete) {
+    if (isCustomer) return { state: "customer_not_enrolled" };
+    if (customers?.complete) return { state: "not_found" };
+    return { state: notInMarker ? "not_found" : "unavailable" };
+  }
+  if (notInMarker && !isCustomer) return { state: "not_found" };
+  return { state: "unavailable" };
 }
 
 /**
