@@ -58,3 +58,37 @@ export function findExistingEnrollment(args: {
   }
   return null;
 }
+
+// Dominios mal tipeados que vemos seguido en los correos dictados por WhatsApp.
+// Solo correcciones INEQUÍVOCAS: si hay la menor duda, el correo se deja como
+// vino (inscribir con un mail equivocado crea un cliente basura en Tiendup y la
+// persona real se queda sin acceso).
+const TYPOS_DE_DOMINIO: Record<string, string> = {
+  "gmail.con": "gmail.com",
+  "gmail.cmo": "gmail.com",
+  "gmail.om": "gmail.com",
+  "gmail.co": "gmail.com",
+  "gmial.com": "gmail.com",
+  "gmai.com": "gmail.com",
+  "hotmail.con": "hotmail.com",
+  "hotmail.cmo": "hotmail.com",
+  "hotmail.om": "hotmail.com",
+  "hotmial.com": "hotmail.com",
+  "outlook.con": "outlook.com",
+  "yahoo.con": "yahoo.com",
+  "icloud.con": "icloud.com",
+};
+
+/**
+ * Corrige errores de tipeo obvios en el dominio del correo. Devuelve el correo
+ * corregido y si hubo cambio, para poder avisarlo en el panel en vez de
+ * inscribir en silencio con otro mail.
+ */
+export function fixDominioDeCorreo(email: string): { email: string; fixed: boolean } {
+  const at = email.lastIndexOf("@");
+  if (at < 1) return { email, fixed: false };
+  const user = email.slice(0, at);
+  const dom = email.slice(at + 1).toLowerCase();
+  const fix = TYPOS_DE_DOMINIO[dom];
+  return fix ? { email: `${user}@${fix}`, fixed: true } : { email, fixed: false };
+}
