@@ -29,6 +29,37 @@ export interface DismissableRow {
  */
 export function esDescartado(row: DismissableRow): boolean {
   if (row.status !== "rejected") return false;
+  // Una imagen agrupada no es un descarte (ver esAgrupado): sale de las cuentas
+  // por su lado, aunque no tenga monto leído.
+  if (esAgrupado(row)) return false;
   if (row.validation_note === DISMISS_NOTE) return true;
   return row.amount === null || row.amount === undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Agrupados: imágenes extra del MISMO pago (ver grouping.ts). Al aprobar el
+// grupo, el canónico queda `validated` y los demás `rejected` con esta nota
+// (sin cambio de esquema: el CHECK de status no admite otro valor). No son un
+// rechazo: no se avisan por WhatsApp, no cuentan en métricas, no aparecen como
+// "rechazado" en la ficha ni en las listas (se muestran como imágenes del
+// canónico).
+
+/** Prefijo de la nota de agrupado. */
+export const MERGED_NOTE_PREFIX = "Agrupado con el comprobante ";
+
+/** Nota que se deja en cada imagen extra al resolver el grupo. */
+export function mergedNote(canonicalId: string): string {
+  return `${MERGED_NOTE_PREFIX}${canonicalId}`;
+}
+
+/** ¿Esta fila es una imagen extra agrupada con otro comprobante? */
+export function esAgrupado(row: { status: string; validation_note?: string | null }): boolean {
+  return row.status === "rejected" && (row.validation_note ?? "").startsWith(MERGED_NOTE_PREFIX);
+}
+
+/** Id del canónico de una fila agrupada (o null si no lo es). */
+export function canonicoDeAgrupado(row: { status: string; validation_note?: string | null }): string | null {
+  if (!esAgrupado(row)) return null;
+  const id = (row.validation_note ?? "").slice(MERGED_NOTE_PREFIX.length).trim();
+  return id || null;
 }
