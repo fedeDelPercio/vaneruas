@@ -22,14 +22,16 @@ import { buildReviewItems, type ReviewItem } from "./review-items";
 //   recarga la lista y se pasa solo al siguiente pendiente.
 // - Realtime sobre payment_validations, professional_titles y
 //   agent_notifications con filtro client_slug (como /wa).
-// - Desktop (lg+): 3 columnas. Mobile: pestañas Pendientes / Chat / Archivo.
+// - Desktop (xl+): 3 columnas. Mobile: pestañas Pendientes / Chat / Archivo.
 
 type MobileTab = "lista" | "chat" | "detalle";
 
-const LG_QUERY = "(min-width: 1024px)";
+// 3 columnas desde xl: con el menú lateral (lg+) a 1024px el chat quedaba sin
+// ancho útil.
+const LG_QUERY = "(min-width: 1280px)";
 
 const columnCls =
-  "min-h-0 overflow-hidden border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950 lg:rounded-xl lg:border";
+  "min-h-0 overflow-hidden border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950 xl:rounded-xl xl:border";
 
 export function ReviewWorkspace() {
   const searchParams = useSearchParams();
@@ -172,9 +174,9 @@ export function ReviewWorkspace() {
   ];
 
   return (
-    <div className="flex h-full flex-col bg-white lg:bg-neutral-50 dark:bg-neutral-950 lg:dark:bg-neutral-950">
+    <div className="flex h-full flex-col bg-white xl:bg-neutral-50 dark:bg-neutral-950 xl:dark:bg-neutral-950">
       {/* Mobile / tablet: pestañas */}
-      <div className="flex shrink-0 border-b border-neutral-200 px-2 lg:hidden dark:border-neutral-800">
+      <div className="flex shrink-0 border-b border-neutral-200 px-2 xl:hidden dark:border-neutral-800">
         {TABS.map((t) => {
           const active = tab === t.key;
           return (
@@ -199,11 +201,11 @@ export function ReviewWorkspace() {
         })}
       </div>
 
-      <div className="flex min-h-0 flex-1 lg:gap-3 lg:p-3">
+      <div className="flex min-h-0 flex-1 xl:gap-3 xl:p-3">
         {/* 1. Cola */}
         <section
           aria-label="Pendientes"
-          className={`${columnCls} w-full flex-col lg:flex lg:w-[300px] lg:shrink-0 xl:w-[320px] ${
+          className={`${columnCls} w-full flex-col xl:flex xl:w-[300px] xl:shrink-0 2xl:w-[320px] ${
             tab === "lista" ? "flex" : "hidden"
           }`}
         >
@@ -224,7 +226,7 @@ export function ReviewWorkspace() {
         {/* 2. Chat */}
         <section
           aria-label="Conversación"
-          className={`${columnCls} min-w-0 flex-1 flex-col lg:flex ${tab === "chat" ? "flex" : "hidden"}`}
+          className={`${columnCls} min-w-0 flex-1 flex-col xl:flex ${tab === "chat" ? "flex" : "hidden"}`}
         >
           {convId ? (
             <WaChatPanel
@@ -250,9 +252,9 @@ export function ReviewWorkspace() {
         ) : (
           <section
             aria-label="Archivo y ficha"
-            className={`${columnCls} w-full flex-col lg:w-[380px] lg:shrink-0 xl:w-[420px] ${
+            className={`${columnCls} w-full flex-col xl:w-[380px] xl:shrink-0 2xl:w-[420px] ${
               tab === "detalle" ? "flex" : "hidden"
-            } ${detailOpen ? "lg:flex" : "lg:hidden"}`}
+            } ${detailOpen ? "xl:flex" : "xl:hidden"}`}
           >
             {selected ? (
               <ReviewDetail
