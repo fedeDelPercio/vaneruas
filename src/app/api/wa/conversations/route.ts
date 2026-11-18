@@ -1,13 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { matchesContactQuery } from "@/lib/search";
-import { loadInterventionConversationIds } from "@/lib/interventions";
+import {
+  loadInterventionConversationIds,
+  loadPendingApprovalConversationIds,
+} from "@/lib/interventions";
+import { clientEnv } from "@/lib/env";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 
 export const dynamic = "force-dynamic";
 
 // ===========================================================================
-// GET /api/wa/conversations?q=&filter=all|intervencion|humano&offset=&limit=
+// GET /api/wa/conversations?q=&filter=all|intervencion|aprobar|humano&offset=&limit=
+//
+// Filtros: "intervencion" (botón "Derivadas", también acepta ?filter=derivadas),
+// "aprobar" (botón "Falta aprobar": comprobante pending o título sin revisar,
+// mismo criterio que /revision) y "humano" (con el equipo).
 //
 // Lista del chat de WhatsApp. Reemplaza la carga directa desde el navegador,
 // que tenía tres problemas con el volumen real (más de 1.500 conversaciones):
@@ -28,7 +36,7 @@ const DB_PAGE = 1000;
 const CONV_COLS =
   "id, display_name, wa_jid, contact_email, mode, updated_at, is_existing_customer";
 
-type Filter = "all" | "intervencion" | "humano";
+type Filter = "all" | "intervencion" | "aprobar" | "humano";
 
 interface ConvRow {
   id: string;
@@ -57,6 +65,8 @@ export interface WaConversationItem {
   isCustomer: boolean;
   /** Necesita intervención del equipo (notificación sin resolver). */
   needsTeam: boolean;
+  /** Tiene un comprobante o un título esperando aprobación. */
+  pendingApproval: boolean;
   preview: WaPreview | null;
 }
 
@@ -65,7 +75,7 @@ export interface WaConversationsResponse {
   /** Total que coincide con la búsqueda y el filtro (no solo esta página). */
   total: number;
   hasMore: boolean;
-  counts: { all: number; intervencion: number; humano: number };
+  counts: { all: number; intervencion: number; aprobar: number; humano: number };
 }
 
 // Texto fijo (en inglés) que manda GHL cuando la clienta envía algo que no
@@ -88,12 +98,14 @@ export async function GET(req: NextRequest) {
   const q = (sp.get("q") ?? "").trim().slice(0, 80);
   const filterParam = sp.get("filter");
   const filter: Filter =
-    filterParam === "intervencion" || filterParam === "humano"
+    filterParam === "intervencion" || filterParam === "humano" || filterParam === "aprobar"
       ? filterParam
-      : // Nombre viejo del filtro (links guardados).
+      : // Nombre del botón (y links guardados).
         filterParam === "derivadas"
         ? "intervencion"
-        : "all";
+        : filterParam === "falta-aprobar"
+          ? "aprobar"
+          : "all";
   const offset = Math.max(Number(sp.get("offset") ?? 0) || 0, 0);
   const limit = Math.min(
     Math.max(Number(sp.get("limit") ?? PAGE_DEFAULT) || PAGE_DEFAULT, 1),
@@ -106,8 +118,12 @@ export async function GET(req: NextRequest) {
   // filtro): notificaciones sin resolver, con el criterio de
   // src/lib/interventions.ts. Paginado y cruzado en memoria.
   let needsTeam: Set<string>;
+  let pendingApproval: Set<string>;
   try {
-    needsTeam = await loadInterventionConversationIds(sb);
+    [needsTeam, pendingApproval] = await Promise.all([
+      loadInterventionConversationIds(sb),
+      loadPendingApprovalConversationIds(sb, clientEnv.NEXT_PUBLIC_CLIENT_SLUG),
+    ]);
     // El contador es de la bandeja de WhatsApp: fuera las del banco de pruebas.
     const otras = await fetchAllRows((from, to) =>
       sb
@@ -117,7 +133,10 @@ export async function GET(req: NextRequest) {
         .order("id", { ascending: true })
         .range(from, to),
     );
-    for (const c of otras) needsTeam.delete(c.id);
+    for (const c of otras) {
+      needsTeam.delete(c.id);
+      pendingApproval.delete(c.id);
+    }
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "No se pudieron cargar las intervenciones" },
@@ -167,6 +186,7 @@ export async function GET(req: NextRequest) {
     const filtered = all.filter(
       (c) =>
         (filter !== "intervencion" || needsTeam.has(c.id)) &&
+        (filter !== "aprobar" || pendingApproval.has(c.id)) &&
         matchesContactQuery(q, {
           texts: [c.display_name, c.contact_email],
           phones: [c.wa_jid],
@@ -233,6 +253,7 @@ export async function GET(req: NextRequest) {
     updatedAt: c.updated_at,
     isCustomer: c.is_existing_customer,
     needsTeam: needsTeam.has(c.id),
+    pendingApproval: pendingApproval.has(c.id),
     preview: previews.get(c.id) ?? null,
   }));
 
@@ -243,6 +264,7 @@ export async function GET(req: NextRequest) {
     counts: {
       all: allCount.count ?? 0,
       intervencion: needsTeam.size,
+      aprobar: pendingApproval.size,
       humano: humanCount.count ?? 0,
     },
   };

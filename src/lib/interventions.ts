@@ -126,3 +126,44 @@ export async function loadOpenTeamNotificationCounts(
   }
   return out;
 }
+
+/**
+ * Conversaciones con algo para aprobar: un comprobante `pending` (incluidos los
+ * retenidos por título) o un título profesional sin revisar. Es el mismo
+ * criterio que la cola de /revision (`buildReviewItems`). Lo usa el filtro
+ * "Falta aprobar" de /wa.
+ *
+ * Paginado y cruzado en memoria (nada de ids en un `.in()`), con `client_slug`
+ * explícito además de RLS.
+ */
+export async function loadPendingApprovalConversationIds(
+  sb: Db,
+  clientSlug: string,
+): Promise<Set<string>> {
+  const [pays, titles] = await Promise.all([
+    fetchAllRows((from, to) =>
+      sb
+        .from("payment_validations")
+        .select("id, conversation_id")
+        .eq("client_slug", clientSlug)
+        .eq("status", "pending")
+        .not("conversation_id", "is", null)
+        .order("id", { ascending: true })
+        .range(from, to),
+    ),
+    fetchAllRows((from, to) =>
+      sb
+        .from("professional_titles")
+        .select("id, conversation_id")
+        .eq("client_slug", clientSlug)
+        .eq("is_valid", false)
+        .is("reviewed_at", null)
+        .not("conversation_id", "is", null)
+        .order("id", { ascending: true })
+        .range(from, to),
+    ),
+  ]);
+  const ids = new Set<string>();
+  for (const r of [...pays, ...titles]) if (r.conversation_id) ids.add(r.conversation_id);
+  return ids;
+}

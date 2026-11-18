@@ -1,7 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bot, Flag, Loader2, MessagesSquare, Paperclip, SearchX, UserRound } from "lucide-react";
+import {
+  Bot,
+  ClipboardCheck,
+  Flag,
+  Hand,
+  Loader2,
+  MessagesSquare,
+  Paperclip,
+  SearchX,
+  UserRound,
+} from "lucide-react";
 import { clientEnv } from "@/lib/env";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { formatPhone } from "@/lib/search";
@@ -18,17 +28,30 @@ import type {
 // respaldo: si el canal se cae, se recrea, y al volver a la pestaña se
 // refresca igual.
 
-type Filter = "all" | "intervencion" | "humano";
+type Filter = "all" | "intervencion" | "aprobar" | "humano";
 
 const PAGE = 40;
 
-const FILTERS: { key: Filter; label: string }[] = [
-  { key: "all", label: "Todas" },
+const FILTERS: { key: Filter; label: string; title: string; Icon?: typeof Hand }[] = [
+  { key: "all", label: "Todas", title: "Todas las conversaciones" },
   // Conversaciones con notificaciones al equipo sin resolver (derivaciones,
-  // reclamos, altas de Tiendup pendientes, comprobantes sin revisar). Mismo
-  // criterio que src/lib/interventions.ts.
-  { key: "intervencion", label: "Intervención" },
-  { key: "humano", label: "Con el equipo" },
+  // reclamos, altas de Tiendup pendientes, comprobantes sin revisar, la
+  // contacta que escribió con la IA en pausa). Mismo criterio que
+  // src/lib/interventions.ts. Botón con la mano, como "Pendientes" de Hábitat.
+  {
+    key: "intervencion",
+    label: "Derivadas",
+    title: "Conversaciones que necesitan intervención del equipo",
+    Icon: Hand,
+  },
+  // Comprobante pendiente o título sin revisar: mismo criterio que /revision.
+  {
+    key: "aprobar",
+    label: "Falta aprobar",
+    title: "Con un comprobante o un título esperando aprobación",
+    Icon: ClipboardCheck,
+  },
+  { key: "humano", label: "Con el equipo", title: "Conversaciones en modo Humano" },
 ];
 
 /** Hora si es de hoy, "Ayer", día de la semana si es de esta semana, o fecha. */
@@ -74,7 +97,12 @@ export function WaConversationList({
   const [items, setItems] = useState<WaConversationItem[] | null>(null);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
-  const [counts, setCounts] = useState({ all: 0, intervencion: 0, humano: 0 });
+  const [counts, setCounts] = useState<WaConversationsResponse["counts"]>({
+    all: 0,
+    intervencion: 0,
+    aprobar: 0,
+    humano: 0,
+  });
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [searching, setSearching] = useState(false);
@@ -302,26 +330,37 @@ export function WaConversationList({
             placeholder="Buscar por nombre o teléfono"
             className="mt-3"
           />
-          <div className="mt-2.5 flex items-center gap-1">
+          <div className="mt-2.5 flex flex-wrap items-center gap-1">
             {FILTERS.map((f) => {
               const count = f.key === "all" ? null : counts[f.key];
               const activeFilter = filter === f.key;
+              // Look de Hábitat: los botones con ícono se marcan en ámbar
+              // cuando tienen algo pendiente, aunque no estén activos.
+              const flagged = Boolean(f.Icon) && (count ?? 0) > 0;
               return (
                 <button
                   key={f.key}
                   onClick={() => setFilter(f.key)}
                   aria-pressed={activeFilter}
-                  className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] transition ${
+                  title={f.title}
+                  className={`flex min-h-[30px] items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12px] transition ${
+                    f.Icon ? "border font-medium" : ""
+                  } ${
                     activeFilter
-                      ? "bg-neutral-900 text-white dark:bg-neutral-50 dark:text-neutral-950"
-                      : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-900"
+                      ? "border-neutral-900 bg-neutral-900 text-white dark:border-neutral-50 dark:bg-neutral-50 dark:text-neutral-950"
+                      : flagged
+                        ? "border-amber-700/40 bg-white text-warn-fg hover:bg-neutral-50 dark:border-amber-500/50 dark:bg-neutral-950 dark:text-warn dark:hover:bg-neutral-900"
+                        : f.Icon
+                          ? "border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-400 dark:hover:bg-neutral-900"
+                          : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-900"
                   }`}
                 >
+                  {f.Icon && <f.Icon aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />}
                   {f.label}
-                  {count !== null && (count > 0 || (f.key === "intervencion" && loaded)) && (
+                  {count !== null && (count > 0 || (Boolean(f.Icon) && loaded)) && (
                     <span
-                      className={`font-mono text-[10.5px] ${
-                        activeFilter ? "opacity-70" : "text-neutral-400 dark:text-neutral-500"
+                      className={`min-w-3 text-center font-mono text-[10.5px] tabular-nums ${
+                        activeFilter ? "opacity-70" : flagged ? "" : "text-neutral-400 dark:text-neutral-500"
                       }`}
                     >
                       {count}
@@ -378,7 +417,9 @@ export function WaConversationList({
                 {debouncedQuery
                   ? "Sin resultados"
                   : filter === "intervencion"
-                    ? "Nada que necesite intervención"
+                    ? "Ninguna necesita intervención"
+                    : filter === "aprobar"
+                      ? "Nada esperando aprobación"
                     : filter === "humano"
                       ? "Ninguna conversación con el equipo"
                       : "Sin conversaciones de WhatsApp todavía"}
@@ -408,8 +449,17 @@ export function WaConversationList({
                           : "hover:bg-neutral-50 dark:hover:bg-neutral-900/60"
                       }`}
                     >
-                      {selected && (
-                        <span aria-hidden className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-gold" />
+                      {/* Línea al costado, como en Hábitat: ámbar si necesita
+                          intervención (gana sobre la de selección), dorada si
+                          está seleccionada. */}
+                      {(c.needsTeam || selected) && (
+                        <span
+                          aria-hidden
+                          data-attention-line={c.needsTeam || undefined}
+                          className={`absolute inset-y-1.5 left-0 rounded-full ${
+                            c.needsTeam ? "w-0.5 bg-warn-fg dark:bg-warn" : "w-0.5 bg-gold"
+                          }`}
+                        />
                       )}
                       <span className="relative shrink-0">
                         <Avatar name={c.displayName} size="md" />
@@ -456,6 +506,11 @@ export function WaConversationList({
                             {prefix && <span className="text-neutral-400 dark:text-neutral-500">{prefix}</span>}
                             {text}
                           </span>
+                          {c.pendingApproval && (
+                            <span title="Tiene algo esperando aprobación" className="shrink-0 text-neutral-400 dark:text-neutral-500">
+                              <ClipboardCheck className="h-3 w-3" strokeWidth={1.75} />
+                            </span>
+                          )}
                           {c.needsTeam && (
                             <span title="Necesita intervención del equipo" className="shrink-0 text-warn">
                               <Flag className="h-3 w-3" strokeWidth={2} />
