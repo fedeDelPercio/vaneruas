@@ -14,12 +14,13 @@ import { fetchAllRows } from "@/lib/supabase/paginate";
 export const dynamic = "force-dynamic";
 
 // ===========================================================================
-// GET /api/wa/conversations?q=&filter=all|intervencion|aprobar|humano&offset=&limit=
+// GET /api/wa/conversations?q=&filter=all|intervencion|aprobar|criticos&offset=&limit=
 //
 // Filtros: "intervencion" (botón "Derivadas", también acepta ?filter=derivadas),
 // "aprobar" (botón "Falta aprobar": comprobante pending o título sin revisar,
-// mismo criterio que /revision), "criticos" (tag "Crítico") y "humano" (con el
-// equipo).
+// mismo criterio que /revision) y "criticos" (tag "Crítico"). El viejo
+// "humano" (con el equipo) se sacó el 18/11/2026: un ?filter=humano guardado
+// cae a "all" sin romper.
 //
 // Lista del chat de WhatsApp. Reemplaza la carga directa desde el navegador,
 // que tenía tres problemas con el volumen real (más de 1.500 conversaciones):
@@ -49,7 +50,7 @@ function criticalAvailable(): boolean {
   return Date.now() - criticalMissingSince > CRITICAL_RETRY_MS;
 }
 
-type Filter = "all" | "intervencion" | "aprobar" | "criticos" | "humano";
+type Filter = "all" | "intervencion" | "aprobar" | "criticos";
 
 interface ConvRow {
   id: string;
@@ -104,7 +105,7 @@ export interface WaConversationsResponse {
   /** Total que coincide con la búsqueda y el filtro (no solo esta página). */
   total: number;
   hasMore: boolean;
-  counts: { all: number; intervencion: number; aprobar: number; criticos: number; humano: number };
+  counts: { all: number; intervencion: number; aprobar: number; criticos: number };
 }
 
 // Texto fijo (en inglés) que manda GHL cuando la clienta envía algo que no
@@ -128,7 +129,6 @@ export async function GET(req: NextRequest) {
   const filterParam = sp.get("filter");
   const filter: Filter =
     filterParam === "intervencion" ||
-    filterParam === "humano" ||
     filterParam === "aprobar" ||
     filterParam === "criticos"
       ? filterParam
@@ -180,18 +180,12 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const [allCount, humanCount, criticalCount] = await Promise.all([
+  const [allCount, criticalCount] = await Promise.all([
     sb
       .from("conversations")
       .select("id", { count: "exact", head: true })
       .eq("client_slug", slug)
       .eq("source", "whatsapp"),
-    sb
-      .from("conversations")
-      .select("id", { count: "exact", head: true })
-      .eq("client_slug", slug)
-      .eq("source", "whatsapp")
-      .eq("mode", "HUMAN"),
     criticalAvailable()
       ? sb
           .from("conversations")
@@ -229,13 +223,11 @@ export async function GET(req: NextRequest) {
     const all: ConvRow[] = [];
     for (let from = 0; ; from += DB_PAGE) {
       const chunk = (cols: string) => {
-        let query = sb
+        return sb
           .from("conversations")
           .select(cols)
           .eq("client_slug", slug)
-          .eq("source", "whatsapp");
-        if (filter === "humano") query = query.eq("mode", "HUMAN");
-        return query
+          .eq("source", "whatsapp")
           .order("updated_at", { ascending: false })
           .order("id", { ascending: true })
           .range(from, from + DB_PAGE - 1);
@@ -340,7 +332,6 @@ export async function GET(req: NextRequest) {
       intervencion: needsTeam.size,
       aprobar: pendingApproval.size,
       criticos: criticalCount.count ?? 0,
-      humano: humanCount.count ?? 0,
     },
   };
   return NextResponse.json(body);

@@ -27,7 +27,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ContactStrip } from "./ContactStrip";
 import { ConversationLinks } from "./ConversationLinks";
 import { SearchField } from "./SearchField";
-import { FilterChip, FilterChips } from "./ui/FilterChips";
+import { FilterChip, FilterChips, FilterPanel } from "./ui/FilterChips";
 import { useContactSearch } from "./useContactSearch";
 import { eventBySlug, accesoVigenteDeEvento } from "@/lib/payments/event-match";
 import { recipientMismatches } from "@/lib/payments/recipient";
@@ -854,39 +854,40 @@ export function PaymentsList() {
         </p>
       )}
 
-      {/* Filtros por estado */}
-      <FilterChips label="Filtros por estado" className="mb-3">
-        {FILTERS.map((f) => (
-          <FilterChip
-            key={f.key}
-            active={filter === f.key && !searching}
-            onClick={() => {
-              setFilter(f.key);
-              if (query) setQuery("");
-            }}
-            label={f.label}
-          />
-        ))}
-      </FilterChips>
-
-      {/* Interruptor del alta automática en Tiendup (solo en Falta acceso). */}
-      {filter === "sin-acceso" && !searching && <TiendupAutoEnrollToggle />}
-
-      {/* Filtro + contador por evento (Congreso dorado / Masterclass esmeralda) */}
-      {items && hasEvents && (
-        <FilterChips label="Filtros por evento" className="mb-4">
-          {EVENT_FILTERS.map((f) => (
+      {/* Filtros por estado y por evento, en una sola tarjeta. */}
+      <FilterPanel className="mb-4">
+        <FilterChips label="Filtros por estado" columns={5}>
+          {FILTERS.map((f) => (
             <FilterChip
               key={f.key}
-              active={eventFilter === f.key}
-              onClick={() => setEventFilter(f.key)}
+              active={filter === f.key && !searching}
+              onClick={() => {
+                setFilter(f.key);
+                if (query) setQuery("");
+              }}
               label={f.label}
-              leading={f.dot ? <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${f.dot}`} /> : undefined}
-              count={f.count}
             />
           ))}
         </FilterChips>
-      )}
+        {/* Por evento (Congreso dorado / Masterclass esmeralda), con contador. */}
+        {items && hasEvents && (
+          <FilterChips label="Filtros por evento" columns={3}>
+            {EVENT_FILTERS.map((f) => (
+              <FilterChip
+                key={f.key}
+                active={eventFilter === f.key}
+                onClick={() => setEventFilter(f.key)}
+                label={f.label}
+                leading={f.dot ? <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${f.dot}`} /> : undefined}
+                count={f.count}
+              />
+            ))}
+          </FilterChips>
+        )}
+      </FilterPanel>
+
+      {/* Interruptor del alta automática en Tiendup (solo en Falta acceso). */}
+      {filter === "sin-acceso" && !searching && <TiendupAutoEnrollToggle />}
 
       {items === null ? (
         <div className="flex items-center justify-center gap-2 py-16 text-[13px] text-neutral-500 dark:text-neutral-500">

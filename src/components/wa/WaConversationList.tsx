@@ -6,6 +6,7 @@ import {
   ClipboardCheck,
   Flag,
   Hand,
+  Inbox,
   Loader2,
   MessagesSquare,
   Paperclip,
@@ -21,7 +22,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { formatPhone } from "@/lib/search";
 import { Avatar } from "../Avatar";
 import { SearchField } from "../SearchField";
-import { FilterChip, FilterChips } from "../ui/FilterChips";
+import { FilterChip, FilterChips, FilterPanel } from "../ui/FilterChips";
 import type {
   WaConversationItem,
   WaConversationsResponse,
@@ -33,13 +34,15 @@ import type {
 // respaldo: si el canal se cae, se recrea, y al volver a la pestaña se
 // refresca igual.
 
-type Filter = "all" | "intervencion" | "aprobar" | "criticos" | "humano";
+type Filter = "all" | "intervencion" | "aprobar" | "criticos";
 
 const PAGE = 40;
 
 /**
  * Filtro desde ?filter= de la URL. Acepta las claves internas y los nombres de
- * los botones (links guardados: ?filter=derivadas, ?filter=falta-aprobar).
+ * los botones (links guardados: ?filter=derivadas, ?filter=falta-aprobar). Lo
+ * desconocido cae a "Todas", incluido el viejo ?filter=humano ("Con el
+ * equipo", sacado el 18/11/2026).
  */
 function parseFilter(raw: string | null): Filter {
   switch (raw) {
@@ -51,8 +54,6 @@ function parseFilter(raw: string | null): Filter {
       return "aprobar";
     case "criticos":
       return "criticos";
-    case "humano":
-      return "humano";
     default:
       return "all";
   }
@@ -66,7 +67,7 @@ const FILTERS: {
   /** El contador se pinta en dorado cuando hay pendientes (ver FilterChip). */
   attention?: boolean;
 }[] = [
-  { key: "all", label: "Todas", title: "Todas las conversaciones" },
+  { key: "all", label: "Todas", title: "Todas las conversaciones", Icon: Inbox },
   // Conversaciones con notificaciones al equipo sin resolver (derivaciones,
   // reclamos, altas de Tiendup pendientes, comprobantes sin revisar, la
   // contacta que escribió con la IA en pausa). Mismo criterio que
@@ -93,13 +94,6 @@ const FILTERS: {
     title: "Conversaciones marcadas como críticas (enojo, reclamo, amenaza)",
     Icon: TriangleAlert,
     attention: true,
-  },
-  // Estado, no pendiente: contador neutro.
-  {
-    key: "humano",
-    label: "Con el equipo",
-    title: "Conversaciones en modo Humano",
-    Icon: UserRound,
   },
 ];
 
@@ -151,7 +145,6 @@ export function WaConversationList({
     intervencion: 0,
     aprobar: 0,
     criticos: 0,
-    humano: 0,
   });
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -407,20 +400,22 @@ export function WaConversationList({
             placeholder="Buscar por nombre o teléfono"
             className="mt-3"
           />
-          <FilterChips label="Filtros de conversaciones" className="mt-2.5">
-            {FILTERS.map((f) => (
-              <FilterChip
-                key={f.key}
-                active={filter === f.key}
-                onClick={() => toggleFilter(f.key)}
-                label={f.label}
-                title={f.title}
-                Icon={f.Icon}
-                count={f.key === "all" || !loaded ? null : counts[f.key]}
-                attention={f.attention}
-              />
-            ))}
-          </FilterChips>
+          <FilterPanel className="mt-2.5">
+            <FilterChips label="Filtros de conversaciones" columns={2}>
+              {FILTERS.map((f) => (
+                <FilterChip
+                  key={f.key}
+                  active={filter === f.key}
+                  onClick={() => toggleFilter(f.key)}
+                  label={f.label}
+                  title={f.title}
+                  Icon={f.Icon}
+                  count={f.key === "all" || !loaded ? null : counts[f.key]}
+                  attention={f.attention}
+                />
+              ))}
+            </FilterChips>
+          </FilterPanel>
         </div>
 
         <div
@@ -473,9 +468,7 @@ export function WaConversationList({
                       ? "Nada esperando aprobación"
                       : filter === "criticos"
                         ? "Ninguna conversación crítica"
-                    : filter === "humano"
-                      ? "Ninguna conversación con el equipo"
-                      : "Sin conversaciones de WhatsApp todavía"}
+                        : "Sin conversaciones de WhatsApp todavía"}
               </p>
               {debouncedQuery && (
                 <p className="mt-1 text-[12px] leading-relaxed text-neutral-500 dark:text-neutral-500">
