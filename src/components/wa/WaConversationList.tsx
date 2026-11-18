@@ -520,15 +520,19 @@ export function WaConversationList({
                           : "hover:bg-neutral-50 dark:hover:bg-neutral-900/60"
                       }`}
                     >
-                      {/* Línea al costado, como en Hábitat: ámbar si necesita
+                      {/* Línea al costado, como en Hábitat: naranja si necesita
                           intervención (gana sobre la de selección), dorada si
-                          está seleccionada. */}
+                          está seleccionada. La de intervención es más gruesa y
+                          saturada que el ámbar de warn para que se lea de un
+                          vistazo en light y en dark. */}
                       {(c.needsTeam || selected) && (
                         <span
                           aria-hidden
                           data-attention-line={c.needsTeam || undefined}
-                          className={`absolute inset-y-1.5 left-0 rounded-full ${
-                            c.needsTeam ? "w-0.5 bg-warn-fg dark:bg-warn" : "w-0.5 bg-gold"
+                          className={`absolute inset-y-1 left-0 rounded-full ${
+                            c.needsTeam
+                              ? "w-1 bg-orange-600 shadow-[0_0_6px_rgba(234,88,12,0.45)] dark:bg-orange-500 dark:shadow-[0_0_8px_rgba(249,115,22,0.5)]"
+                              : "w-0.5 bg-gold"
                           }`}
                         />
                       )}
