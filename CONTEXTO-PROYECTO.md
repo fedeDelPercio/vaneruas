@@ -57,7 +57,9 @@ presencial.
    `agent_settings.auto_send.tiendup_auto_enroll`); si no hay valor en la base
    manda la env `TIENDUP_AUTO_ENROLL`, y si tampoco, prendido. Usa la misma lógica que el botón y nunca fuerza: si la persona
    figura con otro correo, falta el correo o Tiendup falla, deja una
-   notificación al equipo. No sumes otras inscripciones automáticas (otros
+   notificación al equipo. **Nunca crea un cliente nuevo en Tiendup**
+   (D-68): si el correo no existe como cliente de la tienda, o no se pudo
+   verificar, no inscribe. No sumes otras inscripciones automáticas (otros
    cursos, forzar con otro correo) sin que Federico lo pida.
 7. **Excepción de estilo de este cliente:** Valentina **sí** usa emojis con
    moderación y **sí** se presenta como "la asistente IA de Vanesa Rúas
@@ -321,9 +323,13 @@ historial; la lista muestra hasta 300 filas y el contador dice "300 de N".
 **Tiendup en vivo en la ficha** (`GET /api/wa/tiendup-status/[id]`,
 `src/lib/tiendup/status.ts` + `status-server.ts`, D-67): si hay correo válido y
 algún intento de alta, consulta el listado de inscriptos (solo GET, cache de
-5 min por curso) y muestra por curso Inscripta / Mismo nombre con otro mail /
-El mail no figura / Error en el alta / No se pudo consultar. Solo lectura: el
-alta no lo usa todavía.
+5 min por curso) y, si no figura, el de clientes de la tienda (cache de 10 min
+compartida con el alta). Muestra por curso Inscripta / Mismo nombre con otro
+mail / Cliente en Tiendup, sin acceso al curso (ámbar) / El mail no figura en
+Tiendup (rojo: ni inscripta ni cliente) / Error en el alta / No se pudo
+consultar. Un `course_access_error` con prefijo `NOT_IN_TIENDUP:` (lo deja el
+alta automática, D-70) se muestra como "El mail no figura" aunque Tiendup no
+responda.
 
 La ficha del contacto (`GET /api/wa/contact/[id]`) une los comprobantes con su
 evento por `titleKeyword` de `event-match.ts` (la tabla `events` no guarda el
@@ -354,7 +360,11 @@ Aprobaciones, detalles que importan:
 - **Alta automática en Tiendup** al validar (o al validarse el título, o al
   llegar el correo): misma lógica que el botón, en modo conservador (exige
   correo con formato válido y el listado de inscriptos completo, nunca
-  fuerza). Lo que no puede resolver abre una notificación `escalado_manual`
+  fuerza). Si no figura en el curso, solo inscribe si el correo ya existe como
+  cliente de la tienda (`GET /customers` completo, `customer-gate.ts`, D-68):
+  si no, guarda `NOT_IN_TIENDUP: El mail no figura en Tiendup` en
+  `course_access_error` y abre "Alta en Tiendup pendiente"; si el listado de
+  clientes no se pudo leer completo, tampoco inscribe. Lo que no puede resolver abre una notificación `escalado_manual`
   ("Alta en Tiendup pendiente: motivo") que se resuelve sola cuando el alta
   sale bien. Interruptor "Alta automática en Tiendup" arriba de la pestaña
   Falta acceso (`TiendupAutoEnrollToggle`, `/api/settings/tiendup-auto-enroll`):
@@ -365,7 +375,10 @@ Aprobaciones, detalles que importan:
   `src/lib/tiendup/grant.ts`) inscribe en Tiendup por correo. Antes chequea el
   listado real de inscriptos por correo y por nombre; si la persona figura con
   otro correo, avisa y no inscribe (inscribir con un correo malo crea un
-  cliente fantasma y la persona real queda sin acceso). "Ya tiene acceso" solo
+  cliente fantasma y la persona real queda sin acceso). Si el correo no
+  existe como cliente de la tienda (o no se pudo verificar) devuelve 409
+  `needsConfirm` y el panel pide confirmar que se cree un cliente nuevo
+  ("Dar acceso igual", body `confirmNewCustomer: true`). "Ya tiene acceso" solo
   marca, sin tocar Tiendup ni avisar.
 - **Cuando el acceso queda dado** (automático o botón) se manda por WhatsApp
   `TIENDUP_ACCESS_MESSAGE` (`src/lib/tiendup/messages.ts`), una vez por curso.
@@ -429,11 +442,24 @@ ahí (incluido "Masterizado" y la "falla intermitente" de Tiendup) es correcto.
   el panel abre la **ficha del contacto**. La paginación de mensajes puede
   repetir el último id: deduplicá.
 - **Tiendup:** `https://vanesaruas.public-api.tiendup.com`, header `x-api-key`
-  (no Bearer). `GET /learning/courses` lista cursos;
-  `POST /learning/courses/{id}/enroll` inscribe (idempotente);
-  `GET /learning/courses/{id}/enrolled?limit=100&page=N` lista inscriptos. No
-  hay búsqueda por correo. Mapeo evento → curso en
-  `src/lib/tiendup/client.ts`.
+  (no Bearer). Qué hace cada llamada:
+  - `GET /learning/courses`: lista cursos (de ahí salen los ids del mapeo).
+  - `POST /learning/courses/{id}/enroll`: inscribe por correo y **crea el
+    cliente si no existe** (idempotente). Única llamada que escribe; solo la
+    hace `enrollCourseByEmail` (`client.ts`), después del gate de clientes.
+  - `GET /learning/courses/{id}/enrolled?limit=100&page=N`: inscriptos al
+    curso (`listEnrolledChecked`; match por correo tolerante y por nombre en
+    `match.ts`).
+  - `GET /customers?limit=100&page=N`: TODOS los clientes de la tienda,
+    `{ data:[{id,name,last_name,email,phone}], countFiltered, count, pages,
+    next, … }` (`listCustomersChecked`, `customers.ts`). No hay búsqueda por
+    correo: se recorre entero, en orden, y se busca en memoria (trim +
+    minúsculas). Cache de 10 min compartida por alta y ficha. El máximo de
+    `limit` no está documentado: se pagina por `pages` / `next`.
+  - `GET /customers/{id}` y
+    `GET /learning/customers/{customer_id}/courses/{course_id}/enrollment`
+    existen pero piden el id del cliente; no se usan.
+  Mapeo evento → curso en `src/lib/tiendup/client.ts`.
 - **OpenRouter:** fallback y switch del proveedor de conversación.
 - **Vercel:** proyecto `vaneruas`, dominio detrás de Vercel Authentication (no
   hay endpoint de health público). Crons en `vercel.json`. Los webhooks de GHL
@@ -546,6 +572,7 @@ Sumá `OPENROUTER_API_KEY`, `GHL_API_KEY`, `NEXT_PUBLIC_GHL_LOCATION_ID`,
 | `scripts/split-ia-vs-equipo.ts` | Reparto real IA / equipo leyendo GHL |
 | `scripts/import-mensajes-equipo.ts` | Backfill de mensajes del equipo desde GHL |
 | `scripts/tiendup-reconciliar-accesos.ts` | Marca como "acceso dado" a quien ya está en Tiendup (requiere `--apply`) |
+| `scripts/tiendup-estimar-bloqueos.ts` | Solo lectura: cuántos pendientes de acceso frenaría la regla "no crear clientes" (conteos y correos enmascarados) |
 | `scripts/openrouter-cost-report.ts` | Costo real por período |
 | `scripts/test-*.ts` | Tests puntuales (debounce, traducción LLM, match de destinatario, clasificador "Crítico" e intervenciones automáticas, estado de Tiendup en vivo, etc.) |
 

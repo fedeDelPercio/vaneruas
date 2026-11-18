@@ -7,6 +7,94 @@ decidió, por qué, qué se descartó y qué costo o pendiente deja.
 
 ---
 
+## 18/11/2026 · El alta automática no crea clientes nuevos en Tiendup
+
+**Qué entró**
+
+- `src/lib/tiendup/customers.ts` (puro): `fetchAllCustomers` (GET
+  `/customers`, paginado en orden), `findCustomerByEmail`, cache en memoria.
+  `client.ts` expone `listCustomersChecked()` con la cache compartida.
+- `src/lib/tiendup/customer-gate.ts` (puro): `decideCustomerGate` y
+  `decideGrantAction` (inscripta → otro correo → gate de clientes), que es lo
+  que usa `grantCourseAccess`.
+- `grant.ts`: outcomes nuevos `not_in_tiendup`, `customer_check_failed` (auto)
+  y `needs_new_customer_confirm` (botón). `auto-enroll.ts`: motivos nuevos
+  para la notificación de alta pendiente.
+- `PATCH /api/payments/[id]/grant-access`: 409 `{ needsConfirm }` y body
+  `confirmNewCustomer`. `PaymentsList` muestra el aviso en rojo y "Dar acceso
+  igual".
+- Ficha: estado nuevo `customer_not_enrolled`, `not_found` ahora exige que el
+  correo tampoco sea cliente de la tienda.
+- `fixDominioDeCorreo` pasa de `client.ts` a `match.ts` (puro; `client.ts` lo
+  reexporta) para usarlo desde scripts.
+- `scripts/test-tiendup-customers.ts` (sin red, fetch mockeado) y
+  `scripts/tiendup-estimar-bloqueos.ts` (solo lectura, no se corrió).
+
+**D-68 · El criterio es "existe como cliente de la tienda", no "figura en el
+curso".** Decisión de Federico: si el correo no coincide con nada en Tiendup,
+el alta automática no inscribe (el enroll crearía un cliente nuevo con un
+correo que puede estar mal y la persona real se queda sin acceso). Quien paga
+por transferencia casi siempre se registró antes en la web (checkout de
+Tiendup) pero todavía no está en el curso: mirar solo inscriptos frenaría
+casi todos los casos legítimos. Tiendup no busca por correo, así que se lee
+`GET /customers` completo (limit=100, se pagina por `pages` / `next` porque el
+máximo no está documentado) y se busca en memoria. Comparación estricta (trim
++ minúsculas), a diferencia del match contra inscriptos que tolera basura: el
+enroll va con NUESTRO correo y, si no es exactamente el del cliente, Tiendup
+crea otro igual. Descartado: `GET /customers/{id}` y
+`/learning/customers/{id}/courses/{id}/enrollment` (piden el id, que no
+tenemos).
+
+**D-69 · Automático estricto, botón con confirmación explícita.** Automático:
+no inscribe si el correo no es cliente (`not_in_tiendup`) ni si el listado de
+clientes vino incompleto (`customer_check_failed`), aunque el correo aparezca
+en lo que se alcanzó a leer: mismo criterio que con el listado de inscriptos.
+Las dos abren la notificación existente "Alta en Tiendup pendiente"
+(`escalado_manual`, `tiendup_alta_pendiente_<pago>`) con el motivo. El botón
+pregunta: "Este correo no figura como cliente en Tiendup. Si seguís, Tiendup
+va a crear un cliente nuevo con ese correo. Dar acceso igual?" (o "No se pudo
+verificar…" si el listado falló) y con `confirmNewCustomer: true` inscribe.
+`force` (aceptar el aviso de "figura con otro correo") también saltea el
+chequeo: ese aviso ya dice que se va a crear un cliente nuevo.
+`confirmNewCustomer` NO saltea el chequeo de otro correo. El texto va sin `¿`
+por el microcopy del panel (CLAUDE.md), igual que el confirm existente.
+
+**D-70 · El resultado queda en `course_access_error` con el prefijo
+`NOT_IN_TIENDUP:`.** Sin schema nuevo: el alta automática guarda
+`NOT_IN_TIENDUP: El mail no figura en Tiendup` (`notInTiendupError` en
+`messages.ts`). La ficha lo reconoce (`isNotInTiendupError`) y muestra
+`not_found` aunque Tiendup no responda; con Tiendup respondiendo manda el
+dato en vivo (si ya es cliente → `customer_not_enrolled`, si ya está
+inscripta → `enrolled`). El marcador no cuenta como "Error en el alta". Se
+limpia cuando el acceso queda dado (`markGranted`) o lo pisa un error del
+enroll. `customer_check_failed` no escribe nada (como `listing_failed`): es
+una falla transitoria y se reintenta en el próximo disparador. Para mostrar,
+`displayCourseAccessError` saca el prefijo (API de Aprobaciones y ficha).
+
+**D-71 · Cache de clientes de 10 min compartida, con relectura si no
+aparece.** Una sola cache por instancia para el botón, el alta automática y la
+ficha (`createCustomersCache`): 10 min si vino completo, 1 min si no;
+lecturas simultáneas comparten el request. Si el correo no aparece en un
+listado de más de 1 min, el alta relee una vez (`maxAgeMs: 0`): quien se
+registró recién en la web no queda frenada por la cache. Completo = todas las
+páginas 2xx con `data` array, llegó a la última página y juntó al menos
+`countFiltered` / `count` clientes distintos (number o string); si alguien se
+registra mientras se pagina y el total no cierra, queda incompleto. Tope de
+400 páginas. La ficha lee clientes solo si la persona no figura en el curso.
+
+### Pendientes que deja esta entrega
+
+- Correr `scripts/tiendup-estimar-bloqueos.ts` con las keys de producción para
+  saber cuántos pendientes quedarían frenados (no se corrió: sin red).
+- Confirmar en vivo que `GET /customers` acepta `limit=100` y cuánto tarda con
+  el listado entero (se probó con la API mockeada). Si es lento, el primer
+  alta después de 10 min paga esa lectura.
+- Un marcador `NOT_IN_TIENDUP` viejo queda guardado si después el alta se
+  frena por otro motivo (p.ej. otro correo); la ficha en vivo lo corrige, pero
+  la ficha sin Tiendup mostraría `not_found`.
+
+---
+
 ## 18/11/2026 · Ficha reorganizada, Tiendup en vivo y pills gemelos de los filtros
 
 **Qué entró**
@@ -71,7 +159,7 @@ identidad): es lo más urgente, la persona pagó y no tiene acceso; si no, va
 entre Intervención y Historial. Costo: el bloque puede aparecer un instante
 después que el resto y, si queda en rojo, la ficha se reacomoda una vez.
 
-**Para después (sin cambiar ahora):** "bloquear el alta si el correo no figura
+**Para después (hecho en D-68 a D-71, con `GET /customers`):** "bloquear el alta si el correo no figura
 en Tiendup" puede usar `loadTiendupStatus` / `getEnrolledListing`
 (`status-server.ts`) y `decideTiendupStatus` (`status.ts`): el estado ya
 distingue `not_found` de `unavailable`, que es lo que esa regla necesita para
