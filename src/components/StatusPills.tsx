@@ -17,7 +17,7 @@ export function KindPill({ kind, count = 1 }: { kind: "comprobante" | "titulo"; 
       title={
         kind === "comprobante"
           ? count > 1
-            ? `${count} comprobantes esperando aprobación`
+            ? `${count} pagos distintos esperando aprobación`
             : "Comprobante esperando aprobación"
           : count > 1
             ? `${count} títulos para revisar`
@@ -30,7 +30,9 @@ export function KindPill({ kind, count = 1 }: { kind: "comprobante" | "titulo"; 
       }`}
     >
       {label}
-      {count > 1 && <span className="font-mono tabular-nums opacity-70">{count}</span>}
+      {/* Sin número en "Comprobante": varias imágenes del mismo pago son un
+          solo comprobante (grouping.ts) y el número confundía. */}
+      {kind === "titulo" && count > 1 && <span className="font-mono tabular-nums opacity-70">{count}</span>}
     </span>
   );
 }

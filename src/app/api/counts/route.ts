@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { groupPendingPayments } from "@/lib/payments/grouping";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 
@@ -8,7 +9,8 @@ export const dynamic = "force-dynamic";
 // GET /api/counts
 //
 // Conteos de pendientes por módulo para los badges del header (estilo
-// notificación). Liviano: solo `count`, sin traer filas. RLS aísla por cliente.
+// notificación). Liviano: casi todo `count`; los comprobantes pendientes se
+// traen (pocas filas) para contarlos por grupo. RLS aísla por cliente.
 //
 //  - payments: lo que hay para revisar en Aprobaciones = comprobantes en estado
 //    'pending' + conversaciones con un título profesional a revisar (sin
@@ -33,10 +35,16 @@ export async function GET() {
 
   const [payments, interventions, certificados, payConvRows, titleRows, heldRows] =
     await Promise.all([
-    sb
-      .from("payment_validations")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "pending"),
+    // Pendientes por GRUPO: varias imágenes del mismo pago son un comprobante
+    // (src/lib/payments/grouping.ts).
+    fetchAllRows((from, to) =>
+      sb
+        .from("payment_validations")
+        .select("id, conversation_id, event_slug, status, amount, operation_number, created_at")
+        .eq("status", "pending")
+        .order("id", { ascending: true })
+        .range(from, to),
+    ).catch(() => []),
     sb
       .from("agent_notifications")
       .select("id", { count: "exact", head: true })
@@ -107,7 +115,7 @@ export async function GET() {
   );
 
   const counts: ModuleCounts = {
-    payments: (payments.count ?? 0) + titleReviewConvs.size,
+    payments: groupPendingPayments(payments).length + titleReviewConvs.size,
     interventions: interventions.count ?? 0,
     certificados: certificados.count ?? 0,
     agendar,

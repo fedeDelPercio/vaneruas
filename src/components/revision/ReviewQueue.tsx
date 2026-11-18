@@ -112,7 +112,12 @@ function QueueRow({
   const phone = formatPhone(item.phone);
   const ev = item.kind === "comprobante" ? eventBySlug(item.eventSlug) : null;
   const amount = fmtAmount(item.amount, item.currency);
-  const meta = [ev?.shortLabel ?? (item.kind === "comprobante" ? "Sin evento" : null), amount]
+  const images = item.file.images?.length ?? 0;
+  const meta = [
+    ev?.shortLabel ?? (item.kind === "comprobante" ? "Sin evento" : null),
+    amount,
+    images > 1 ? `${images} imágenes` : null,
+  ]
     .filter(Boolean)
     .join(" · ");
 

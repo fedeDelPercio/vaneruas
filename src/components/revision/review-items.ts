@@ -1,8 +1,8 @@
 import type { PaymentItem, TitleReview, TitleSubmission } from "@/app/api/payments/route";
 import type { ContactFile } from "@/app/api/wa/contact/[conversationId]/route";
 
-// Ítems de la cola de /revision: un archivo por ítem (comprobante pendiente o
-// título para revisar), armados con la MISMA respuesta de GET /api/payments que
+// Ítems de la cola de /revision: un archivo por ítem (comprobante pendiente,
+// con todas las imágenes del mismo pago, o título para revisar), armados con la MISMA respuesta de GET /api/payments que
 // usa Aprobaciones. Nada de consultas propias.
 
 export interface ReviewItem {
@@ -94,6 +94,9 @@ export function buildReviewItems(items: PaymentItem[], titleReviews: TitleReview
         currency: p.currency,
         titleName: null,
         institution: null,
+        // Varias imágenes del mismo pago: un solo ítem (grouping.ts).
+        images: p.groupImages,
+        maybeDistinct: p.groupMaybeDistinct,
       },
       payment: p,
     });

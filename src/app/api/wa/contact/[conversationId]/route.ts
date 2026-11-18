@@ -6,7 +6,8 @@ import {
   accesoVigenteDeEvento,
   type KnownComprobanteEvent,
 } from "@/lib/payments/event-match";
-import { esDescartado } from "@/lib/payments/dismiss";
+import { canonicoDeAgrupado, esAgrupado, esDescartado } from "@/lib/payments/dismiss";
+import { groupPendingPayments } from "@/lib/payments/grouping";
 
 export const dynamic = "force-dynamic";
 
@@ -82,6 +83,13 @@ export interface ContactFile {
   /** Título: nombre e institución leídos. */
   titleName: string | null;
   institution: string | null;
+  /**
+   * Comprobante: todas las imágenes del mismo pago (grouping.ts), incluida la
+   * propia, de la más vieja a la más nueva. Ausente o de una = sin grupo.
+   */
+  images?: { id: string; url: string | null; fileType: string | null; createdAt: string }[];
+  /** Montos leídos distintos dentro del grupo ("parecen pagos distintos"). */
+  maybeDistinct?: boolean;
 }
 
 export interface ContactFicha {
@@ -170,7 +178,33 @@ export async function GET(
     eventRows.find((e) => normalize(e.title).includes(normalize(known.titleKeyword))) ?? null;
 
   const email = conv.contact_email?.trim() || null;
-  const payments = (payRes.data ?? []).filter((p) => !esDescartado(p));
+
+  // Grupos (grouping.ts): varias imágenes del mismo pago cuentan como UN
+  // comprobante. Pendientes: solo el canónico; resueltos: las imágenes extra
+  // quedaron con la nota de agrupado y se cuelgan de su canónico.
+  const rawPayments = payRes.data ?? [];
+  const membersByCanonical = new Map<string, typeof rawPayments>();
+  const maybeDistinctIds = new Set<string>();
+  const hiddenIds = new Set<string>();
+  for (const g of groupPendingPayments(rawPayments.map((p) => ({ ...p, conversation_id: conversationId })))) {
+    const members = g.members.map((m) => rawPayments.find((p) => p.id === m.id)!);
+    membersByCanonical.set(g.canonical.id, members);
+    if (g.maybeDistinct) maybeDistinctIds.add(g.canonical.id);
+    for (const m of g.members) if (m.id !== g.canonical.id) hiddenIds.add(m.id);
+  }
+  for (const p of rawPayments) {
+    const canonicalId = canonicoDeAgrupado(p);
+    if (!canonicalId) continue;
+    hiddenIds.add(p.id);
+    const canonical = rawPayments.find((x) => x.id === canonicalId);
+    if (!canonical) continue;
+    const arr = membersByCanonical.get(canonicalId) ?? [canonical];
+    arr.push(p);
+    membersByCanonical.set(canonicalId, arr);
+  }
+  for (const arr of membersByCanonical.values()) arr.sort((a, b) => a.created_at.localeCompare(b.created_at));
+
+  const payments = rawPayments.filter((p) => !esDescartado(p) && !esAgrupado(p) && !hiddenIds.has(p.id));
 
   function buildEvent(
     key: string,
@@ -322,9 +356,10 @@ export async function GET(
 
   // Archivos para ver y resolver desde la ficha. Firmados de una vez (el
   // bucket es privado); los paths salen de filas que RLS ya filtró por cliente.
-  const allPayments = payRes.data ?? [];
+  // Las imágenes extra de un grupo van dentro de su canónico, no sueltas.
+  const allPayments = rawPayments.filter((p) => !hiddenIds.has(p.id));
   const paths = [
-    ...allPayments.map((p) => p.comprobante_path),
+    ...rawPayments.map((p) => p.comprobante_path),
     ...titles.map((t) => t.file_path),
   ].filter((x): x is string => Boolean(x));
   const signed = new Map<string, string>();
@@ -353,6 +388,13 @@ export async function GET(
       currency: p.currency ?? null,
       titleName: null,
       institution: null,
+      images: (membersByCanonical.get(p.id) ?? [p]).map((m) => ({
+        id: m.id,
+        url: m.comprobante_path ? signed.get(m.comprobante_path) ?? null : null,
+        fileType: m.comprobante_type ?? null,
+        createdAt: m.created_at,
+      })),
+      maybeDistinct: maybeDistinctIds.has(p.id),
     })),
     ...titles.map((t) => ({
       id: t.id,

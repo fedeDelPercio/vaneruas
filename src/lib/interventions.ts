@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/types";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { PAYMENT_NOTIFICATION_CATEGORY } from "@/lib/payments/register";
+import { groupPendingPayments } from "@/lib/payments/grouping";
 
 // ===========================================================================
 // Conversaciones que necesitan intervención del equipo.
@@ -175,7 +176,7 @@ export async function loadPendingApprovalConversationIds(
     fetchAllRows((from, to) =>
       sb
         .from("payment_validations")
-        .select("id, conversation_id, awaiting_title")
+        .select("id, conversation_id, awaiting_title, event_slug, status, amount, operation_number, created_at")
         .eq("client_slug", clientSlug)
         .eq("status", "pending")
         .not("conversation_id", "is", null)
@@ -203,11 +204,14 @@ export async function loadPendingApprovalConversationIds(
     }
     return info;
   };
-  for (const p of pays) {
-    if (!p.conversation_id) continue;
-    const info = entry(p.conversation_id);
+  // Un comprobante por GRUPO (varias imágenes del mismo pago = uno, ver
+  // src/lib/payments/grouping.ts).
+  for (const g of groupPendingPayments(pays)) {
+    const convId = g.canonical.conversation_id;
+    if (!convId) continue;
+    const info = entry(convId);
     info.comprobantes += 1;
-    if (p.awaiting_title) info.awaitingTitle = true;
+    if (g.members.some((m) => m.awaiting_title)) info.awaitingTitle = true;
   }
   for (const t of titles) {
     if (t.conversation_id) entry(t.conversation_id).titulos += 1;

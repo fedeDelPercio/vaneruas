@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
-import { esDescartado } from "@/lib/payments/dismiss";
+import { esAgrupado, esDescartado } from "@/lib/payments/dismiss";
+import { groupPendingPayments } from "@/lib/payments/grouping";
 import { HUMAN_WAITING_REASON } from "@/lib/team-interventions";
 
 export const dynamic = "force-dynamic";
@@ -313,28 +314,40 @@ export async function GET(req: NextRequest) {
   //     la query: ambos quedan como status="rejected".
   const funnelP = (async () => {
     const rows = await fetchAll<{
+      id: string;
+      conversation_id: string | null;
+      event_slug: string | null;
+      operation_number: string | null;
+      created_at: string;
       status: string;
       validation_note: string | null;
       amount: number | string | null;
     }>((from, to) => {
       let q = sb
         .from("payment_validations")
-        .select("status, validation_note, amount")
-        .order("created_at");
+        .select("id, conversation_id, event_slug, operation_number, created_at, status, validation_note, amount")
+        .order("created_at")
+        .order("id");
       if (since) q = q.gte("created_at", since);
       return q.range(from, to);
     });
-    let pending = 0;
+    // Imágenes extra del mismo pago (agrupadas al aprobar) no cuentan: son el
+    // mismo comprobante que su canónico. Los pendientes se cuentan por grupo
+    // (3 capturas de la misma transferencia = 1 comprobante a revisar).
+    const counted = rows.filter((r) => !esAgrupado(r));
+    const pendingRows = counted.filter((r) => r.status === "pending");
+    const pending = groupPendingPayments(pendingRows).length;
     let validated = 0;
     let rejected = 0;
     let descartados = 0;
-    for (const r of rows) {
-      if (r.status === "pending") pending++;
+    for (const r of counted) {
+      if (r.status === "pending") continue;
       else if (r.status === "validated") validated++;
       else if (esDescartado(r)) descartados++;
       else rejected++;
     }
-    return { received: rows.length, pending, validated, rejected, descartados };
+    const received = pending + validated + rejected + descartados;
+    return { received, pending, validated, rejected, descartados };
   })();
 
   // --- Derivaciones por categoría (traemos solo la columna y agrupamos en JS).

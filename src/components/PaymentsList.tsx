@@ -1034,6 +1034,22 @@ export function PaymentsList() {
                   {/* Comprobante */}
                   <div className="shrink-0">
                     <Thumb url={p.comprobanteUrl} type={p.comprobanteType} alt="Comprobante" />
+                    {/* Otras imágenes del mismo pago (grouping.ts): se aprueban
+                        o rechazan junto con esta, en una sola acción. */}
+                    {p.groupImages.length > 1 && (
+                      <>
+                        <div className="mt-1.5 flex w-32 flex-wrap gap-1">
+                          {p.groupImages
+                            .filter((g) => g.id !== p.id)
+                            .map((g) => (
+                              <Thumb key={g.id} url={g.url} type={g.fileType} alt="Otra imagen del mismo pago" className="h-10 w-8" />
+                            ))}
+                        </div>
+                        <p className="mt-1 font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+                          {p.groupImages.length} imágenes
+                        </p>
+                      </>
+                    )}
                   </div>
 
                   {/* Datos */}
@@ -1064,6 +1080,15 @@ export function PaymentsList() {
                           >
                             <GraduationCap className="h-3 w-3 text-warn" strokeWidth={1.75} />
                             Esperando título
+                          </span>
+                        )}
+                        {p.groupMaybeDistinct && (
+                          <span
+                            className="flex items-center gap-1 badge-pill border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400"
+                            title="Las imágenes de este comprobante tienen montos leídos distintos. Revisalas antes de aprobar: puede que sean pagos distintos"
+                          >
+                            <AlertTriangle className="h-3 w-3 text-warn" strokeWidth={1.75} />
+                            Parecen pagos distintos
                           </span>
                         )}
                         {p.isDuplicate && (

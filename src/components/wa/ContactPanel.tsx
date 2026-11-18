@@ -86,7 +86,6 @@ function stepsFor(ev: ContactEvent): Step[] {
             // Con el pago aprobado, el monto va en ese paso (puede ser la suma
             // de varios comprobantes).
             p.stage === "validated" ? null : amount,
-            p.count > 1 ? `${p.count} envíos` : null,
           ]
             .filter(Boolean)
             .join(" · "),
@@ -186,7 +185,9 @@ function FileThumbs({
               : st.tone === "bad"
                 ? "border-red-500/40"
                 : "border-neutral-200 dark:border-neutral-800";
-        const label = `${f.kind === "comprobante" ? "Comprobante" : "Título"}: ${st.text}`;
+        const label = `${f.kind === "comprobante" ? "Comprobante" : "Título"}: ${st.text}${
+          (f.images?.length ?? 0) > 1 ? ` · ${f.images!.length} imágenes` : ""
+        }`;
         return (
           <button
             key={f.id}
@@ -207,6 +208,14 @@ function FileThumbs({
             )}
             {st.tone === "warn" && (
               <span aria-hidden className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-warn" />
+            )}
+            {(f.images?.length ?? 0) > 1 && (
+              <span
+                aria-hidden
+                className="absolute bottom-0.5 right-0.5 rounded bg-neutral-900/70 px-1 font-mono text-[9.5px] tabular-nums text-white"
+              >
+                {f.images!.length}
+              </span>
             )}
           </button>
         );
@@ -229,8 +238,9 @@ function PendingFileActions({ files, onOpen }: { files: ContactFile[]; onOpen: O
       {pending.map((f) => {
         const isPayment = f.kind === "comprobante";
         const amount = isPayment ? fmtAmount(f.amount, f.currency) : null;
+        const images = f.images?.length ?? 0;
         const label = isPayment
-          ? ["Comprobante", amount].filter(Boolean).join(" · ")
+          ? ["Comprobante", amount, images > 1 ? `${images} imágenes` : null].filter(Boolean).join(" · ")
           : f.titleName ?? "Título profesional";
         return (
           <li

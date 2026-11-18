@@ -2,7 +2,18 @@
 
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import { AlertTriangle, Check, ExternalLink, FileText, GraduationCap, Loader2, Maximize2, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  FileText,
+  GraduationCap,
+  Loader2,
+  Maximize2,
+  X,
+} from "lucide-react";
 import { useProfile } from "../ProfileProvider";
 import { MediaViewerModal, ViewerModal } from "../FileViewerModal";
 import { eventBySlug } from "@/lib/payments/event-match";
@@ -118,8 +129,15 @@ export function FileReviewPanel({
     return () => document.removeEventListener("keydown", onKey);
   }, [confirm, busy]);
 
-  const isPdf = file.fileType === "application/pdf";
   const isPayment = file.kind === "comprobante";
+  // Varias imágenes del mismo pago (grouping.ts): se ven de a una, con
+  // navegación, y se aprueban o rechazan juntas (la PATCH resuelve el grupo).
+  const images = isPayment && (file.images?.length ?? 0) > 1 ? file.images! : null;
+  const [imgIdx, setImgIdx] = useState(0);
+  const shown = images ? images[Math.min(imgIdx, images.length - 1)]! : { url: file.url, fileType: file.fileType };
+  const shownUrl = shown.url;
+  const isPdf = shown.fileType === "application/pdf";
+  const groupSuffix = images ? ` (${images.length} imágenes)` : "";
   const canAct = canReviewFile(file);
   const status = fileStatusLabel(file);
   const ev = isPayment ? eventBySlug(file.eventSlug) : null;
@@ -206,6 +224,7 @@ export function FileReviewPanel({
               isPayment ? ev?.shortLabel ?? null : file.institution,
               amount,
               `Recibido ${fmtDateTime(file.createdAt)}`,
+              images ? `${images.length} imágenes del mismo pago` : null,
             ]
               .filter(Boolean)
               .join(" · ")}
@@ -214,6 +233,12 @@ export function FileReviewPanel({
             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
             {status.text}
           </span>
+          {file.maybeDistinct && (
+            <span className="mt-1 flex items-center gap-1.5 text-[11.5px] text-neutral-600 dark:text-neutral-300">
+              <AlertTriangle className="h-3 w-3 shrink-0 text-warn" strokeWidth={1.75} />
+              Los montos leídos no coinciden, puede que sean pagos distintos
+            </span>
+          )}
         </div>
         {onClose && (
           <button
@@ -232,16 +257,16 @@ export function FileReviewPanel({
           inline ? "min-h-[220px] flex-1" : "min-h-0 flex-1"
         }`}
       >
-        {!file.url ? (
+        {!shownUrl ? (
           <p className="py-16 text-[12px] text-neutral-500">No se pudo cargar el archivo</p>
         ) : isPdf ? (
           <object
-            data={file.url}
+            data={shownUrl}
             type="application/pdf"
             className={inline ? "h-[55vh] w-full" : "h-[62vh] w-full"}
           >
             <a
-              href={file.url}
+              href={shownUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 py-16 text-[12px] text-neutral-600 underline underline-offset-2 dark:text-neutral-300"
@@ -258,7 +283,7 @@ export function FileReviewPanel({
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={file.url}
+              src={shownUrl}
               alt={isPayment ? "Comprobante" : "Título profesional"}
               className="max-h-[55vh] w-auto max-w-full object-contain"
             />
@@ -266,15 +291,64 @@ export function FileReviewPanel({
         ) : (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={file.url}
+            src={shownUrl}
             alt={isPayment ? "Comprobante" : "Título profesional"}
             className="max-h-[62vh] w-auto max-w-full object-contain"
           />
         )}
       </div>
 
+      {images && (
+        <div className="mt-2.5 flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setImgIdx((i) => (i - 1 + images.length) % images.length)}
+            aria-label="Imagen anterior"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-900 dark:hover:text-neutral-100"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" strokeWidth={1.75} />
+          </button>
+          <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto">
+            {images.map((img, i) => (
+              <button
+                key={img.id}
+                type="button"
+                onClick={() => setImgIdx(i)}
+                aria-label={`Imagen ${i + 1} de ${images.length}`}
+                aria-current={i === imgIdx}
+                className={`relative h-11 w-9 shrink-0 overflow-hidden rounded-lg border bg-neutral-50 transition dark:bg-neutral-900/40 ${
+                  i === imgIdx
+                    ? "border-neutral-900 dark:border-neutral-50"
+                    : "border-neutral-200 opacity-70 hover:opacity-100 dark:border-neutral-800"
+                }`}
+              >
+                {img.url && img.fileType !== "application/pdf" ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={img.url} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                ) : (
+                  <span className="flex h-full w-full items-center justify-center text-neutral-400 dark:text-neutral-500">
+                    <FileText className="h-3.5 w-3.5" strokeWidth={1.5} />
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          <span className="shrink-0 font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+            {Math.min(imgIdx, images.length - 1) + 1}/{images.length}
+          </span>
+          <button
+            type="button"
+            onClick={() => setImgIdx((i) => (i + 1) % images.length)}
+            aria-label="Imagen siguiente"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-900 dark:hover:text-neutral-100"
+          >
+            <ChevronRight className="h-3.5 w-3.5" strokeWidth={1.75} />
+          </button>
+        </div>
+      )}
+
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-        {file.url && inline ? (
+        {shownUrl && inline ? (
           <button
             type="button"
             onClick={() => setViewerOpen(true)}
@@ -283,9 +357,9 @@ export function FileReviewPanel({
             <Maximize2 className="h-3.5 w-3.5" strokeWidth={1.75} />
             Ampliar
           </button>
-        ) : file.url ? (
+        ) : shownUrl ? (
           <a
-            href={file.url}
+            href={shownUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
@@ -302,7 +376,7 @@ export function FileReviewPanel({
             <div className="flex flex-wrap items-center justify-end gap-2">
               <span className="flex items-center gap-1.5 text-[12px] text-neutral-600 dark:text-neutral-300">
                 <AlertTriangle className="h-3.5 w-3.5 text-red-500 dark:text-red-400" strokeWidth={1.75} />
-                {isPayment ? "Rechazar este comprobante?" : "Rechazar este título?"}
+                {isPayment ? `Rechazar este comprobante${groupSuffix}?` : "Rechazar este título?"}
               </span>
               <button
                 onClick={() => setConfirm(null)}
@@ -323,7 +397,7 @@ export function FileReviewPanel({
           ) : confirm === "approve" ? (
             <div className="flex flex-wrap items-center justify-end gap-2">
               <span className="text-[12px] text-neutral-600 dark:text-neutral-300">
-                {isPayment ? "Aprobar este comprobante?" : "Validar este título?"}
+                {isPayment ? `Aprobar este comprobante${groupSuffix}?` : "Validar este título?"}
               </span>
               <button
                 onClick={() => setConfirm(null)}
@@ -395,8 +469,8 @@ export function FileReviewPanel({
       </div>
       {viewerOpen && (
         <MediaViewerModal
-          url={file.url}
-          fileType={file.fileType}
+          url={shownUrl}
+          fileType={shown.fileType}
           title={isPayment ? "Comprobante" : file.titleName ?? "Título profesional"}
           subtitle={status.text}
           onClose={() => setViewerOpen(false)}

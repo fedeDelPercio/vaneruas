@@ -5,6 +5,8 @@ import { COMPROBANTES_BUCKET } from "@/lib/payments/storage";
 import { matchesContactQuery } from "@/lib/search";
 import { loadOpenTeamNotificationCounts } from "@/lib/interventions";
 import { clientEnv } from "@/lib/env";
+import { groupPendingPayments } from "@/lib/payments/grouping";
+import { canonicoDeAgrupado } from "@/lib/payments/dismiss";
 
 export const dynamic = "force-dynamic";
 
@@ -104,6 +106,24 @@ export interface PaymentItem {
   validatedAt: string | null;
   validationNote: string | null;
   validatedByName: string | null;
+  /**
+   * Imágenes del mismo pago (grouping.ts), incluida la de este ítem, de la más
+   * vieja a la más nueva. Una sola = no hay grupo. En pendientes son los
+   * hermanos que se resuelven juntos; en resueltos, las agrupadas al aprobar.
+   */
+  groupImages: GroupImage[];
+  /** Montos leídos distintos dentro del grupo: avisar "parecen pagos distintos". */
+  groupMaybeDistinct: boolean;
+}
+
+/** Una imagen de un grupo de comprobantes. */
+export interface GroupImage {
+  id: string;
+  url: string | null;
+  fileType: string | null;
+  createdAt: string;
+  amount: number | null;
+  operationNumber: string | null;
 }
 
 // Ids por consulta cuando la lista viaja en la URL (`.in(...)`). Pasar cientos
@@ -214,12 +234,41 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Resumen para la cabecera: pendientes y tiempo promedio de validación.
-  let pendingCount = 0;
+  // Grupos: varias imágenes del mismo pago se muestran (y se resuelven) como
+  // UN comprobante (src/lib/payments/grouping.ts). Pendientes: se agrupan en
+  // vivo y la lista muestra solo el canónico. Resueltos: las imágenes extra
+  // quedaron `rejected` con la nota de agrupado y se cuelgan de su canónico.
+  type Row = (typeof allRows)[number];
+  const membersByCanonical = new Map<string, Row[]>();
+  const maybeDistinctIds = new Set<string>();
+  const hiddenIds = new Set<string>();
+  const pendingGroups = groupPendingPayments(allRows);
+  for (const g of pendingGroups) {
+    membersByCanonical.set(g.canonical.id, g.members);
+    if (g.maybeDistinct) maybeDistinctIds.add(g.canonical.id);
+    for (const m of g.members) if (m.id !== g.canonical.id) hiddenIds.add(m.id);
+  }
+  const rowById = new Map(allRows.map((r) => [r.id, r]));
+  for (const r of allRows) {
+    const canonicalId = canonicoDeAgrupado(r);
+    if (!canonicalId) continue;
+    hiddenIds.add(r.id);
+    const canonical = rowById.get(canonicalId);
+    if (!canonical) continue;
+    const arr = membersByCanonical.get(canonicalId) ?? [canonical];
+    arr.push(r);
+    membersByCanonical.set(canonicalId, arr);
+  }
+  for (const arr of membersByCanonical.values()) {
+    arr.sort((a, b) => (a.created_at === b.created_at ? a.id.localeCompare(b.id) : a.created_at < b.created_at ? -1 : 1));
+  }
+
+  // Resumen para la cabecera: pendientes (por grupo) y tiempo promedio de
+  // validación.
+  const pendingCount = pendingGroups.length;
   let sumMs = 0;
   let validatedCount = 0;
   for (const r of allRows) {
-    if (r.status === "pending") pendingCount++;
     if (r.status === "validated" && r.validated_at && r.created_at) {
       const ms = new Date(r.validated_at).getTime() - new Date(r.created_at).getTime();
       if (ms >= 0) {
@@ -293,6 +342,9 @@ export async function GET(req: NextRequest) {
     rows = allRows.filter((r) => r.status === status);
   }
 
+  // Las imágenes extra de un grupo no son ítems propios: van dentro del canónico.
+  rows = rows.filter((r) => !hiddenIds.has(r.id));
+
   const convIds = Array.from(
     new Set(rows.map((r) => r.conversation_id).filter(Boolean) as string[]),
   );
@@ -358,8 +410,10 @@ export async function GET(req: NextRequest) {
   );
 
   // Una sola tanda de firmas para comprobantes y títulos.
+  const groupRows = rows.flatMap((r) => membersByCanonical.get(r.id) ?? []);
   const signed = await signPaths([
     ...(rows.map((r) => r.comprobante_path).filter(Boolean) as string[]),
+    ...(groupRows.map((r) => r.comprobante_path).filter(Boolean) as string[]),
     ...(shownTitles.map((t) => t.file_path).filter(Boolean) as string[]),
   ]);
 
@@ -439,7 +493,13 @@ export async function GET(req: NextRequest) {
       eventSlug: r.event_slug,
       comprobanteUrl: r.comprobante_path ? signed.get(r.comprobante_path) ?? null : null,
       comprobanteType: r.comprobante_type,
-      isDuplicate: duplicateIds.has(r.id),
+      // Un N° de operación repetido DENTRO del mismo grupo no es un doble
+      // envío a avisar: es justamente lo que el grupo junta.
+      isDuplicate:
+        duplicateIds.has(r.id) &&
+        !(membersByCanonical.get(r.id) ?? []).some(
+          (m) => m.id === earliestIdByOp.get(norm(r.operation_number))?.id,
+        ),
       contactHasValidatedPayment,
       awaitingTitle: r.awaiting_title ?? false,
       deliveryFailed: r.delivery_failed ?? false,
@@ -454,6 +514,15 @@ export async function GET(req: NextRequest) {
       validatedAt: r.validated_at,
       validationNote: r.validation_note,
       validatedByName: validator?.name ?? null,
+      groupImages: (membersByCanonical.get(r.id) ?? [r]).map((m) => ({
+        id: m.id,
+        url: m.comprobante_path ? signed.get(m.comprobante_path) ?? null : null,
+        fileType: m.comprobante_type,
+        createdAt: m.created_at,
+        amount: m.amount === null ? null : Number(m.amount),
+        operationNumber: m.operation_number,
+      })),
+      groupMaybeDistinct: maybeDistinctIds.has(r.id),
     };
   });
 
