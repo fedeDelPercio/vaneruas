@@ -27,6 +27,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ContactStrip } from "./ContactStrip";
 import { ConversationLinks } from "./ConversationLinks";
 import { SearchField } from "./SearchField";
+import { FilterChip, FilterChips } from "./ui/FilterChips";
 import { useContactSearch } from "./useContactSearch";
 import { eventBySlug, accesoVigenteDeEvento } from "@/lib/payments/event-match";
 import { recipientMismatches } from "@/lib/payments/recipient";
@@ -854,55 +855,37 @@ export function PaymentsList() {
       )}
 
       {/* Filtros por estado */}
-      <div className="mb-3 flex flex-wrap items-center gap-1">
+      <FilterChips label="Filtros por estado" className="mb-3">
         {FILTERS.map((f) => (
-          <button
+          <FilterChip
             key={f.key}
+            active={filter === f.key && !searching}
             onClick={() => {
               setFilter(f.key);
               if (query) setQuery("");
             }}
-            className={`rounded-md px-2.5 py-1.5 text-[12px] transition ${
-              filter === f.key && !searching
-                ? "bg-neutral-900 text-white dark:bg-neutral-50 dark:text-neutral-950"
-                : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
-            }`}
-          >
-            {f.label}
-          </button>
+            label={f.label}
+          />
         ))}
-      </div>
+      </FilterChips>
 
       {/* Interruptor del alta automática en Tiendup (solo en Falta acceso). */}
       {filter === "sin-acceso" && !searching && <TiendupAutoEnrollToggle />}
 
       {/* Filtro + contador por evento (Congreso dorado / Masterclass esmeralda) */}
       {items && hasEvents && (
-        <div className="mb-4 flex items-center gap-1.5">
+        <FilterChips label="Filtros por evento" className="mb-4">
           {EVENT_FILTERS.map((f) => (
-            <button
+            <FilterChip
               key={f.key}
+              active={eventFilter === f.key}
               onClick={() => setEventFilter(f.key)}
-              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] transition ${
-                eventFilter === f.key
-                  ? "bg-neutral-900 text-white dark:bg-neutral-50 dark:text-neutral-950"
-                  : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
-              }`}
-            >
-              {f.dot && <span className={`h-1.5 w-1.5 rounded-full ${f.dot}`} />}
-              {f.label}
-              <span
-                className={`font-mono text-[11px] ${
-                  eventFilter === f.key
-                    ? "opacity-70"
-                    : "text-neutral-400 dark:text-neutral-500"
-                }`}
-              >
-                {f.count}
-              </span>
-            </button>
+              label={f.label}
+              leading={f.dot ? <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${f.dot}`} /> : undefined}
+              count={f.count}
+            />
           ))}
-        </div>
+        </FilterChips>
       )}
 
       {items === null ? (
