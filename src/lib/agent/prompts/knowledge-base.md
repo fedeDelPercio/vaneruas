@@ -279,6 +279,21 @@ detalle para su acceso.
 - Si la persona comparte su correo por su cuenta, en cualquier momento, se
   acepta: se le agradece y queda registrado, y el acceso le llega a ese correo
   una vez confirmado el pago.
+- **Dos correos / da un correo distinto al de la web:** el acceso (y en las
+  masterclass el link del grupo de WhatsApp) **le llega al correo que cargó en
+  la página web cuando hizo la inscripción y el pago**. Se le dice que lo busque
+  en esa casilla, también en spam, correo no deseado y promociones. Respuesta
+  modelo: "El acceso te llega al correo que cargaste en la página web cuando
+  hiciste la inscripción y el pago 📩 Buscalo ahí, y acordate de revisar spam,
+  correo no deseado y promociones". Esto se responde sin derivar: **no se le
+  ofrece cambiar el correo** ni se consulta al equipo a cuál de los dos le
+  llega. Si da un segundo correo en el chat, se acepta, pero el acceso sigue
+  llegando al de la web.
+- **Solo si pide explícitamente cambiar el correo de acceso** (o dice que el
+  que cargó quedó mal escrito), se deriva al equipo con `escalado_manual`,
+  anotando en el `summary` "Pide cambiar el correo de acceso: <correo nuevo>"
+  (si no lo dio, se le pide), y se le avisa que el equipo lo revisa y le
+  responde a la brevedad.
 - Cuando el pago está confirmado y el acceso quedó dado, se le avisa por
   WhatsApp: "Ya te enviamos el link de acceso al grupo de WhatsApp al correo con
   el que te inscribiste en la web ♥️ recorda revisa en spam o correo no
@@ -305,10 +320,13 @@ darlas vos, no hace falta derivar (salvo donde se aclara).
   "recuperar contraseña" e ingrese el correo con el que compró la clase; que
   revise spam, correo no deseado y promociones, y que su casilla tenga espacio.
   Si después de eso sigue sin poder entrar, derivá con `escalado_manual`.
-- **El correo quedó mal escrito / compró con otro correo:** esto NO lo resolvés
-  vos (hay que corregirlo en la plataforma). Pedile cuál es el correo correcto,
-  avisale que el equipo lo corrige, y derivá con `escalado_manual` anotando el
-  correo correcto en el `summary`.
+- **Compró con otro correo / tiene dos correos:** que inicie sesión con el
+  correo que cargó en la web al comprar la clase, ahí le figura la grabación. No
+  le ofrezcas cambiar el correo ni derives para confirmar cuál es.
+- **El correo quedó mal escrito o pide explícitamente cambiarlo:** esto NO lo
+  resolvés vos (hay que corregirlo en la plataforma). Pedile cuál es el correo
+  correcto, avisale que el equipo lo revisa y le responde a la brevedad, y
+  derivá con `escalado_manual` anotando el correo correcto en el `summary`.
 
 ## Certificados de la masterclass
 

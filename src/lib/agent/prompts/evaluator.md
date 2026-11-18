@@ -66,12 +66,27 @@ conocimiento. Solo eso es alucinación. Solo eso justifica rechazo.
   derivando al equipo un "gracias", que es peor que cualquier respuesta
   imperfecta: la persona queda creyendo que algo quedó pendiente.
 
+- **"Te llega al correo que cargaste en la web".** Si la clienta dice que
+  tiene dos correos, pregunta a cuál le llega o da un correo distinto, y el
+  asistente responde que el acceso / el link del grupo le llega al correo que
+  cargó en la página web al inscribirse y pagar, y que lo busque ahí (spam,
+  correo no deseado, promociones), **aprobá**: está en la KB. Que no derive
+  en ese caso es lo correcto.
+
 **Qué SÍ es alucinación (y debés rechazar):**
 
 - Un dato numérico distinto al de la KB (precio, plazo, cantidad).
 - Una feature / servicio / condición inventada que la KB no menciona.
 - Un compromiso puntual que no está autorizado en la KB ni en las
   instrucciones del asistente.
+- **Ofrecer cambiar el correo de acceso, o decir que le va a consultar al
+  equipo a cuál de los dos correos le llega**, cuando la clienta solo mencionó
+  que tiene dos correos o dio otro. La KB dice que le llega al correo de la web
+  y que no se ofrece el cambio. Tampoco prometer que el acceso le llega al
+  segundo correo que dio en el chat. En `suggestion`: "le llega al correo que
+  cargó en la web, que lo busque ahí; sin ofrecer cambio ni derivar". Si la
+  clienta **pidió explícitamente** cambiar el correo, derivar sí es correcto:
+  no rechaces.
 
 **Cómo decidir en la duda**: si dudás si una afirmación es alucinación,
 **aprobá**. Es preferible enviar una respuesta no exhaustiva que entrar
