@@ -8,6 +8,9 @@ import {
 } from "@/lib/payments/event-match";
 import { canonicoDeAgrupado, esAgrupado, esDescartado } from "@/lib/payments/dismiss";
 import { groupPendingPayments } from "@/lib/payments/grouping";
+import { normalizeContactEmail } from "@/lib/contact-email";
+import { tiendupCourseIdForEvent } from "@/lib/tiendup/client";
+import { paymentsWithEnrollAttempt } from "@/lib/tiendup/status";
 
 export const dynamic = "force-dynamic";
 
@@ -92,6 +95,16 @@ export interface ContactFile {
   maybeDistinct?: boolean;
 }
 
+export interface ContactNotification {
+  id: string;
+  category: string;
+  /** Motivo: texto libre del agente o una marca de sistema (tiendup_*, humano_sin_respuesta). */
+  reason: string | null;
+  summary: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
 export interface ContactFicha {
   conversation: {
     id: string;
@@ -112,8 +125,15 @@ export interface ContactFicha {
     institution: string | null;
     at: string | null;
   };
-  certificados: { id: string; summary: string | null; createdAt: string; resolvedAt: string | null }[];
-  derivaciones: { id: string; category: string; summary: string | null; createdAt: string; resolvedAt: string | null }[];
+  certificados: ContactNotification[];
+  derivaciones: ContactNotification[];
+  /**
+   * Corresponde mostrar el bloque "Tiendup" en vivo: correo con formato
+   * válido y algún intento de alta en un curso mapeado (ver
+   * src/lib/tiendup/status.ts). El estado se pide aparte, a
+   * /api/wa/tiendup-status/[id], solo al abrir la ficha.
+   */
+  tiendupCheck: boolean;
   /** Comprobantes (incluidos los descartados) y títulos, del más nuevo al más viejo. */
   files: ContactFile[];
 }
@@ -150,7 +170,7 @@ export async function GET(
       .order("created_at", { ascending: false }),
     sb
       .from("agent_notifications")
-      .select("id, category, summary, created_at, resolved_at")
+      .select("id, category, reason, summary, created_at, resolved_at")
       .eq("conversation_id", conversationId)
       .neq("category", "validacion_pago")
       .order("created_at", { ascending: false })
@@ -413,6 +433,21 @@ export async function GET(
   ].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   const notifs = notifRes.data ?? [];
+  const toNotification = (n: (typeof notifs)[number]): ContactNotification => ({
+    id: n.id,
+    category: n.category,
+    reason: n.reason ?? null,
+    summary: n.summary,
+    createdAt: n.created_at,
+    resolvedAt: n.resolved_at,
+  });
+  const attempted = paymentsWithEnrollAttempt({
+    payments: rawPayments.filter((p) => p.status === "validated"),
+    notificationReasons: notifs.map((n) => n.reason),
+  });
+  const tiendupCheck =
+    Boolean(normalizeContactEmail(email)) &&
+    rawPayments.some((p) => attempted.has(p.id) && tiendupCourseIdForEvent(p.event_slug) !== null);
   const ficha: ContactFicha = {
     conversation: {
       id: conv.id,
@@ -428,13 +463,10 @@ export async function GET(
     },
     events,
     title,
-    certificados: notifs
-      .filter((n) => n.category === "reclamo_certificado")
-      .map((n) => ({ id: n.id, summary: n.summary, createdAt: n.created_at, resolvedAt: n.resolved_at })),
-    derivaciones: notifs
-      .filter((n) => n.category !== "reclamo_certificado")
-      .map((n) => ({ id: n.id, category: n.category, summary: n.summary, createdAt: n.created_at, resolvedAt: n.resolved_at })),
+    certificados: notifs.filter((n) => n.category === "reclamo_certificado").map(toNotification),
+    derivaciones: notifs.filter((n) => n.category !== "reclamo_certificado").map(toNotification),
     files,
+    tiendupCheck,
   };
   return NextResponse.json(ficha);
 }
