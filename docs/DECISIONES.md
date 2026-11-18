@@ -7,6 +7,80 @@ decidió, por qué, qué se descartó y qué costo o pendiente deja.
 
 ---
 
+## 18/11/2026 · Arreglos y mejoras en /wa, visor de archivos y logo
+
+**Qué entró**
+
+- `/wa`: los filtros de la lista hacen toggle y viven en `?filter=`.
+- `/wa`: línea de intervención más visible en las filas.
+- `/wa`: pills de estado de /revision en cada fila (`StatusPills.tsx`).
+- Ficha del contacto: Aprobar / Rechazar a la vista para comprobantes y
+  títulos pendientes.
+- Chat: miniaturas de adjuntos y visor modal único (`FileViewerModal.tsx`),
+  que también usan la ficha y /revision.
+- Logo de Vanesa Rúas en el menú, la barra de celular y el favicon.
+
+**D-50 · El filtro de /wa va en la URL con pushState.** Antes era estado local
+y el click en el activo no hacía nada. Ahora el click en el activo vuelve a
+Todas y cada cambio es una entrada del historial: atrás / adelante recorre los
+filtros y la recarga lo conserva. `?id=` se mantiene. Se aceptan los nombres
+de los botones (`derivadas`, `falta-aprobar`) para links guardados. Se descartó
+`replaceState`: el brief pide back/forward.
+
+**D-51 · Línea de intervención en naranja, w-1.** El ámbar de `warn` en 2 px
+casi no se veía. Naranja (`orange-600` / `orange-500` en dark) con un glow
+leve. Es un tono fuera de la paleta semántica, pero solo en esta línea; el
+resto de los indicadores sigue en `warn`.
+
+**D-52 · Pills desde el server, con los mismos loaders.**
+`loadInterventionConversationIds` y `loadPendingApprovalConversationIds`
+devuelven `Map<id, detalle>` en vez de `Set<id>`. Las claves son las mismas,
+así que `.has()` y `.size` siguen igual. Son las mismas consultas paginadas,
+cruzadas en memoria, sin N+1 ni `.in()`. Ahora filtran `client_slug` además de
+RLS (antes la de intervenciones no lo hacía). El pill "Derivada" cuenta solo
+notificaciones que no son `validacion_pago`, igual que /revision: la de pago
+ya se ve como "Comprobante". En /revision, la línea "Intervención abierta"
+pasó a ser el pill "Derivada", para que las dos pantallas usen lo mismo.
+
+**D-53 · Aprobar / Rechazar en la ficha abre el modal con la confirmación.**
+Los botones no actúan directo: abren el `FileReviewModal` con el archivo y la
+confirmación de esa acción ya abierta ("Aprobar este comprobante?", "Rechazar
+este título?", "Aprobar igual" si está retenido por título). Por qué: no
+se aprueba un pago sin ver el comprobante, y se usan las mismas PATCH y el
+mismo componente que /revision y Aprobaciones. Tras la acción,
+`FileReviewPanel` emite `atp:notifications-changed`, que refresca la lista de
+/wa; la ficha se recarga sola.
+
+**D-54 · Un solo visor modal.** `ViewerModal` es el contenedor: portal a
+`body`, X en la esquina, Esc y click afuera, y no se cierra con una acción en
+curso. Lo usan `FileReviewModal` (con botones) y `MediaViewerModal` (solo el
+archivo: adjuntos del chat y "Ampliar" de /revision). El visor es estado local
+de quien lo abre, sin URL. Así cerrar no navega ni remonta nada, y el scroll
+del chat y de la lista no se mueve. El foco vuelve con `preventScroll`.
+
+**D-55 · PDF como tarjeta, sin primera página.** La tarjeta lleva ícono, nombre
+y "PDF". Renderizar la página pedía pdf.js, que es una dependencia pesada.
+`messages` no guarda el nombre del archivo, así que dice "Documento PDF". Las
+signed URL siguen saliendo de `/api/comprobantes/signed-url`, que valida el
+prefijo `client_slug/` del path. Si pasaron más de 4 minutos (vencen a los 5),
+se pide una nueva al abrir el visor.
+
+**D-56 · Logo con `dark:invert`, sin segundo PNG.** Es el mismo criterio que
+Hábitat. Va a `h-12` con "Agentic Panel" abajo en una cabecera de `h-20`, y a
+`h-9` en la barra de celular. Con el menú contraído (64 px) el logo no se lee,
+así que va un monograma "VR" dorado. Favicon: solo la cursiva, en blanco sobre
+fondo oscuro.
+
+### Pendientes que deja esta entrega
+
+- Probar en un navegador real con datos: toggle y atrás / adelante de los
+  filtros, Aprobar / Rechazar desde la ficha y el visor en celular. El QA fue
+  tsc, lint, build y `next start` con env dummy.
+- La vista previa del último mensaje sigue haciendo una consulta por
+  conversación cuando no entra en el tope (ya estaba así).
+
+---
+
 ## 18/11/2026 · Menú lateral estilo Hábitat
 
 **Qué entró**
