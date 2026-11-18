@@ -52,7 +52,7 @@ export function clearStoredProfile(): void {
 // Access control por rol.
 //
 // Cada ruta del dashboard declara qué roles la pueden ver. La tabla es la
-// SSOT: la usan DashboardHeader (para filtrar tabs) y el layout (para
+// SSOT: la usan DashboardSidebar (para filtrar items del menú) y el layout (para
 // rebotar si el rol logueado entra por URL directa).
 //
 // Roles:

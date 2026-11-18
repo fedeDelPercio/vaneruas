@@ -10,7 +10,12 @@ import { Bot, Loader2, UserRound } from "lucide-react";
 
 type Mode = "AI" | "HUMAN";
 
-export function AgentModeToggle() {
+// `placement="up"`: abre los popovers hacia arriba y a la derecha (abajo del
+// menú lateral). `compact`: solo ícono (menú lateral contraído).
+export function AgentModeToggle({
+  placement = "down",
+  compact = false,
+}: { placement?: "down" | "up"; compact?: boolean } = {}) {
   const [mode, setMode] = useState<Mode | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -64,11 +69,12 @@ export function AgentModeToggle() {
   if (!mode) return null;
   const isAI = mode === "AI";
   const next: Mode = isAI ? "HUMAN" : "AI";
+  const popoverPos = placement === "up" ? "bottom-full left-0 mb-2" : "right-0 top-full mt-2";
 
   return (
     <div className="relative">
       {result && (
-        <div className="absolute right-0 top-full z-[60] mt-2 w-72 rounded-lg border border-neutral-200 bg-white p-3 shadow-soft dark:border-neutral-800 dark:bg-neutral-900 dark:shadow-soft-dark">
+        <div className={`absolute z-[60] w-72 ${popoverPos} rounded-lg border border-neutral-200 bg-white p-3 shadow-soft dark:border-neutral-800 dark:bg-neutral-900 dark:shadow-soft-dark`}>
           <p className="text-[12px] leading-relaxed text-neutral-600 dark:text-neutral-400">
             {result}
           </p>
@@ -98,13 +104,13 @@ export function AgentModeToggle() {
         ) : (
           <UserRound className="h-3.5 w-3.5" strokeWidth={1.75} />
         )}
-        <span className="hidden sm:inline">{isAI ? "IA activa" : "IA pausada"}</span>
+        <span className={compact ? "sr-only" : "hidden sm:inline"}>{isAI ? "IA activa" : "IA pausada"}</span>
       </button>
 
       {confirming && (
         <>
           <div className="fixed inset-0 z-[55]" onClick={() => setConfirming(false)} />
-          <div className="absolute right-0 z-[60] mt-2 w-72 rounded-lg border border-neutral-200 bg-white p-3 shadow-soft dark:border-neutral-800 dark:bg-neutral-900 dark:shadow-soft-dark">
+          <div className={`absolute z-[60] w-72 ${popoverPos} rounded-lg border border-neutral-200 bg-white p-3 shadow-soft dark:border-neutral-800 dark:bg-neutral-900 dark:shadow-soft-dark`}>
             <p className="text-[12px] leading-relaxed text-neutral-600 dark:text-neutral-400">
               {isAI
                 ? "Pausar la IA en todas las conversaciones. Valentina deja de responder y atiende el equipo"

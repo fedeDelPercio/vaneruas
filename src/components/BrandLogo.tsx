@@ -1,4 +1,4 @@
-// Logo de marca neutro (dot). Es el default del template: el `DashboardHeader`
+// Logo de marca neutro (dot). Es el default del template: el `DashboardSidebar`
 // importa `<BrandLogo />` y este componente decide qué renderea.
 //
 // Cuando montes un cliente con marca propia, sobre-escribí este archivo con

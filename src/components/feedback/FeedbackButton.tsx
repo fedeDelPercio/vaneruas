@@ -17,13 +17,13 @@ import { useProfile } from "../ProfileProvider";
 import { useAudioDictation } from "./useAudioDictation";
 import { shrinkImage } from "./shrinkImage";
 
-// Botón de feedback del header. Lo que se escribe (o se graba) acá llega como
+// Botón de feedback del panel (menú lateral / barra superior en celular). Lo que se escribe (o se graba) acá llega como
 // ticket al proyecto de Vanesa Rúas en AI ScaleMap, con las capturas, quién lo
 // manda y desde qué pantalla. Dos tipos: Mejora (una idea o algo para cambiar)
 // y Bug (algo que no anda).
 //
 // Cerrar no borra: el borrador queda guardado hasta enviarlo o descartarlo
-// (el botón del header muestra un punto mientras tanto).
+// (el botón muestra un punto mientras tanto).
 
 type Kind = "mejora" | "bug";
 
