@@ -113,7 +113,7 @@ que tienen que quedar coherentes:
   (`ghlSetPauseTag`, nombre exacto en `GHL_PAUSE_TAG_EXACT`). Enviar un mensaje
   desde el panel también asegura el tag. Si GHL no lo acepta, el chat lo avisa
   y ofrece reintentar.
-- **Interruptor general** (`/api/agent-mode`, header): pone el modo en masa, sin
+- **Interruptor general** (`/api/agent-mode`, menú lateral): pone el modo en masa, sin
   tocar tags. Al reactivar la IA respeta a quien tiene el tag. Por eso importa
   que lo tomado desde el panel tenga tag: sin él volvería a Valentina.
 
@@ -277,11 +277,24 @@ Roles y rutas del panel: `ROLE_ACCESS` en `src/lib/profile.ts`.
 
 ## 7. Módulos del panel
 
+**Navegación** (`src/components/DashboardSidebar.tsx`, portado de Hábitat):
+menú lateral a la izquierda, contraíble a íconos (preferencia por perfil en
+localStorage). En celular y tablet (<1024 px) es una barra superior con
+botón que abre el menú como drawer. Orden: WhatsApp · Revisión (con
+Aprobaciones y Derivaciones como sub-opciones) · Certificados · Agendar ·
+Eventos · Métricas · bloque "Desarrollo" solo dev (Testing, Feedback,
+Webhooks). Los items salen de `ROLE_ACCESS` (`src/lib/profile.ts`): una ruta
+nueva va en las dos listas. Contadores de `/api/counts` en vivo. Abajo del
+menú: interruptor general del agente (`AgentModeToggle`), botón de feedback,
+tema y perfil (cambiar perfil); en celular el interruptor y el feedback van
+en la barra superior. El layout usa `.app-shell` con `--app-viewport-height`
+para que el teclado de Safari no tape el composer.
+
 | Ruta | Qué es |
 |---|---|
 | `/wa` | Bandeja de WhatsApp: lista paginada con buscador y filtros (Todas, Derivadas, Falta aprobar, Críticos, Con el equipo; `?filter=intervencion|derivadas|aprobar|criticos|humano` en la API), línea ámbar en las filas que necesitan intervención, chat con el layout de Hábitat (clienta a la derecha, Valentina y el equipo a la izquierda con avatar, feedback por mensaje en las respuestas de Valentina, toggle IA / Humano, "Agregar nota", pill "Crítico" que se saca a mano), visto desde el equipo (tomar la conversación y escribirle a la clienta) y ficha del contacto con sus eventos, donde se ven y se aprueban o rechazan comprobantes y títulos. Componentes en `src/components/wa/`, rutas en `src/app/api/wa/` |
 | `/payments` (Aprobaciones) | Validar comprobantes. Pestaña **"Falta acceso"** = worklist de masterclass validadas sin acceso a Tiendup (incluye a quien no dejó correo, con aviso). `?filter=sin-acceso` abre directo en esa pestaña |
-| `/revision` (Revisión) | Vista consolidada para aprobar: cola de comprobantes pendientes (incluidos los retenidos por título) y títulos para revisar, con indicador de derivación abierta; al medio el chat de WhatsApp (`WaChatPanel`); a la derecha el archivo con Aprobar / Rechazar (`FileReviewPanel`, mismas PATCH que Aprobaciones), derivaciones abiertas y estado del acceso a Tiendup (ficha de /wa). `?id=` = comprobante o título seleccionado. Tras cada acción pasa solo al siguiente. Sin endpoints propios: `GET /api/payments?with=interventions` |
+| `/revision` (Revisión) | Vista consolidada para aprobar (3 columnas desde xl; debajo, pestañas): cola de comprobantes pendientes (incluidos los retenidos por título) y títulos para revisar, con indicador de derivación abierta; al medio el chat de WhatsApp (`WaChatPanel`); a la derecha el archivo con Aprobar / Rechazar (`FileReviewPanel`, mismas PATCH que Aprobaciones), derivaciones abiertas y estado del acceso a Tiendup (ficha de /wa). `?id=` = comprobante o título seleccionado. Tras cada acción pasa solo al siguiente. Sin endpoints propios: `GET /api/payments?with=interventions` |
 | `/interventions` (Derivaciones) | Lo que Valentina pasó al equipo (excluye comprobantes y certificados) |
 | `/certificados` | Reclamos de certificados (`reclamo_certificado`) |
 | `/agendar` | Contactas que mandaron comprobante y faltan agendar en GHL / grupos |
@@ -289,7 +302,7 @@ Roles y rutas del panel: `ROLE_ACCESS` en `src/lib/profile.ts`.
 | `/metrics` | Métricas (ver sección 9) |
 | `/conversations`, `/feedback`, `/webhooks` | Solo `dev`: banco de pruebas, feedback, webhooks salientes |
 
-**Botón de feedback** (header, `src/components/feedback/`): Mejora o Bug,
+**Botón de feedback** (menú lateral, `src/components/feedback/`): Mejora o Bug,
 texto escrito o grabado (el audio pasa por `/api/transcribe` y se escribe tal
 cual, sin que una IA lo reescriba) y capturas pegadas con Ctrl+V, arrastradas o
 adjuntas (el navegador las achica antes: Vercel corta los envíos de más de

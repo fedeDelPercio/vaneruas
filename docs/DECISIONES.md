@@ -7,6 +7,53 @@ decidió, por qué, qué se descartó y qué costo o pendiente deja.
 
 ---
 
+## 18/11/2026 · Menú lateral estilo Hábitat
+
+**Qué entró**
+
+- `src/components/DashboardSidebar.tsx` (portado de `DashboardSidebar` de
+  Hábitat) reemplaza a `DashboardHeader.tsx`, que se borró.
+- `(dashboard)/layout.tsx`: `app-shell` (columna en celular, fila en
+  escritorio) y `--app-viewport-height` desde `visualViewport` para Safari.
+  `.app-shell` en `globals.css`.
+- `AgentModeToggle` acepta `placement="up"` y `compact` para vivir abajo del
+  menú.
+- `/revision`: las 3 columnas arrancan en xl (antes lg).
+
+**D-44 · Revisión agrupa Aprobaciones y Derivaciones.** Pedido de Federico.
+Las URLs no cambian (`/payments`, `/interventions`); solo cambia dónde están
+en el menú. Revisión se abre sola en cualquiera de las tres rutas; fuera de
+ahí se abre a mano con el chevron. Con el menú contraído las sub-opciones se
+ven siempre como íconos, para no esconder dos colas con contador.
+
+**D-45 · Contadores.** Revisión muestra el de Aprobaciones (es la misma cola,
+igual que en el header viejo) y cada sub-opción el suyo. Contraído, el
+contador pasa a ser un punto dorado. En celular, el botón del menú lleva un
+punto si hay aprobaciones o derivaciones pendientes.
+
+**D-46 · Controles con estado, una sola instancia.** El interruptor del
+agente y el botón de feedback guardan estado (confirmación, borrador). Se
+montan en un solo lugar según el ancho: abajo del menú en escritorio, en la
+barra superior en celular. Si quedaran adentro del drawer (`<dialog>` modal),
+el cuadro de feedback, que va al body por portal, quedaría debajo de la capa
+superior y no se podría usar. Costo: si se cruza el corte de 1024 px con un
+borrador abierto, el borrador se pierde.
+
+**D-47 · Colapso igual que Hábitat.** Preferencia por perfil en localStorage
+(`atp.sidebar.<perfil>`), 224 px abierto y 64 px contraído. Activo: fondo
+neutro, barra e ícono dorados (en light, `text-gold-fg` para contraste).
+
+**D-48 · Webhooks vuelve al menú para dev.** Estaba comentado en el header;
+el brief lo lista entre los items solo-dev. Los items de dev van en un bloque
+"Desarrollo" al final. Testing deja de ser el primero, pero sigue siendo el
+inicio de dev.
+
+**D-49 · `/revision` en 3 columnas desde xl.** Con el menú (224 px), a
+1024 px el chat quedaba en unos 90 px. Entre 1024 y 1279 px usa las pestañas
+Pendientes / Chat / Archivo, como en celular.
+
+---
+
 ## 18/11/2026 · Intervención automática, chat y lista estilo Hábitat, tag "Crítico"
 
 **Qué entró**
