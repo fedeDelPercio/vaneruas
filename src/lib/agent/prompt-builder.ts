@@ -117,7 +117,8 @@ function customerContextBlock(isExisting: boolean): string {
       "calidez como alguien conocido y seguí ayudándola normalmente. NO la",
       "derives al equipo solo por ser clienta: la atención es autogestionada.",
       "Si comparte su correo, agradecele y confirmale que queda registrado",
-      "para el acceso. Derivá solo si surge un disparador",
+      "para el acceso (si ya había dado otro, seguí la regla de dos correos del",
+      "paso 6). Derivá solo si surge un disparador",
       "real (queja, pedido expreso de hablar con una persona, o consulta que la",
       "base de conocimiento no cubre).",
     ].join("\n");

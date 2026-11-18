@@ -6,7 +6,12 @@ import { ghlSendAllowed, ghlSendWhatsApp, ghlUpdateContact } from "@/lib/provide
 import { isAllowedComprobanteType } from "@/lib/payments/storage";
 import { handleAttachmentIntake } from "@/lib/titles/handle";
 import { resolveWhatsAppTurn } from "@/lib/agent/debounce";
-import { extractContactEmail, normalizeContactEmail } from "@/lib/contact-email";
+import {
+  decideContactEmailUpdate,
+  extractContactEmail,
+  normalizeContactEmail,
+  secondEmailNote,
+} from "@/lib/contact-email";
 import { autoEnrollConversation } from "@/lib/tiendup/auto-enroll";
 import { sendTeamNotificationAlert } from "@/lib/email/sender";
 import { evaluateConversationCritical } from "@/lib/critical/evaluate";
@@ -419,8 +424,11 @@ const EMAIL_LOOKBACK = 15;
 
 /**
  * Si el mensaje del usuario contiene un correo válido, lo guarda en
- * conversations.contact_email (lo último que mande pisa lo anterior): es el
- * correo que usa el alta en Tiendup. Se valida el formato
+ * conversations.contact_email: es el correo que usa el alta en Tiendup. Si ya
+ * teníamos otro, se pisa solo mientras no haya pago validado ni intento de alta
+ * (la persona lo está corrigiendo); después se deja el primero y se registra el
+ * nuevo en una nota de sistema para el equipo (`decideContactEmailUpdate`,
+ * D-72). Se valida el formato
  * (`normalizeContactEmail`) para no inscribir con basura y crear un cliente
  * fantasma. Si el correo es nuevo y hay un pago validado esperando el acceso,
  * dispara el alta automática. Best-effort: cualquier error se loguea y no
@@ -465,6 +473,38 @@ async function captureContactEmail(
       }
     }
     if (!email || email === current) return;
+
+    // Ya teníamos otro correo: ¿hubo pago validado o intento de alta?
+    let accessInProgress = false;
+    if (current) {
+      const { data: pays, error: paysErr } = await sb
+        .from("payment_validations")
+        .select("status, course_access_granted_at, course_access_error")
+        .eq("conversation_id", conversationId)
+        .limit(50);
+      // Ante error de lectura no se pisa: perder el correo bueno es peor.
+      accessInProgress =
+        Boolean(paysErr) ||
+        (pays ?? []).some(
+          (p) => p.status === "validated" || p.course_access_granted_at || p.course_access_error,
+        );
+    }
+    const decision = decideContactEmailUpdate({ current, incoming: email, accessInProgress });
+    if (decision === "ignore") return;
+    if (decision === "keep_and_note" && current) {
+      const note = secondEmailNote(current, email);
+      const { data: dup } = await sb
+        .from("messages")
+        .select("id")
+        .eq("conversation_id", conversationId)
+        .eq("role", "system")
+        .eq("content", note)
+        .limit(1);
+      if (!dup?.length) {
+        await sb.from("messages").insert({ conversation_id: conversationId, role: "system", content: note });
+      }
+      return;
+    }
 
     await sb.from("conversations").update({ contact_email: email }).eq("id", conversationId);
     // Empujar el correo al contacto de GHL (best-effort, requiere contacts.write).

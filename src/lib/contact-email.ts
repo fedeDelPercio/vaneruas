@@ -63,3 +63,33 @@ export function extractContactEmail(text: string | null | undefined): string | n
   }
   return null;
 }
+
+/**
+ * Qué hacer cuando llega un correo en el chat:
+ * - `ignore`: no trae correo, o es el mismo que ya teníamos.
+ * - `set`: no teníamos correo válido, se guarda.
+ * - `replace`: teníamos otro, pero todavía no hubo pago validado ni intento de
+ *   alta: la persona lo está corrigiendo y se pisa.
+ * - `keep_and_note`: teníamos otro y ya hubo pago validado o intento de alta.
+ *   NO se pisa (el acceso va al correo de la web, y cambiarlo lo decide el
+ *   equipo si la persona lo pide): se deja una nota de sistema con el nuevo.
+ */
+export type ContactEmailUpdate = "ignore" | "set" | "replace" | "keep_and_note";
+
+export function decideContactEmailUpdate(args: {
+  current: string | null;
+  incoming: string | null;
+  /** Hay un pago validado o un intento de alta en Tiendup (dado o fallido). */
+  accessInProgress: boolean;
+}): ContactEmailUpdate {
+  const current = normalizeContactEmail(args.current);
+  const incoming = normalizeContactEmail(args.incoming);
+  if (!incoming || incoming === current) return "ignore";
+  if (!current) return "set";
+  return args.accessInProgress ? "keep_and_note" : "replace";
+}
+
+/** Nota de sistema para el equipo cuando no se pisa el correo (sin punto final). */
+export function secondEmailNote(current: string, incoming: string): string {
+  return `Otro correo en el chat: ${incoming} · El acceso sigue con ${current}`;
+}

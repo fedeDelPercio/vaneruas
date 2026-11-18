@@ -87,7 +87,7 @@ export function emailContextLine(state: EmailAskState): string {
     case "sin_pagos":
       return "";
     case "ya_tenemos":
-      return "Pedir correo: NO. Ya tenemos su correo para el acceso, no se lo pidas de nuevo.";
+      return "Pedir correo: NO. Ya tenemos su correo para el acceso, no se lo pidas de nuevo. Si dice que tiene dos correos o te da otro distinto, el acceso le llega al correo que cargó en la web al inscribirse: no le ofrezcas cambiarlo ni le prometas que le llega al otro (solo si pide cambiarlo, derivá).";
     case "pedir":
       return "Pedir correo: SÍ. Su pago ya está verificado y todavía no tenemos su correo: si no lo dio, pedile (una sola vez) el correo con el que se inscribió en la web.";
     case "todavia_no":
