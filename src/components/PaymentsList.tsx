@@ -455,6 +455,10 @@ export function PaymentsList() {
   // Aviso de Tiendup: "ya parece inscripta con otro mail" (id → texto). Si está,
   // la próxima confirmación va con force.
   const [accessWarn, setAccessWarn] = useState<Record<string, string>>({});
+  // Aviso de Tiendup: "el correo no figura como cliente" (o no se pudo
+  // verificar). Si está, la próxima confirmación va con confirmNewCustomer:
+  // el equipo acepta que Tiendup cree un cliente nuevo.
+  const [accessNewCustomer, setAccessNewCustomer] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
   const [busyTitleId, setBusyTitleId] = useState<string | null>(null);
   const [confirmForceId, setConfirmForceId] = useState<string | null>(null);
@@ -568,15 +572,28 @@ export function PaymentsList() {
    * inscripta con OTRO mail, devuelve 409 y mostramos el aviso: recién ahí el
    * equipo puede forzar (force=true) si verificó que el mail está bien.
    */
-  async function grantAccess(id: string, force = false) {
+  async function grantAccess(
+    id: string,
+    opts: { force?: boolean; confirmNewCustomer?: boolean } = {},
+  ) {
     setBusyAccessId(id);
     try {
       const r = await fetch(`/api/payments/${id}/grant-access`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ force }),
+        body: JSON.stringify({
+          force: Boolean(opts.force),
+          confirmNewCustomer: Boolean(opts.confirmNewCustomer),
+        }),
       });
       const j = await r.json().catch(() => ({}));
+
+      if (r.status === 409 && j.needsConfirm) {
+        // El correo no figura como cliente en Tiendup: inscribir crearía un
+        // cliente nuevo. Dejamos el confirm abierto con el aviso explícito.
+        setAccessNewCustomer((w) => ({ ...w, [id]: j.error as string }));
+        return;
+      }
 
       if (r.status === 409 && j.warning) {
         // Ya parece inscripta con otro mail: dejamos el aviso y el confirm abierto
@@ -600,11 +617,7 @@ export function PaymentsList() {
           : `Acceso al curso dado a ${j.email ?? "el contacto"} ✨`,
       );
       setConfirmAccessId(null);
-      setAccessWarn((w) => {
-        const next = { ...w };
-        delete next[id];
-        return next;
-      });
+      clearAccessWarnings(id);
       await load(filterRef.current, searchRef.current);
     } catch {
       setNotice("Error de red al dar el acceso al curso");
@@ -613,13 +626,19 @@ export function PaymentsList() {
     }
   }
 
-  function cancelAccess(id: string) {
-    setConfirmAccessId(null);
-    setAccessWarn((w) => {
+  function clearAccessWarnings(id: string) {
+    const drop = (w: Record<string, string>) => {
       const next = { ...w };
       delete next[id];
       return next;
-    });
+    };
+    setAccessWarn(drop);
+    setAccessNewCustomer(drop);
+  }
+
+  function cancelAccess(id: string) {
+    setConfirmAccessId(null);
+    clearAccessWarnings(id);
   }
 
   /**
@@ -1392,7 +1411,20 @@ export function PaymentsList() {
                           <>
                             {/* El operador tiene que LEER el mail antes de confirmar. */}
                             <span className="mr-auto flex items-center gap-1.5 text-[12px] text-neutral-600 dark:text-neutral-300">
-                              {accessWarn[p.id] ? (
+                              {accessNewCustomer[p.id] ? (
+                                <>
+                                  <AlertTriangle
+                                    className="h-3.5 w-3.5 shrink-0 text-red-600"
+                                    strokeWidth={1.75}
+                                  />
+                                  <span>
+                                    {accessNewCustomer[p.id]}{" "}
+                                    <span className="font-mono text-[12px] text-neutral-900 dark:text-neutral-100">
+                                      ({p.contactEmail})
+                                    </span>
+                                  </span>
+                                </>
+                              ) : accessWarn[p.id] ? (
                                 <>
                                   <AlertTriangle
                                     className="h-3.5 w-3.5 shrink-0 text-warn"
@@ -1418,7 +1450,12 @@ export function PaymentsList() {
                               Cancelar
                             </button>
                             <button
-                              onClick={() => void grantAccess(p.id, Boolean(accessWarn[p.id]))}
+                              onClick={() =>
+                                void grantAccess(p.id, {
+                                  force: Boolean(accessWarn[p.id]),
+                                  confirmNewCustomer: Boolean(accessNewCustomer[p.id]),
+                                })
+                              }
                               disabled={accessBusy}
                               className="flex items-center gap-1.5 btn-gold"
                             >
@@ -1427,7 +1464,7 @@ export function PaymentsList() {
                               ) : (
                                 <Check className="h-3.5 w-3.5" strokeWidth={2} />
                               )}
-                              {accessWarn[p.id] ? "Dar acceso igual" : "Confirmar"}
+                              {accessWarn[p.id] || accessNewCustomer[p.id] ? "Dar acceso igual" : "Confirmar"}
                             </button>
                           </>
                         ) : confirmMarkId === p.id ? (

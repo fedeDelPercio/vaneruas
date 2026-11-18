@@ -19,12 +19,22 @@ export const dynamic = "force-dynamic";
 // inscriptos por correo y por nombre: si la persona figura con OTRO correo,
 // devuelve 409 con el aviso y el equipo decide si fuerza (force: true).
 //
+// Si no figura en el curso, antes de inscribir se chequea que el correo exista
+// como CLIENTE de la tienda (Tiendup crea uno nuevo si no existe). Si no
+// existe, o no se pudo verificar, devuelve 409 { needsConfirm: "not_in_tiendup"
+// | "customer_check_failed" } y el front pide confirmación explícita; con
+// confirmNewCustomer: true inscribe igual (force también lo saltea: ya aceptó
+// que se cree un cliente nuevo).
+//
 // Si el acceso queda dado, se le avisa a la persona por WhatsApp (una vez por
 // curso). "Ya tiene acceso" (markOnly) solo marca: no toca Tiendup ni avisa.
 // ===========================================================================
 
 const bodySchema = z.object({
   force: z.boolean().optional(),
+  // Confirmación explícita de que se cree un cliente NUEVO en Tiendup (el
+  // correo no figura como cliente de la tienda, o no se pudo verificar).
+  confirmNewCustomer: z.boolean().optional(),
   // "Ya tiene acceso": marca el acceso como dado SIN inscribir en Tiendup. Para
   // casos que el equipo ya resolvió por afuera (la dieron de alta a mano, o ya
   // estaba y el cruce no la agarró). No requiere mail ni curso mapeado.
@@ -40,6 +50,7 @@ export async function PATCH(
   const parsed = bodySchema.safeParse(body).data;
   const force = parsed?.force === true;
   const markOnly = parsed?.markOnly === true;
+  const confirmNewCustomer = parsed?.confirmNewCustomer === true;
 
   if (markOnly) {
     const sb = getSupabaseServerClient();
@@ -61,7 +72,7 @@ export async function PATCH(
     return NextResponse.json({ ok: true, markedOnly: true }, { status: 200 });
   }
 
-  const { outcome: o } = await grantCourseAccess(id, { mode: "manual", force });
+  const { outcome: o } = await grantCourseAccess(id, { mode: "manual", force, confirmNewCustomer });
 
   switch (o.kind) {
     case "not_found":
@@ -115,6 +126,26 @@ export async function PATCH(
           ourEmail: o.email,
         },
         { status: 409 },
+      );
+    case "needs_new_customer_confirm":
+      return NextResponse.json(
+        {
+          ok: false,
+          needsConfirm: o.reason,
+          ourEmail: o.email,
+          error:
+            o.reason === "not_in_tiendup"
+              ? "Este correo no figura como cliente en Tiendup. Si seguís, Tiendup va a crear un cliente nuevo con ese correo. Dar acceso igual?"
+              : "No se pudo verificar si este correo figura como cliente en Tiendup. Si no figura, Tiendup va a crear un cliente nuevo con ese correo. Dar acceso igual?",
+        },
+        { status: 409 },
+      );
+    case "not_in_tiendup":
+    case "customer_check_failed":
+      // Solo pasan en modo automático; acá no deberían llegar.
+      return NextResponse.json(
+        { ok: false, error: "No se pudo verificar el correo en Tiendup" },
+        { status: 502 },
       );
     case "enrolled":
       return NextResponse.json(

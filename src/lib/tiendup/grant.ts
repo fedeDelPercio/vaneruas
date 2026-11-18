@@ -12,15 +12,19 @@ import {
   splitFullName,
   listEnrolled,
   listEnrolledChecked,
-  findExistingEnrollment,
   fixDominioDeCorreo,
+  listCustomersChecked,
+  findCustomerByEmail,
+  type CustomersListing,
 } from "./client";
+import { decideGrantAction, type CustomerGateReason } from "./customer-gate";
 import {
   ACCESS_NOTICE_FAILED_SUMMARY,
   TIENDUP_ACCESS_MESSAGE,
   accessNoticeFailedReason,
   enrollmentPendingReason,
   enrollmentPendingSummary,
+  notInTiendupError,
 } from "./messages";
 
 // ===========================================================================
@@ -33,7 +37,12 @@ import {
 //   - match por NOMBRE con otro correo → no inscribe (inscribir con el nuestro
 //     crea un cliente nuevo en Tiendup y la persona real queda sin acceso). El
 //     equipo puede forzarlo desde el botón; el alta automática nunca fuerza.
-//   - sin match → inscribe.
+//   - sin match → antes de inscribir, chequea que el correo exista como
+//     CLIENTE de la tienda (GET /customers): el enroll crea el cliente si no
+//     existe y eso es justo lo que no queremos con un correo mal capturado.
+//     Ver customer-gate.ts: el automático se frena (`not_in_tiendup` /
+//     `customer_check_failed`); el botón pide confirmación explícita
+//     (`needs_new_customer_confirm`) y con `confirmNewCustomer` inscribe igual.
 //
 // Diferencias del modo automático (más conservador que el botón, porque nadie
 // mira el caso antes):
@@ -59,7 +68,30 @@ export type GrantOutcome =
     }
   | { kind: "already_enrolled"; email: string; emailFixed: boolean }
   | { kind: "enrolled"; email: string; emailFixed: boolean }
-  | { kind: "enroll_failed"; error: string };
+  | { kind: "enroll_failed"; error: string }
+  /** Auto: el correo no existe como cliente de la tienda. No se inscribió. */
+  | { kind: "not_in_tiendup"; email: string }
+  /** Auto: no se pudo leer completo el listado de clientes. No se inscribió. */
+  | { kind: "customer_check_failed"; email: string }
+  /** Manual: no existe (o no se pudo verificar); el equipo tiene que confirmar. */
+  | { kind: "needs_new_customer_confirm"; email: string; reason: CustomerGateReason };
+
+// Si el correo no aparece en un listado de clientes cacheado de más de 1 min,
+// se relee una vez: quien se registró recién en la web no tiene que quedar
+// frenada por el cache.
+const CUSTOMERS_REFRESH_IF_OLDER_MS = 60_000;
+
+async function loadCustomersFor(email: string): Promise<CustomersListing> {
+  let listing = await listCustomersChecked();
+  if (
+    listing.complete &&
+    !findCustomerByEmail(listing.customers, email) &&
+    Date.now() - listing.fetchedAt > CUSTOMERS_REFRESH_IF_OLDER_MS
+  ) {
+    listing = await listCustomersChecked({ maxAgeMs: 0 });
+  }
+  return listing;
+}
 
 export interface GrantResult {
   outcome: GrantOutcome;
@@ -80,11 +112,12 @@ export function grantSucceeded(o: GrantOutcome): boolean {
  */
 export async function grantCourseAccess(
   paymentId: string,
-  opts: { mode: GrantMode; force?: boolean; sb?: Db },
+  opts: { mode: GrantMode; force?: boolean; confirmNewCustomer?: boolean; sb?: Db },
 ): Promise<GrantResult> {
   const sb = opts.sb ?? getSupabaseServerClient();
   const auto = opts.mode === "auto";
   const force = !auto && opts.force === true;
+  const confirmNewCustomer = !auto && opts.confirmNewCustomer === true;
 
   const { data: pay } = await sb
     .from("payment_validations")
@@ -125,21 +158,46 @@ export async function grantCourseAccess(
   } else {
     enrolled = await listEnrolled(courseId);
   }
-  const existing = findExistingEnrollment({ enrolled, email, fullName });
+  const decision = await decideGrantAction({
+    mode: opts.mode,
+    force,
+    confirmNewCustomer,
+    enrolled,
+    email,
+    fullName,
+    loadCustomers: () => loadCustomersFor(email),
+  });
 
   let outcome: GrantOutcome;
-  if (existing?.matchedBy === "email") {
+  if (decision.action === "already_enrolled") {
     // Ya está inscripta con este correo: solo dejamos constancia en el panel.
     await markGranted(sb, paymentId);
     outcome = { kind: "already_enrolled", email, emailFixed };
-  } else if (existing?.matchedBy === "nombre" && !force) {
-    const e = existing.enrolled;
+  } else if (decision.action === "name_conflict") {
+    const e = decision.existing;
     return {
       outcome: {
         kind: "name_conflict",
         email,
         existing: { name: [e.name, e.lastName].filter(Boolean).join(" "), email: e.email },
       },
+      conversationId,
+    };
+  } else if (decision.action === "block") {
+    // No crear clientes nuevos: el correo no existe en la tienda (o no se pudo
+    // verificar). El alta automática se frena acá.
+    if (decision.reason === "not_in_tiendup") {
+      // Queda registrado para la ficha (prefijo NOT_IN_TIENDUP, messages.ts).
+      await sb
+        .from("payment_validations")
+        .update({ course_access_error: notInTiendupError(), updated_at: new Date().toISOString() })
+        .eq("id", paymentId);
+      return { outcome: { kind: "not_in_tiendup", email }, conversationId };
+    }
+    return { outcome: { kind: "customer_check_failed", email }, conversationId };
+  } else if (decision.action === "confirm") {
+    return {
+      outcome: { kind: "needs_new_customer_confirm", email, reason: decision.reason },
       conversationId,
     };
   } else {

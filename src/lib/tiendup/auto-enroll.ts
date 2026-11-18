@@ -21,6 +21,9 @@ import { getTiendupAutoEnrollSetting } from "./auto-enroll-setting";
 // forzada por el equipo) y tenemos un correo válido, se da de alta en Tiendup
 // con la MISMA lógica que el botón "Dar acceso al curso" (grantCourseAccess,
 // en modo automático: nunca fuerza, exige correo válido y listado completo).
+// Nunca crea un cliente nuevo en Tiendup: si el correo no existe como cliente
+// de la tienda (o no se pudo verificar), no inscribe y avisa al equipo (ver
+// customer-gate.ts).
 //
 // Disparadores:
 //   - al validar un comprobante (PATCH /api/payments/[id], también desde /wa);
@@ -88,6 +91,10 @@ function pendingReason(o: GrantOutcome): string | null {
       return "no se pudo leer el listado de inscriptos de Tiendup para descartar un duplicado";
     case "enroll_failed":
       return "Tiendup devolvió un error al inscribir";
+    case "not_in_tiendup":
+      return "el mail no figura en Tiendup (no es cliente de la tienda ni está inscripta en el curso), inscribirla crearía un cliente nuevo. Confirmá el correo con ella antes de dar el acceso";
+    case "customer_check_failed":
+      return "no se pudo verificar el correo en Tiendup (no se pudo leer el listado de clientes), por eso no se inscribió";
     case "no_course":
       return "el curso de este evento no está cargado en Tiendup (falta el mapeo)";
     default:
