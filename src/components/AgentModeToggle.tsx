@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Bot, Loader2, UserRound } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 // Interruptor general del agente: enciende o apaga a la IA para TODAS las
 // conversaciones de WhatsApp. Cuando está en Humano, el agente no responde
@@ -11,12 +11,14 @@ import { Bot, Loader2, UserRound } from "lucide-react";
 type Mode = "AI" | "HUMAN";
 
 // `placement="up"`: abre los popovers hacia arriba y a la derecha (abajo del
-// menú lateral). `compact`: solo ícono (menú lateral contraído).
+// menú lateral). `compact`: solo el switch, sin label (menú lateral contraído);
+// el estado queda en aria-label y title.
 export function AgentModeToggle({
   placement = "down",
   compact = false,
 }: { placement?: "down" | "up"; compact?: boolean } = {}) {
   const [mode, setMode] = useState<Mode | null>(null);
+  const [loading, setLoading] = useState(true);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
@@ -29,6 +31,8 @@ export function AgentModeToggle({
       setMode(j.mode);
     } catch {
       // Informativo: si falla, no rompemos el header.
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -66,7 +70,28 @@ export function AgentModeToggle({
     }
   }
 
-  if (!mode) return null;
+  // Cargando: el switch se ve deshabilitado y neutro para que no salte el
+  // layout. Si la carga falla, no se muestra (como antes).
+  if (!mode) {
+    if (!loading) return null;
+    return (
+      <div
+        role="status"
+        title="Cargando el estado de la IA"
+        className={`flex items-center ${compact ? "justify-center p-1.5" : "gap-2 px-2 py-1.5"}`}
+      >
+        {!compact && (
+          <span className="whitespace-nowrap text-[12px] font-medium text-neutral-400 dark:text-neutral-500">IA</span>
+        )}
+        <span aria-hidden className="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-neutral-200 opacity-60 dark:bg-neutral-800">
+          <span className="flex h-4 w-4 translate-x-0.5 items-center justify-center rounded-full bg-white shadow-sm dark:bg-neutral-600">
+            <Loader2 className="h-2.5 w-2.5 animate-spin text-neutral-400" strokeWidth={2} />
+          </span>
+        </span>
+        <span className="sr-only">Cargando el estado de la IA</span>
+      </div>
+    );
+  }
   const isAI = mode === "AI";
   const next: Mode = isAI ? "HUMAN" : "AI";
   const popoverPos = placement === "up" ? "bottom-full left-0 mb-2" : "right-0 top-full mt-2";
@@ -86,25 +111,52 @@ export function AgentModeToggle({
           </button>
         </div>
       )}
+      {/* Switch real (track + thumb). Tocarlo no cambia el modo en el acto:
+          abre la confirmación de siempre; aria-checked refleja el estado
+          vigente. Prendido = dorado de marca (mismo switch que el alta
+          automática de Tiendup), apagado = neutro. */}
       <button
+        type="button"
+        role="switch"
+        aria-checked={isAI}
+        aria-label={isAI ? "IA activa" : "IA apagada"}
+        aria-busy={busy}
+        disabled={busy}
         onClick={() => setConfirming((v) => !v)}
         title={
           isAI
-            ? "La IA está respondiendo. Tocá para pasar todo a atención humana"
-            : "La IA está pausada. Tocá para volver a activarla"
+            ? "IA activa. Tocá para pasar todo a atención humana"
+            : "IA apagada. Tocá para volver a activarla"
         }
-        className={`flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] font-medium transition ${
-          isAI
-            ? "text-ok hover:bg-neutral-100 dark:hover:bg-neutral-900"
-            : "text-warn hover:bg-neutral-100 dark:hover:bg-neutral-900"
+        className={`group flex items-center rounded-lg transition hover:bg-neutral-100 disabled:cursor-wait dark:hover:bg-neutral-900 ${
+          compact ? "justify-center p-1.5" : "gap-2 px-2 py-1.5"
         }`}
       >
-        {isAI ? (
-          <Bot className="h-3.5 w-3.5" strokeWidth={1.75} />
-        ) : (
-          <UserRound className="h-3.5 w-3.5" strokeWidth={1.75} />
+        {!compact && (
+          <span
+            className={`whitespace-nowrap text-[12px] font-medium ${
+              isAI ? "text-neutral-900 dark:text-neutral-50" : "text-neutral-500 dark:text-neutral-400"
+            }`}
+          >
+            {isAI ? "IA activa" : "IA apagada"}
+          </span>
         )}
-        <span className={compact ? "sr-only" : "hidden sm:inline"}>{isAI ? "IA activa" : "IA pausada"}</span>
+        <span
+          aria-hidden
+          className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition ${
+            isAI
+              ? "bg-gradient-to-br from-gold to-gold-start group-hover:shadow-gold"
+              : "bg-neutral-200 group-hover:bg-neutral-300 dark:bg-neutral-700 dark:group-hover:bg-neutral-600"
+          } ${busy ? "opacity-60" : ""}`}
+        >
+          <span
+            className={`flex h-4 w-4 items-center justify-center rounded-full bg-white shadow-sm transition ${
+              isAI ? "translate-x-[18px]" : "translate-x-0.5"
+            }`}
+          >
+            {busy && <Loader2 className="h-2.5 w-2.5 animate-spin text-neutral-500" strokeWidth={2} />}
+          </span>
+        </span>
       </button>
 
       {confirming && (
@@ -113,7 +165,7 @@ export function AgentModeToggle({
           <div className={`absolute z-[60] w-72 ${popoverPos} rounded-lg border border-neutral-200 bg-white p-3 shadow-soft dark:border-neutral-800 dark:bg-neutral-900 dark:shadow-soft-dark`}>
             <p className="text-[12px] leading-relaxed text-neutral-600 dark:text-neutral-400">
               {isAI
-                ? "Pausar la IA en todas las conversaciones. Valentina deja de responder y atiende el equipo"
+                ? "Apagar la IA en todas las conversaciones. Valentina deja de responder y atiende el equipo"
                 : "Activar la IA en todas las conversaciones. Valentina vuelve a responder los mensajes nuevos. Los contactos marcados como humano en GoHighLevel quedan como están"}
             </p>
             <div className="mt-3 flex items-center justify-end gap-1">
@@ -130,7 +182,7 @@ export function AgentModeToggle({
                 className="flex items-center gap-1.5 btn-gold"
               >
                 {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />}
-                {isAI ? "Pausar IA" : "Activar IA"}
+                {isAI ? "Apagar IA" : "Activar IA"}
               </button>
             </div>
           </div>
