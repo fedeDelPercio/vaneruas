@@ -19,7 +19,6 @@ import {
   PanelLeftOpen,
   Receipt,
   UserPlus,
-  Webhook,
   X,
 } from "lucide-react";
 import { useProfile } from "./ProfileProvider";
@@ -70,7 +69,6 @@ const ITEMS: Item[] = [
 const DEV_ITEMS: Item[] = [
   { href: "/conversations", label: "Testing", icon: MessagesSquare },
   { href: "/feedback", label: "Feedback", icon: Inbox },
-  { href: "/webhooks", label: "Webhooks", icon: Webhook },
 ];
 
 const REVISION_PATHS = ["/revision", "/payments", "/interventions"];
@@ -196,8 +194,6 @@ export function DashboardSidebar() {
 
   // Revisión comparte el contador de Aprobaciones (es la misma cola).
   const countByHref: Record<string, number> = {
-    "/revision": counts.payments,
-    "/payments": counts.payments,
     "/interventions": counts.interventions,
     "/certificados": counts.certificados,
     "/agendar": counts.agendar,
@@ -308,20 +304,17 @@ export function DashboardSidebar() {
   function navigation(compact: boolean, mobile: boolean) {
     return (
       <div className="flex h-full min-h-0 flex-col">
-        {/* Cabecera como la de Hábitat: logo arriba y "Agentic Panel" chico
-            abajo; contraído, el monograma. */}
-        <div className={`flex h-20 shrink-0 items-center ${compact ? "justify-center px-1" : "justify-between px-5"}`}>
+        {/* Cabecera como la de Hábitat: logo arriba con aire arriba y a la
+            izquierda; contraído, el monograma. */}
+        <div className={`flex h-24 shrink-0 items-center pt-3 ${compact ? "justify-center px-1" : "justify-between pl-7 pr-5"}`}>
           <Link
             href={home}
             onClick={() => setMobileOpen(false)}
             aria-label="Vanesa Rúas · Inicio"
-            title={compact ? "Vanesa Rúas · Agentic Panel" : undefined}
+            title={compact ? "Vanesa Rúas Formación Profesional" : undefined}
             className="rounded-sm outline-none transition-opacity hover:opacity-75 focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             <BrandLogo variant={compact ? "compact" : "sidebar"} />
-            {!compact && (
-              <span className="mt-1 block text-[11px] text-neutral-500 dark:text-neutral-400">Agentic Panel</span>
-            )}
           </Link>
           {mobile && (
             <button type="button" autoFocus aria-label="Cerrar menú" onClick={() => setMobileOpen(false)} className={iconButton}>
@@ -412,7 +405,7 @@ export function DashboardSidebar() {
           className={`${iconButton} relative`}
         >
           <Menu className="h-4 w-4" strokeWidth={1.75} />
-          {(counts.payments > 0 || counts.interventions > 0) && (
+          {counts.interventions > 0 && (
             <span aria-hidden className="absolute right-2.5 top-2.5 h-1.5 w-1.5 rounded-full bg-gold" />
           )}
         </button>

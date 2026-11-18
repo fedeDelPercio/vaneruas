@@ -16,7 +16,7 @@ import { SplashScreen } from "@/components/SplashScreen";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Agentic Testing Panel",
+  title: "Vanesa Ruas Form · Panel",
   description:
     "Panel para testear agentes de IA (orquestador + subagentes + evaluator).",
 };

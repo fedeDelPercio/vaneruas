@@ -9,7 +9,7 @@ import Image from "next/image";
 //
 // Tamaños (relación 1,7: casi cuadrado, con "Vanesa Rúas" en cursiva y
 // "FORMACIÓN PROFESIONAL" abajo):
-//   - "sidebar": cabecera del menú expandido (h-12, ~82 px de ancho).
+//   - "sidebar": cabecera del menú expandido (58 px de alto, ~99 px de ancho).
 //   - "topbar": barra superior en celular (h-9).
 //   - "compact": menú contraído (64 px de ancho). El logo entero ahí no se
 //     lee, así que va un monograma "VR" con el acento dorado.
@@ -32,7 +32,7 @@ export function BrandLogo({ variant = "sidebar" }: { variant?: "sidebar" | "topb
       width={785}
       height={462}
       priority
-      className={`w-auto dark:invert ${variant === "topbar" ? "h-9" : "h-12"}`}
+      className={`w-auto dark:invert ${variant === "topbar" ? "h-9" : "h-[58px]"}`}
     />
   );
 }
