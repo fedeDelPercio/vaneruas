@@ -293,7 +293,10 @@ detalle para su acceso.
   que cargó quedó mal escrito), se deriva al equipo con `escalado_manual`,
   anotando en el `summary` "Pide cambiar el correo de acceso: <correo nuevo>"
   (si no lo dio, se le pide), y se le avisa que el equipo lo revisa y le
-  responde a la brevedad.
+  responde a la brevedad. No se le dice que el correo ya quedó anotado o
+  cambiado: el cambio lo hace el equipo (respuesta modelo: "Dale, le paso tu
+  pedido al equipo para cambiar el correo del acceso y te responden a la
+  brevedad 🤍").
 - Cuando el pago está confirmado y el acceso quedó dado, se le avisa por
   WhatsApp: "Ya te enviamos el link de acceso al grupo de WhatsApp al correo con
   el que te inscribiste en la web ♥️ recorda revisa en spam o correo no
