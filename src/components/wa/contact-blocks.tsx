@@ -14,7 +14,7 @@ import {
   UserRound,
 } from "lucide-react";
 import type { ContactNotification } from "@/app/api/wa/contact/[conversationId]/route";
-import type { TiendupCourseStatus, TiendupLiveState, TiendupStatusResponse } from "@/lib/tiendup/status";
+import type { TiendupAccessStatus, TiendupMailStatus, TiendupStatusResponse } from "@/lib/tiendup/status";
 
 // Bloques compartidos de la ficha del contacto (/wa, ContactPanel) y de la
 // columna derecha de /revision (ReviewDetail): títulos de sección, lista con
@@ -316,46 +316,88 @@ export function useTiendupStatus(conversationId: string | null, enabled: boolean
   return state.convId === conversationId ? state.value : { phase: "idle" };
 }
 
-const LIVE: Record<
-  TiendupLiveState,
-  { text: string; tone: "ok" | "warn" | "bad" | "idle"; Icon: typeof CircleCheck }
-> = {
-  enrolled: { text: "Inscripta en el curso", tone: "ok", Icon: CircleCheck },
-  other_email: { text: "Mismo nombre con otro mail", tone: "warn", Icon: AtSign },
-  customer_not_enrolled: { text: "Cliente en Tiendup, sin acceso al curso", tone: "warn", Icon: UserRound },
-  not_found: { text: "El mail no figura en Tiendup", tone: "bad", Icon: MailX },
-  error: { text: "Error en el alta", tone: "bad", Icon: CircleAlert },
-  unavailable: { text: "No se pudo consultar Tiendup", tone: "idle", Icon: CloudOff },
-};
+type LiveTone = "ok" | "warn" | "bad" | "idle";
+type LiveLine = { text: string; detail?: string | null; tone: LiveTone; Icon: typeof CircleCheck; mono?: boolean };
 
-/** ¿Algún curso está en rojo? (el bloque sube arriba de todo en la ficha). */
-export function tiendupHasRed(f: TiendupFetch): boolean {
-  return f.phase === "done" && f.data.show && f.data.courses.some((c) => LIVE[c.state].tone === "bad");
+/** Línea 1: el mail en Tiendup (independiente del evento). */
+function mailLine(m: TiendupMailStatus): LiveLine {
+  switch (m.state) {
+    case "has_courses":
+      return {
+        text: "Mail validado en Tiendup",
+        detail: `Ya tiene otros cursos: ${m.courses.join(" · ")}`,
+        tone: "ok",
+        Icon: CircleCheck,
+      };
+    case "customer_no_courses":
+      return { text: "Mail validado en Tiendup", detail: "Cliente de la tienda, sin cursos", tone: "ok", Icon: UserRound };
+    case "other_email":
+      return {
+        text: "El mail no figura; mismo nombre con otro mail",
+        detail: m.otherEmailMasked ? `Figura como ${m.otherEmailMasked}` : null,
+        tone: "warn",
+        Icon: AtSign,
+      };
+    case "not_found":
+      return { text: "El mail no figura en Tiendup", tone: "bad", Icon: MailX };
+    default:
+      return { text: "No se pudo validar el mail en Tiendup", tone: "idle", Icon: CloudOff };
+  }
 }
 
-function CourseLine({ c, multi }: { c: TiendupCourseStatus; multi: boolean }) {
-  const live = LIVE[c.state];
+/** Línea 2: acceso a la inscripción actual (curso del evento de ese pago). */
+function accessLine(c: TiendupAccessStatus): LiveLine {
+  const ev = c.eventTitle;
+  switch (c.state) {
+    case "enrolled":
+      return { text: `Acceso enviado a Tiendup para ${ev}`, detail: "Figura inscripta en ese curso", tone: "ok", Icon: CircleCheck };
+    case "granted":
+      return { text: `Acceso enviado a Tiendup para ${ev}`, detail: "Alta registrada; no se pudo releer el curso", tone: "ok", Icon: CircleCheck };
+    case "granted_missing":
+      return { text: `Alta marcada para ${ev}, pero no figura en el curso`, tone: "warn", Icon: CircleAlert };
+    case "other_email":
+      return {
+        text: `Pendiente de alta para ${ev}`,
+        detail: c.otherEmailMasked ? `En ese curso figura alguien con su nombre como ${c.otherEmailMasked}` : "En ese curso figura alguien con su nombre y otro mail",
+        tone: "warn",
+        Icon: AtSign,
+      };
+    case "awaiting_approval":
+      return { text: `Pendiente de alta para ${ev}`, detail: "Falta aprobar el pago", tone: "idle", Icon: KeyRound };
+    case "pending":
+      return { text: `Pendiente de alta para ${ev}`, detail: "Pago aprobado, todavía sin acceso al curso", tone: "warn", Icon: KeyRound };
+    case "not_found":
+      return { text: `Pendiente de alta para ${ev}`, detail: "El alta automática frenó: el mail no figura en Tiendup", tone: "bad", Icon: MailX };
+    case "error":
+      return { text: `Error en el alta para ${ev}`, detail: c.error ?? null, tone: "bad", Icon: CircleAlert };
+    case "no_mapping":
+      return { text: `${ev}: sin curso de Tiendup asociado`, detail: "Este evento no tiene curso mapeado; el acceso no se da por Tiendup", tone: "idle", Icon: CloudOff };
+    default:
+      return { text: `No se pudo consultar el curso de ${ev}`, tone: "idle", Icon: CloudOff };
+  }
+}
+
+/** ¿El bloque está en rojo? (sube arriba de todo en la ficha). */
+export function tiendupHasRed(f: TiendupFetch): boolean {
+  if (f.phase !== "done" || !f.data.show) return false;
+  const d = f.data;
+  if (d.current && accessLine(d.current).tone === "bad") return true;
+  return Boolean(d.mail && mailLine(d.mail).tone === "bad");
+}
+
+function LiveLineItem({ line, label }: { line: LiveLine; label: string }) {
   return (
     <li className="flex items-start gap-2">
-      <live.Icon className={`mt-px h-3.5 w-3.5 shrink-0 ${TONE_TEXT[live.tone]}`} strokeWidth={2} />
+      <line.Icon className={`mt-px h-3.5 w-3.5 shrink-0 ${TONE_TEXT[line.tone]}`} strokeWidth={2} />
       <div className="min-w-0 flex-1">
-        <p className={`text-[12px] font-medium leading-snug ${TONE_TEXT[live.tone]}`}>{live.text}</p>
-        {multi && (
-          <p className="mt-0.5 truncate text-[11px] text-neutral-500 dark:text-neutral-400" title={c.title}>
-            {c.title}
-          </p>
-        )}
-        {c.state === "other_email" && c.otherEmailMasked && (
-          <p className="mt-0.5 text-[11.5px] text-neutral-600 dark:text-neutral-300">
-            Figura como <span className="font-mono">{c.otherEmailMasked}</span>
-          </p>
-        )}
-        {c.state === "error" && c.error && (
+        <p className="font-mono text-[10px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">{label}</p>
+        <p className={`text-[12px] font-medium leading-snug ${TONE_TEXT[line.tone]}`}>{line.text}</p>
+        {line.detail && (
           <p
-            title={c.error}
-            className="mt-0.5 line-clamp-3 break-words text-[11px] leading-snug text-neutral-500 dark:text-neutral-400"
+            title={line.detail}
+            className="mt-0.5 line-clamp-3 break-words text-[11.5px] leading-snug text-neutral-500 dark:text-neutral-400"
           >
-            {c.error}
+            {line.detail}
           </p>
         )}
       </div>
@@ -371,8 +413,8 @@ export function TiendupLiveBlock({ fetchState, email }: { fetchState: TiendupFet
   if (fetchState.phase === "idle") return null;
   if (fetchState.phase === "done" && !fetchState.data.show) return null;
   const red = tiendupHasRed(fetchState);
-  const courses = fetchState.phase === "done" ? fetchState.data.courses : [];
-  const multi = courses.length > 1;
+  const mail = fetchState.phase === "done" ? fetchState.data.mail ?? null : null;
+  const current = fetchState.phase === "done" ? fetchState.data.current ?? null : null;
   return (
     <div
       className={`rounded-xl border p-3 ${
@@ -400,10 +442,9 @@ export function TiendupLiveBlock({ fetchState, email }: { fetchState: TiendupFet
           <CloudOff className="h-3.5 w-3.5" strokeWidth={1.75} /> No se pudo consultar Tiendup
         </p>
       ) : (
-        <ul className="space-y-2">
-          {courses.map((c) => (
-            <CourseLine key={c.courseId} c={c} multi={multi} />
-          ))}
+        <ul className="space-y-2.5">
+          {mail && <LiveLineItem label="Mail" line={mailLine(mail)} />}
+          {current && <LiveLineItem label="Esta inscripción" line={accessLine(current)} />}
         </ul>
       )}
       {email && (

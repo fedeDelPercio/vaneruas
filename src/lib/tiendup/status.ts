@@ -34,11 +34,120 @@ export interface TiendupCourseStatus {
   error?: string | null;
 }
 
+/**
+ * Línea 1 del bloque: ¿el mail existe en Tiendup? Independiente del evento.
+ *   - has_courses: figura con ese mail en algún curso mapeado (`courses` dice cuáles).
+ *   - customer_no_courses: es cliente de la tienda pero no figura en ningún curso mapeado.
+ *   - other_email: no figura con ese mail, pero sí alguien con el mismo nombre.
+ *   - not_found: no figura (listados completos, o lo registró el alta automática).
+ *   - unavailable: no se pudo comprobar.
+ */
+export type TiendupMailState = "has_courses" | "customer_no_courses" | "other_email" | "not_found" | "unavailable";
+
+export interface TiendupMailStatus {
+  state: TiendupMailState;
+  /** Títulos de los cursos donde figura con el mail. */
+  courses: string[];
+  otherEmailMasked?: string | null;
+}
+
+/**
+ * Línea 2 del bloque: el acceso para la inscripción ACTUAL (el último
+ * comprobante no rechazado), contra el curso mapeado a SU evento.
+ *   - enrolled: figura con el mail en ESE curso.
+ *   - granted: el alta de este comprobante salió bien (no se pudo releer el listado).
+ *   - granted_missing: el alta quedó marcada pero el listado completo no la muestra.
+ *   - other_email: en ese curso figura alguien con el mismo nombre y otro mail.
+ *   - awaiting_approval: el pago todavía no está aprobado.
+ *   - pending: aprobado, sin alta todavía.
+ *   - not_found: aprobado, el alta automática frenó porque el mail no figura en Tiendup.
+ *   - error: el último intento de alta falló (texto en `error`).
+ *   - no_mapping: el evento no tiene curso de Tiendup mapeado.
+ *   - unavailable: no se pudo comprobar.
+ */
+export type TiendupAccessState =
+  | "enrolled"
+  | "granted"
+  | "granted_missing"
+  | "other_email"
+  | "awaiting_approval"
+  | "pending"
+  | "not_found"
+  | "error"
+  | "no_mapping"
+  | "unavailable";
+
+export interface TiendupAccessStatus {
+  eventSlug: string | null;
+  eventTitle: string;
+  courseId: number | null;
+  state: TiendupAccessState;
+  error?: string | null;
+  otherEmailMasked?: string | null;
+}
+
 /** Respuesta de GET /api/wa/tiendup-status/[conversationId]. */
 export interface TiendupStatusResponse {
-  /** false = no corresponde mostrar el bloque (sin correo válido o sin intentos de alta). */
+  /** false = no corresponde mostrar el bloque (sin correo válido o sin inscripción). */
   show: boolean;
+  /** Línea 1: validación del mail en Tiendup. */
+  mail?: TiendupMailStatus | null;
+  /** Línea 2: acceso a la inscripción actual. null = no hay inscripción. */
+  current?: TiendupAccessStatus | null;
+  /** Estado crudo por curso mapeado (diagnóstico). */
   courses: TiendupCourseStatus[];
+}
+
+/**
+ * Línea 1. `perCourse`: estado de cada curso mapeado ya decidido con
+ * decideTiendupStatus (mismo mail). `isCustomer`: el mail está en GET
+ * /customers (null = no se pudo saber); `customersComplete`: el listado de
+ * clientes vino completo.
+ */
+export function decideMailStatus(args: {
+  perCourse: { title: string; state: TiendupLiveState; otherEmailMasked?: string | null }[];
+  isCustomer: boolean | null;
+  customersComplete: boolean;
+  notInMarker: boolean;
+}): TiendupMailStatus {
+  const courses = args.perCourse.filter((c) => c.state === "enrolled").map((c) => c.title);
+  if (courses.length) return { state: "has_courses", courses };
+  if (args.isCustomer || args.perCourse.some((c) => c.state === "customer_not_enrolled")) {
+    return { state: "customer_no_courses", courses: [] };
+  }
+  const other = args.perCourse.find((c) => c.state === "other_email");
+  if (other) return { state: "other_email", courses: [], otherEmailMasked: other.otherEmailMasked ?? null };
+  if (args.perCourse.some((c) => c.state === "not_found") || (args.isCustomer === false && args.customersComplete)) {
+    return { state: "not_found", courses: [] };
+  }
+  if (args.notInMarker) return { state: "not_found", courses: [] };
+  return { state: "unavailable", courses: [] };
+}
+
+/**
+ * Línea 2: acceso de la inscripción actual. `courseState` es el estado del
+ * curso mapeado al evento de ESE comprobante (null si el evento no mapea);
+ * figurar en otro curso no cuenta.
+ */
+export function decideCurrentAccess(args: {
+  paymentStatus: string;
+  granted: boolean;
+  courseId: number | null;
+  courseState: { state: TiendupLiveState; otherEmailMasked?: string | null; error?: string | null } | null;
+  listingComplete: boolean;
+}): { state: TiendupAccessState; error?: string | null; otherEmailMasked?: string | null } {
+  if (!args.courseId || !args.courseState) return { state: "no_mapping" };
+  const cs = args.courseState;
+  if (cs.state === "enrolled") return { state: "enrolled" };
+  if (args.granted) return { state: args.listingComplete ? "granted_missing" : "granted" };
+  if (cs.state === "other_email") return { state: "other_email", otherEmailMasked: cs.otherEmailMasked ?? null };
+  if (args.paymentStatus !== "validated") return { state: "awaiting_approval" };
+  if (cs.state === "error") return { state: "error", error: cs.error ?? null };
+  if (cs.state === "not_found") return { state: "not_found" };
+  // Listado del curso completo y no figura: pendiente aunque no se haya
+  // consultado la lista de clientes (p. ej. porque ya figura en otro curso).
+  if (cs.state === "unavailable" && !args.listingComplete) return { state: "unavailable" };
+  return { state: "pending" };
 }
 
 /**

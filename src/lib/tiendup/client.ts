@@ -45,6 +45,11 @@ const TIENDUP_COURSE_BY_EVENT_SLUG: Record<string, number> = {
   "masterclass-peelings-verano": 554178,
 };
 
+/** Todos los cursos mapeados: event_slug → id de curso (para ver en qué cursos figura un mail). */
+export function tiendupMappedCourses(): { eventSlug: string; courseId: number }[] {
+  return Object.entries(TIENDUP_COURSE_BY_EVENT_SLUG).map(([eventSlug, courseId]) => ({ eventSlug, courseId }));
+}
+
 /** Id de curso de Tiendup para un event_slug de comprobante, o null si no mapea. */
 export function tiendupCourseIdForEvent(slug: string | null | undefined): number | null {
   if (!slug) return null;

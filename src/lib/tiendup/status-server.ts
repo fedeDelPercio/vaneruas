@@ -5,16 +5,21 @@ import type { Database } from "@/lib/supabase/types";
 import { normalizeContactEmail } from "@/lib/contact-email";
 import { eventBySlug } from "@/lib/payments/event-match";
 import {
+  findCustomerByEmail,
   fixDominioDeCorreo,
   listCustomersChecked,
   listEnrolledChecked,
   tiendupCourseIdForEvent,
+  tiendupMappedCourses,
   type CustomersListing,
 } from "./client";
+import { isNotInTiendupError } from "./messages";
 import type { TiendupEnrolled } from "./match";
 import {
+  decideCurrentAccess,
+  decideMailStatus,
   decideTiendupStatus,
-  paymentsWithEnrollAttempt,
+  type TiendupAccessStatus,
   type TiendupCourseStatus,
   type TiendupStatusResponse,
 } from "./status";
@@ -64,17 +69,21 @@ export async function getEnrolledListing(courseId: number): Promise<Listing | nu
 }
 
 /**
- * Estado de Tiendup por curso para una conversación. `show: false` si no tiene
- * correo con formato válido o si nunca hubo un intento de alta (acceso
- * marcado, error guardado o notificación `tiendup_*` de un comprobante suyo).
- * null = la conversación no existe (para este cliente).
+ * Estado de Tiendup de una conversación, en dos líneas:
+ *   1. `mail`: si el correo existe en Tiendup (en qué cursos mapeados figura,
+ *      cliente sin cursos, no figura…), independiente del evento.
+ *   2. `current`: el acceso a la inscripción ACTUAL (último comprobante no
+ *      rechazado) contra el curso mapeado a SU evento. Figurar en otro curso
+ *      NO cuenta como acceso a este.
+ * `show: false` si no tiene correo con formato válido o ningún comprobante
+ * pendiente/aprobado. null = la conversación no existe (para este cliente).
  */
 export async function loadTiendupStatus(
   sb: Db,
   conversationId: string,
   clientSlug: string,
 ): Promise<TiendupStatusResponse | null> {
-  const [convRes, payRes, notifRes] = await Promise.all([
+  const [convRes, payRes] = await Promise.all([
     sb
       .from("conversations")
       .select("id, contact_email, display_name")
@@ -83,81 +92,103 @@ export async function loadTiendupStatus(
       .maybeSingle(),
     sb
       .from("payment_validations")
-      .select("id, event_slug, course_access_granted_at, course_access_error, updated_at, created_at")
+      .select("id, event_slug, status, course_access_granted_at, course_access_error, updated_at, created_at")
       .eq("conversation_id", conversationId)
       .eq("client_slug", clientSlug)
-      .eq("status", "validated")
+      .in("status", ["validated", "pending"])
       .order("created_at", { ascending: false }),
-    sb
-      .from("agent_notifications")
-      .select("reason")
-      .eq("conversation_id", conversationId)
-      .eq("client_slug", clientSlug)
-      .like("reason", "tiendup_%")
-      .order("created_at", { ascending: false })
-      .limit(100),
   ]);
-  const failed = [convRes, payRes, notifRes].find((r) => r.error);
+  const failed = [convRes, payRes].find((r) => r.error);
   if (failed?.error) throw new Error(failed.error.message);
   const conv = convRes.data;
   if (!conv) return null;
 
   const valid = normalizeContactEmail(conv.contact_email);
-  if (!valid) return { show: false, courses: [] };
+  const payments = payRes.data ?? [];
+  if (!valid || !payments.length) return { show: false, courses: [] };
   // Mismo correo que usa el alta (grant.ts): con el typo de dominio corregido.
   const email = fixDominioDeCorreo(valid).email;
 
-  const payments = payRes.data ?? [];
-  const attempted = paymentsWithEnrollAttempt({
-    payments,
-    notificationReasons: (notifRes.data ?? []).map((n) => n.reason),
-  });
-  if (!attempted.size) return { show: false, courses: [] };
+  // Inscripción actual: el comprobante aprobado más nuevo; si no hay, el
+  // pendiente más nuevo.
+  const current = payments.find((p) => p.status === "validated") ?? payments[0]!;
+  const currentCourseId = tiendupCourseIdForEvent(current.event_slug);
+  const currentError = current.course_access_granted_at ? null : current.course_access_error?.trim() || null;
+  const notInMarker = isNotInTiendupError(currentError);
 
-  // Cursos de los comprobantes validados con intento de alta.
-  const byCourse = new Map<number, typeof payments>();
-  for (const p of payments) {
-    if (!attempted.has(p.id)) continue;
-    const courseId = tiendupCourseIdForEvent(p.event_slug);
-    if (!courseId) continue;
-    const arr = byCourse.get(courseId) ?? [];
-    arr.push(p);
-    byCourse.set(courseId, arr);
-  }
-  if (!byCourse.size) return { show: false, courses: [] };
-
-  // Clientes de la tienda: se lee una sola vez por request, y solo si hace
-  // falta (alguien no figura en el curso). Sin key → null.
   let customersP: Promise<CustomersListing | null> | null = null;
   const getCustomers = () =>
     (customersP ??= process.env.TIENDUP_API_KEY ? listCustomersChecked() : Promise.resolve(null));
 
-  const courses: TiendupCourseStatus[] = await Promise.all(
-    Array.from(byCourse.entries()).map(async ([courseId, pays]) => {
-      // Error del último intento: solo si ningún comprobante de ese curso
-      // quedó con el acceso marcado (markGranted limpia el error).
-      const granted = pays.some((p) => p.course_access_granted_at);
-      const lastError = granted
-        ? null
-        : pays
-            .slice()
-            .sort((a, b) => (b.updated_at ?? b.created_at).localeCompare(a.updated_at ?? a.created_at))
-            .map((p) => p.course_access_error?.trim() || null)
-            .find(Boolean) ?? null;
-      const listing = await getEnrolledListing(courseId);
-      let decided = decideTiendupStatus({ listing, email, fullName: conv.display_name, lastError });
-      if (decided.state === "not_found" || decided.state === "unavailable") {
-        const customers = await getCustomers();
-        if (customers) {
-          decided = decideTiendupStatus({ listing, customers, email, fullName: conv.display_name, lastError });
-        }
-      }
-      return {
-        courseId,
-        title: eventBySlug(pays[0]!.event_slug)?.label ?? `Curso ${courseId}`,
-        ...decided,
-      };
-    }),
+  const mapped = tiendupMappedCourses();
+  const listings = new Map<number, Listing | null>(
+    await Promise.all(mapped.map(async (m) => [m.courseId, await getEnrolledListing(m.courseId)] as const)),
   );
-  return { show: true, courses };
+  const titleOf = (slug: string, courseId: number) => eventBySlug(slug)?.label ?? `Curso ${courseId}`;
+
+  // Por curso, sin error guardado: lo que dicen los listados.
+  let perCourse = mapped.map((m) => ({
+    courseId: m.courseId,
+    title: titleOf(m.eventSlug, m.courseId),
+    ...decideTiendupStatus({ listing: listings.get(m.courseId) ?? null, email, fullName: conv.display_name, lastError: null }),
+  }));
+  let customers: CustomersListing | null = null;
+  if (!perCourse.some((c) => c.state === "enrolled")) {
+    customers = await getCustomers();
+    if (customers) {
+      const cust = customers;
+      perCourse = mapped.map((m) => ({
+        courseId: m.courseId,
+        title: titleOf(m.eventSlug, m.courseId),
+        ...decideTiendupStatus({
+          listing: listings.get(m.courseId) ?? null,
+          customers: cust,
+          email,
+          fullName: conv.display_name,
+          lastError: null,
+        }),
+      }));
+    }
+  }
+  const isCustomer = customers ? Boolean(findCustomerByEmail(customers.customers, email)) : null;
+  const mail = decideMailStatus({
+    perCourse,
+    isCustomer,
+    customersComplete: Boolean(customers?.complete),
+    notInMarker,
+  });
+
+  // Línea 2: contra el curso del evento actual, con su error guardado.
+  let courseState: ReturnType<typeof decideTiendupStatus> | null = null;
+  const currentListing = currentCourseId ? listings.get(currentCourseId) ?? null : null;
+  if (currentCourseId) {
+    courseState = decideTiendupStatus({
+      listing: currentListing,
+      customers,
+      email,
+      fullName: conv.display_name,
+      lastError: currentError,
+    });
+  }
+  const access = decideCurrentAccess({
+    paymentStatus: current.status,
+    granted: Boolean(current.course_access_granted_at),
+    courseId: currentCourseId,
+    courseState,
+    listingComplete: Boolean(currentListing?.complete),
+  });
+  const currentStatus: TiendupAccessStatus = {
+    eventSlug: current.event_slug,
+    eventTitle: eventBySlug(current.event_slug)?.label ?? current.event_slug ?? "evento sin identificar",
+    courseId: currentCourseId,
+    ...access,
+  };
+
+  const courses: TiendupCourseStatus[] = perCourse.map((c) => ({
+    courseId: c.courseId,
+    title: c.title,
+    state: c.state,
+    otherEmailMasked: c.otherEmailMasked ?? null,
+  }));
+  return { show: true, mail, current: currentStatus, courses };
 }
