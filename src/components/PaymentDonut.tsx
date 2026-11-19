@@ -8,12 +8,13 @@ import { useIsDark } from "./useIsDark";
 // no eran un comprobante (capturas, títulos sueltos). Si se cuentan, el
 // indicador se hunde y se lee como si los pagos estuvieran fallando: con 260
 // imágenes y 114 descartes daba 56% confirmados cuando el número real es 99%.
-// Dos porciones: validados (dorado de marca) y el resto (neutro). El desglose
-// pendientes/rechazados vive en el embudo.
+// Dos porciones en grises (look del Dashboard de Hábitat): validados (gris
+// fuerte) y el resto (gris suave). El desglose pendientes/rechazados vive en el
+// embudo.
 
 const PAL = {
-  light: { ok: "#d97706", rest: "#d4d4d4", bg: "#ffffff" },
-  dark: { ok: "#f9a900", rest: "#404040", bg: "#171717" },
+  light: { ok: "#525252", rest: "#e5e5e5", bg: "#ffffff" },
+  dark: { ok: "#d4d4d4", rest: "#404040", bg: "#0f0f0f" },
 };
 
 export function PaymentDonut({
@@ -64,7 +65,7 @@ export function PaymentDonut({
         </ResponsiveContainer>
         {/* Centro: overlay HTML centrado exacto sobre el agujero del donut. */}
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-[34px] font-bold leading-none tracking-tight-er tabular-nums text-neutral-900 dark:text-neutral-50">
+          <span className="font-jakarta text-[32px] font-bold leading-none tracking-[-0.03em] tabular-nums text-neutral-900 dark:text-neutral-50">
             {pct === null ? "—" : `${pct}%`}
           </span>
           <span className="mt-1 text-[11px] text-neutral-500 dark:text-neutral-500">

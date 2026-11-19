@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Poppins } from "next/font/google";
+import { Poppins, Plus_Jakarta_Sans } from "next/font/google";
 import { GeistMono } from "geist/font/mono";
 import { Toaster } from "react-hot-toast";
 
@@ -11,6 +11,14 @@ const poppins = Poppins({
   weight: ["400", "500", "600", "700", "800"],
   variable: "--font-poppins",
   display: "swap",
+});
+// Plus Jakarta Sans: solo para las tarjetas de métricas (font-jakarta), igual
+// que el dashboard de Hábitat. El resto del panel sigue en Poppins.
+const plusJakarta = Plus_Jakarta_Sans({
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
+  display: "swap",
+  variable: "--font-plus-jakarta",
 });
 import { SplashScreen } from "@/components/SplashScreen";
 import "./globals.css";
@@ -50,7 +58,7 @@ export default function RootLayout({
     // <html> antes de la hidratación; ese desajuste es intencional.
     <html
       lang="es"
-      className={`${poppins.variable} ${GeistMono.variable}`}
+      className={`${poppins.variable} ${GeistMono.variable} ${plusJakarta.variable}`}
       suppressHydrationWarning
     >
       <head>

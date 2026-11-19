@@ -16,6 +16,8 @@ const config: Config = {
         // tabulares. Se inyectan vía next/font en <html> (ver layout.tsx).
         sans: ["var(--font-poppins)", ...defaultTheme.fontFamily.sans],
         mono: ["var(--font-geist-mono)", ...defaultTheme.fontFamily.mono],
+        // Plus Jakarta Sans (next/font/google): solo tarjetas de métricas.
+        jakarta: ["var(--font-plus-jakarta)", "var(--font-poppins)", ...defaultTheme.fontFamily.sans],
       },
       colors: {
         // Dorado: el acento premium de la marca. `gold` como sólido (bordes,

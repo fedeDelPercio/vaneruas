@@ -143,3 +143,12 @@ body {
     background-color: transparent;
   }
 }
+
+/* Tokens de los gráficos de /metrics (copiados del dashboard de Hábitat):
+   color de las etiquetas de valor (LabelList) en light y dark. */
+.dashboard-surface {
+  --chart-foreground: 23 23 23;
+}
+.dark .dashboard-surface {
+  --chart-foreground: 245 245 245;
+}

@@ -1,32 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, AlertTriangle, Minus, Plus } from "lucide-react";
-import type { MetricsResponse } from "@/app/api/metrics/route";
-import { DailyActivityChart } from "./DailyActivityChart";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, LabelList, XAxis, YAxis } from "recharts";
+import { Loader2, Minus, Plus, RefreshCw } from "lucide-react";
+import type { MetricsResponse, SharePoint } from "@/app/api/metrics/route";
+import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "./ui/chart";
+import { FittedChart } from "./dashboard/FittedChart";
+import { StatCard } from "./dashboard/StatCard";
 import { PaymentDonut } from "./PaymentDonut";
-import { CategoryBarChart } from "./CategoryBarChart";
-import { TeamActivityChart } from "./TeamActivityChart";
-import { AiShareChart } from "./AiShareChart";
 
-// Dashboard de métricas del cliente. Lee /api/metrics y presenta:
-//  - mensajes respondidos por IA vs humano,
-//  - embudo de comprobantes + tiempo medio de validación,
-//  - backlog de comprobantes pendientes por días hábiles (umbral ajustable),
-//  - derivaciones por categoría.
-// Estética refined minimal: números mono, barras neutras, acentos solo como
-// texto/dot (ok/warn/red), sin charts de colores.
+// Dashboard de métricas del cliente, con el lenguaje visual del Dashboard de
+// Hábitat: tarjetas KPI con sparkline y variación contra el período anterior,
+// gráficos de área grises minimalistas y selectores segmentados. Lee
+// /api/metrics; ver ahí la definición de cada número.
 
-type PeriodKey = "7d" | "30d" | "90d" | "all";
-
-const PERIODS: { key: PeriodKey; label: string }[] = [
-  { key: "7d", label: "7 días" },
-  { key: "30d", label: "30 días" },
-  { key: "90d", label: "90 días" },
-  { key: "all", label: "Todo" },
-];
+type Days = 7 | 30 | 90;
+type Escala = "semanal" | "mensual";
 
 const BACKLOG_KEY = "atp.backlogThresholdDays";
+const GRAY = "#737373";
+const muted = "text-neutral-500 dark:text-neutral-400";
 
 // Etiquetas humanas para las categorías de derivación. Fallback: humaniza el
 // snake_case (igual criterio que el email del equipo).
@@ -64,30 +57,73 @@ function businessDaysElapsed(start: Date, end: Date): number {
   return count;
 }
 
-function fmtDuration(ms: number | null): { value: string; unit: string } {
-  if (ms === null) return { value: "—", unit: "" };
+function fmtDuration(ms: number): string {
   const hours = ms / 3_600_000;
-  if (hours < 1) return { value: String(Math.round(ms / 60_000)), unit: "min" };
-  if (hours < 24) return { value: hours.toFixed(1).replace(".", ","), unit: "h" };
-  return { value: (hours / 24).toFixed(1).replace(".", ","), unit: "días" };
+  if (hours < 1) return `${Math.round(ms / 60_000)} min`;
+  if (hours < 24) return `${hours.toFixed(1).replace(".", ",")} h`;
+  return `${(hours / 24).toFixed(1).replace(".", ",")} días`;
 }
 
 function fmtAmount(amount: number | null): string {
-  if (amount === null) return "—";
+  if (amount === null) return "·";
   return `ARS ${new Intl.NumberFormat("es-AR", { minimumFractionDigits: 0 }).format(amount)}`;
 }
 
 function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("es-AR", {
-    day: "2-digit",
-    month: "2-digit",
-  });
+  return new Date(iso).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" });
+}
+
+const shortDay = (day: string) => `${day.slice(8)}/${day.slice(5, 7)}`;
+const count = (v: number) => v.toLocaleString("es-AR");
+const format = (value: number | null, percent = false) =>
+  value === null ? "Sin datos" : `${value.toLocaleString("es-AR", { maximumFractionDigits: 1 })}${percent ? "%" : ""}`;
+
+// Selector segmentado (copiado de Hábitat).
+function Segmented<T extends string | number>({
+  value,
+  options,
+  onChange,
+  disabled,
+  label,
+}: {
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (value: T) => void;
+  disabled?: boolean;
+  label?: string;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={label}
+      className="flex w-fit items-center gap-1 rounded-md border border-neutral-200 p-0.5 dark:border-neutral-800"
+    >
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          disabled={disabled}
+          aria-pressed={value === o.value}
+          onClick={() => onChange(o.value)}
+          className={`rounded-sm px-2.5 py-1 text-[12px] font-medium transition disabled:opacity-50 ${
+            value === o.value
+              ? "bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-50"
+              : "text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100"
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 export function MetricsDashboard() {
-  const [period, setPeriod] = useState<PeriodKey>("30d");
+  const [days, setDays] = useState<Days>(30);
+  const [refresh, setRefresh] = useState(0);
   const [data, setData] = useState<MetricsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [threshold, setThreshold] = useState(2);
 
   // Umbral de backlog persistido en localStorage (default 2 días hábiles).
@@ -100,25 +136,25 @@ export function MetricsDashboard() {
     window.localStorage.setItem(BACKLOG_KEY, String(threshold));
   }, [threshold]);
 
-  const load = useCallback(async (p: PeriodKey) => {
-    try {
-      const r = await fetch(`/api/metrics?period=${p}`, { cache: "no-store" });
-      const j = await r.json();
-      if (!r.ok) {
-        setError(j.error ?? "No se pudieron cargar las métricas");
-        return;
-      }
-      setError(null);
-      setData(j as MetricsResponse);
-    } catch {
-      setError("Error de red");
-    }
-  }, []);
-
   useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
     setData(null);
-    void load(period);
-  }, [period, load]);
+    setError(null);
+    void (async () => {
+      try {
+        const r = await fetch(`/api/metrics?period=${days}d`, { cache: "no-store", signal: controller.signal });
+        const j = await r.json().catch(() => null);
+        if (!r.ok || !j?.kpis) throw new Error();
+        if (!controller.signal.aborted) setData(j as MetricsResponse);
+      } catch {
+        if (!controller.signal.aborted) setError("No pudimos cargar las métricas. Probá actualizar.");
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    })();
+    return () => controller.abort();
+  }, [days, refresh]);
 
   // Backlog: pendientes con >= threshold días hábiles desde la recepción.
   const overdue = useMemo(() => {
@@ -130,8 +166,6 @@ export function MetricsDashboard() {
       .sort((a, b) => b.businessDays - a.businessDays);
   }, [data, threshold]);
 
-  const aiPct = data?.containment.pctAI ?? null;
-
   const approvalPct = useMemo(() => {
     if (!data) return null;
     const { validated, rejected } = data.paymentFunnel;
@@ -139,285 +173,605 @@ export function MetricsDashboard() {
     return resolved === 0 ? null : Math.round((validated / resolved) * 100);
   }, [data]);
 
-  if (error && data === null) {
-    return (
-      <div className="flex h-full items-center justify-center text-[13px] text-neutral-500 dark:text-neutral-500">
-        {error}
-      </div>
-    );
-  }
-
-  const dur = data ? fmtDuration(data.validation.avgMs) : { value: "—", unit: "" };
-
   return (
-    <div className="mx-auto max-w-4xl px-4 py-6 sm:px-8">
-      <div className="flex flex-wrap items-center justify-between gap-3 pb-4">
-        <h1 className="text-[15px] font-medium tracking-tight-er text-neutral-900 dark:text-neutral-50">
-          Métricas
-        </h1>
-        <div className="flex items-center gap-1">
-          {PERIODS.map((p) => (
-            <button
-              key={p.key}
-              onClick={() => setPeriod(p.key)}
-              className={`rounded-md px-2.5 py-1.5 text-[12px] transition ${
-                period === p.key
-                  ? "bg-neutral-900 text-white dark:bg-neutral-50 dark:text-neutral-950"
-                  : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
+    <div className="dashboard-surface mx-auto w-full max-w-5xl px-4 py-5 sm:px-6">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-[15px] font-medium tracking-tight-er text-neutral-900 dark:text-neutral-50">Métricas</h1>
+          <p className="mt-1 text-[12px] text-neutral-500">Últimos {days} días · hora de Argentina</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Segmented
+            label="Período"
+            value={days}
+            options={([7, 30, 90] as const).map((value) => ({ value, label: `${value} días` }))}
+            onChange={setDays}
+            disabled={loading}
+          />
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => setRefresh((v) => v + 1)}
+            aria-label="Actualizar métricas"
+            className="rounded-md border border-neutral-200 p-2 text-neutral-500 transition hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-800 dark:hover:bg-neutral-900"
+          >
+            <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.75} />
+          </button>
         </div>
       </div>
 
-      {data === null ? (
-        <div className="flex items-center justify-center gap-2 py-20 text-[13px] text-neutral-500 dark:text-neutral-500">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} />
+      {error && (
+        <p role="alert" className="mb-4 text-[12px] text-red-600 dark:text-red-400">
+          {error}
+        </p>
+      )}
+      {loading && (
+        <div role="status" className="flex items-center justify-center gap-2 py-20 text-[12px] text-neutral-500">
+          <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.75} />
           Cargando métricas…
         </div>
-      ) : (
-        <div className="space-y-3">
-          {/* Fila de stats */}
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {/* Dos métricas distintas conviven en este panel y antes se llamaban
-                igual ("respondido por IA"), así que no cerraban entre sí. Esta
-                es por CONVERSACIÓN: cuántas se resolvieron sin que el equipo
-                tuviera que entrar. La del gráfico de abajo es por MENSAJE. */}
-            <Stat
-              label="Conversaciones que resolvió la IA sola"
-              value={aiPct === null ? "—" : String(aiPct)}
-              unit={aiPct === null ? undefined : "%"}
-              hint={
-                data.containment.cubierto
-                  ? `${data.containment.aiHandled} de ${data.containment.total}, sin derivar y sin que escriba el equipo`
-                  : `${data.containment.aiHandled} de ${data.containment.total} · el tramo viejo no tiene registro de los mensajes del equipo, el número queda alto`
-              }
-            />
-            <Stat
-              label="Comprobantes recibidos"
-              value={String(data.paymentFunnel.received - data.paymentFunnel.descartados)}
-              hint={
-                data.paymentFunnel.descartados > 0
-                  ? `${data.paymentFunnel.pending} pendientes · ${data.paymentFunnel.descartados} descartados`
-                  : `${data.paymentFunnel.pending} pendientes`
-              }
-            />
-            <Stat
-              label="Tiempo medio de validación"
-              value={dur.value}
-              unit={dur.unit || undefined}
-              hint={`${data.validation.count} validados`}
-            />
-            <Stat
-              label="Backlog de comprobantes"
-              value={String(overdue.length)}
-              footer={
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] text-neutral-500 dark:text-neutral-500">≥</span>
-                  <Stepper value={threshold} onChange={setThreshold} />
-                  <span className="text-[11px] text-neutral-500 dark:text-neutral-500">
-                    días háb.
+      )}
+
+      {data && (
+        <>
+          {/* Tarjetas KPI */}
+          <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <KpiTile id="kpi-automation">
+              <StatCard
+                label="Tasa de automatización · mensajes"
+                labelId="kpi-automation"
+                value={data.kpis.automation.total}
+                percent
+                chart={data.kpis.automation}
+              >
+                Mensajes enviados por IA sobre los enviados por IA y equipo.
+                {!data.kpis.automation.cubierto && (
+                  <span className="mt-1 block text-[11px] text-warn-fg dark:text-warn">
+                    {data.kpis.automation.coberturaDesde
+                      ? `Los mensajes del equipo se registran desde el ${fmtDate(data.kpis.automation.coberturaDesde)}: el tramo anterior queda alto.`
+                      : "Todavía no hay registro de mensajes del equipo: la tasa queda alta."}
                   </span>
+                )}
+              </StatCard>
+            </KpiTile>
+            <KpiTile id="kpi-received">
+              <StatCard
+                label="Comprobantes recibidos"
+                labelId="kpi-received"
+                value={data.kpis.received.total}
+                chart={data.kpis.received}
+              >
+                {data.kpis.received.pending} pendientes
+                {data.kpis.received.descartados > 0 ? ` · ${data.kpis.received.descartados} descartados` : ""}
+              </StatCard>
+            </KpiTile>
+            <KpiTile id="kpi-validation">
+              <StatCard
+                label="Tiempo medio de validación"
+                labelId="kpi-validation"
+                value={data.kpis.validation.total}
+                format={fmtDuration}
+                chart={data.kpis.validation}
+                invert
+              >
+                {data.kpis.validation.count} validados en el período
+              </StatCard>
+            </KpiTile>
+            <KpiTile id="kpi-backlog">
+              <StatCard
+                label="Backlog de comprobantes"
+                labelId="kpi-backlog"
+                value={overdue.length}
+                chart={data.kpis.backlog}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>≥</span>
+                  <Stepper value={threshold} onChange={setThreshold} />
+                  <span>días háb. · {data.kpis.backlog.total} pendientes</span>
                 </div>
-              }
-            />
+              </StatCard>
+            </KpiTile>
           </div>
 
-          {/* Actividad diaria */}
-          <Section title="Actividad diaria">
-            {data.daily.length === 0 ? (
-              <Empty>No hay actividad en este período.</Empty>
-            ) : (
-              <DailyActivityChart data={data.daily} />
-            )}
-          </Section>
+          <div className="space-y-4">
+            <Panel title="Actividad diaria" description="Mensajes de la conversación y comprobantes recibidos, por día.">
+              {data.daily.every((d) => d.mensajes === 0 && d.comprobantes === 0) ? (
+                <EmptyChart>Sin actividad en el período</EmptyChart>
+              ) : (
+                <MultiArea
+                  title="Actividad diaria"
+                  rows={data.daily}
+                  series={[
+                    { key: "mensajes", label: "Mensajes", color: GRAY, fill: true },
+                    { key: "comprobantes", label: "Comprobantes", theme: { light: "#262626", dark: "#e5e5e5" } },
+                  ]}
+                />
+              )}
+            </Panel>
 
-          {/* Mensajes escritos por el equipo (no por la IA) */}
-          <Section title="Mensajes escritos por el equipo, día a día">
-            {data.daily.length === 0 ? (
-              <Empty>No hay actividad en este período.</Empty>
-            ) : (
-              <TeamActivityChart data={data.daily} />
-            )}
-          </Section>
+            <Panel
+              title="Mensajes escritos por el equipo, día a día"
+              description="Mensajes que escribió una persona del equipo, no la IA."
+              aside={teamAside(data.daily)}
+            >
+              {data.daily.every((d) => d.equipo === 0) ? (
+                <EmptyChart>Sin mensajes del equipo en el período</EmptyChart>
+              ) : (
+                <AreaTrend
+                  title="Mensajes del equipo"
+                  rows={data.daily.map((d) => ({ label: shortDay(d.date), value: d.equipo }))}
+                  detail={(v) => (v === 1 ? " mensaje" : " mensajes")}
+                />
+              )}
+            </Panel>
 
-          {/* Evolución del reparto IA / equipo */}
-          <Section title="Conversaciones que resolvió la IA sola, semana a semana">
-            <AiShareChart
-              semanal={data.shareConversaciones.semanal}
-              mensual={data.shareConversaciones.mensual}
-              unidad="conversaciones"
-            />
-          </Section>
+            <ApprovalsPanel rows={data.approvalsDaily} />
 
-          <Section title="Mensajes escritos por la IA, semana a semana">
-            <AiShareChart semanal={data.share.semanal} mensual={data.share.mensual} />
-          </Section>
+            <SharePanel semanal={data.share.semanal} mensual={data.share.mensual} />
 
-          {/* Comprobantes confirmados (donut) */}
-          <Section title="Comprobantes confirmados">
-            {data.paymentFunnel.received === 0 ? (
-              <Empty>No llegaron comprobantes en este período.</Empty>
-            ) : (
-              <PaymentDonut
-                received={data.paymentFunnel.received}
-                validated={data.paymentFunnel.validated}
-                descartados={data.paymentFunnel.descartados}
-              />
-            )}
-          </Section>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Panel title="Comprobantes confirmados" description="Validados sobre los comprobantes reales del período.">
+                {data.paymentFunnel.received === 0 ? (
+                  <EmptyChart>No llegaron comprobantes en este período</EmptyChart>
+                ) : (
+                  <PaymentDonut
+                    received={data.paymentFunnel.received}
+                    validated={data.paymentFunnel.validated}
+                    descartados={data.paymentFunnel.descartados}
+                  />
+                )}
+              </Panel>
 
-          {/* Derivaciones por categoría (barra horizontal) */}
-          <Section title="Derivaciones por categoría">
-            {data.byCategory.length === 0 ? (
-              <Empty>No hubo derivaciones al equipo en este período.</Empty>
-            ) : (
-              <CategoryBarChart
-                data={data.byCategory.map((c) => ({
-                  label: categoryLabel(c.category),
-                  count: c.count,
-                }))}
-              />
-            )}
-          </Section>
+              <Panel
+                title="Embudo de comprobantes"
+                description="Comprobantes del período por estado actual. Sin imágenes agrupadas ni el cierre masivo del 18/11."
+                aside={approvalPct === null ? undefined : `${approvalPct}% de aprobación`}
+              >
+                {data.paymentFunnel.received === 0 ? (
+                  <EmptyChart>No llegaron comprobantes en este período</EmptyChart>
+                ) : (
+                  <div className="space-y-2.5">
+                    <FunnelRow label="Recibidos" count={data.paymentFunnel.received} total={data.paymentFunnel.received} />
+                    <FunnelRow label="Pendientes" count={data.paymentFunnel.pending} total={data.paymentFunnel.received} />
+                    <FunnelRow label="Validados" count={data.paymentFunnel.validated} total={data.paymentFunnel.received} />
+                    <FunnelRow label="Rechazados" count={data.paymentFunnel.rejected} total={data.paymentFunnel.received} dot="red" />
+                    <FunnelRow label="Descartados" count={data.paymentFunnel.descartados} total={data.paymentFunnel.received} />
+                  </div>
+                )}
+              </Panel>
+            </div>
 
-          {/* Embudo de comprobantes */}
-          <Section
-            title="Embudo de comprobantes"
-            aside={
-              approvalPct === null
-                ? undefined
-                : `${approvalPct}% de aprobación`
-            }
-          >
-            {data.paymentFunnel.received === 0 ? (
-              <Empty>No llegaron comprobantes en este período.</Empty>
-            ) : (
-              <div className="space-y-2">
-                <FunnelRow label="Recibidos" count={data.paymentFunnel.received} total={data.paymentFunnel.received} />
-                <FunnelRow label="Pendientes" count={data.paymentFunnel.pending} total={data.paymentFunnel.received} dot="neutral" />
-                <FunnelRow label="Validados" count={data.paymentFunnel.validated} total={data.paymentFunnel.received} dot="ok" />
-                <FunnelRow label="Rechazados" count={data.paymentFunnel.rejected} total={data.paymentFunnel.received} dot="red" />
-                <FunnelRow label="Descartados" count={data.paymentFunnel.descartados} total={data.paymentFunnel.received} dot="neutral" />
-              </div>
-            )}
-          </Section>
+            <Panel
+              title="Derivaciones por categoría"
+              description="Pedidos de intervención al equipo. Una conversación puede tener más de una."
+            >
+              {data.byCategory.length === 0 ? (
+                <EmptyChart>Sin derivaciones al equipo en el período</EmptyChart>
+              ) : (
+                <CategoryChart
+                  rows={data.byCategory.map((c) => ({ label: categoryLabel(c.category), count: c.count }))}
+                />
+              )}
+            </Panel>
 
-          {/* Backlog operativo */}
-          <Section
-            title="Backlog operativo"
-            aside={
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-                  Umbral (días hábiles)
-                </span>
-                <Stepper value={threshold} onChange={setThreshold} />
-              </div>
-            }
-          >
-            {overdue.length === 0 ? (
-              <Empty>
-                Sin comprobantes pendientes hace {threshold} días hábiles o más.
-              </Empty>
-            ) : (
-              <div className="space-y-1.5">
-                {overdue.map((p) => (
-                  <div
-                    key={p.id}
-                    className="flex items-center justify-between gap-3 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-900/40"
-                  >
-                    <div className="flex min-w-0 items-center gap-2">
-                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warn" strokeWidth={1.75} />
-                      <span className="truncate text-[13px] text-neutral-800 dark:text-neutral-100">
-                        {p.senderName ?? "Emisor no leído"}
-                      </span>
-                      <span className="font-mono text-[12px] text-neutral-500">{fmtAmount(p.amount)}</span>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-3">
-                      <span className="font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-                        Recibido {fmtDate(p.createdAt)}
-                      </span>
-                      <span className="text-[12px] font-medium text-warn">
+            <Panel
+              title="Backlog operativo"
+              description="Comprobantes pendientes hace varios días hábiles. No depende del período."
+              aside={
+                <div className="flex items-center gap-2">
+                  <span className={`text-[11.5px] ${muted}`}>Umbral (días hábiles)</span>
+                  <Stepper value={threshold} onChange={setThreshold} />
+                </div>
+              }
+            >
+              {overdue.length === 0 ? (
+                <p className={`py-2 text-[12px] ${muted}`}>
+                  Sin comprobantes pendientes hace {threshold} días hábiles o más
+                </p>
+              ) : (
+                <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
+                  {overdue.map((p) => (
+                    <li key={p.id} className="flex items-center justify-between gap-3 py-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-[13px] text-neutral-900 dark:text-neutral-100">
+                          {p.senderName ?? "Sin remitente"}
+                        </p>
+                        <p className={`font-mono text-[10.5px] uppercase tracking-wide ${muted}`}>
+                          Recibido {fmtDate(p.createdAt)} · {fmtAmount(p.amount)}
+                        </p>
+                      </div>
+                      <span className="shrink-0 font-mono text-[12px] text-warn-fg dark:text-warn">
                         {p.businessDays} d háb
                       </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Section>
-        </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Panel>
+          </div>
+        </>
       )}
     </div>
   );
 }
 
-function Stat({
-  label,
-  value,
-  unit,
-  hint,
-  accent,
-  footer,
+function teamAside(daily: MetricsResponse["daily"]): string {
+  const total = daily.reduce((a, b) => a + b.equipo, 0);
+  const conActividad = daily.filter((d) => d.equipo > 0).length;
+  return `${count(total)} mensajes · ${conActividad} de ${daily.length} días`;
+}
+
+function KpiTile({ id, children }: { id: string; children: ReactNode }) {
+  return (
+    <section
+      aria-labelledby={id}
+      className="min-w-0 rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900/40"
+    >
+      {children}
+    </section>
+  );
+}
+
+function Panel({
+  title,
+  description,
+  aside,
+  children,
 }: {
-  label: string;
-  value: string;
-  unit?: string;
-  hint?: string;
-  accent?: "warn";
-  footer?: React.ReactNode;
+  title: string;
+  description?: string;
+  aside?: ReactNode;
+  children: ReactNode;
 }) {
   return (
-    <div className="flex flex-col rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
-      {/* min-h reserva 2 líneas: los números arrancan siempre a la misma
-          altura aunque un label ocupe una o dos líneas. */}
-      <p className="min-h-[28px] font-mono text-[10px] uppercase leading-[1.35] tracking-[0.07em] text-neutral-600 dark:text-neutral-300">
-        {label}
-      </p>
-      {/* Número en Geist Sans (font por defecto del body): más elegante que el
-          mono. Grande y semibold para que sea el dato hero. tabular-nums alinea
-          los dígitos. */}
-      <p className="mt-2.5 flex items-baseline gap-1">
-        <span
-          className={`text-[36px] font-bold leading-none tracking-tight-er tabular-nums ${
-            accent === "warn" ? "text-warn" : "text-neutral-900 dark:text-neutral-50"
-          }`}
-        >
-          {value}
-        </span>
-        {unit && (
-          <span className="text-[13px] font-medium text-neutral-400 dark:text-neutral-500">
-            {unit}
-          </span>
-        )}
-      </p>
-      {footer ? (
-        <div className="mt-2.5">{footer}</div>
-      ) : (
-        hint && <p className="mt-2 text-[11px] text-neutral-500 dark:text-neutral-500">{hint}</p>
+    <section className="min-w-0 rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900/40">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-[13px] font-medium leading-snug tracking-tight-er text-neutral-900 dark:text-neutral-100">
+            {title}
+          </h2>
+          {description && <p className={`mt-1 text-[12px] ${muted}`}>{description}</p>}
+        </div>
+        {typeof aside === "string" ? <span className={`text-[11.5px] tabular-nums ${muted}`}>{aside}</span> : aside}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function EmptyChart({ children }: { children: ReactNode }) {
+  return <div className={`flex h-48 items-center justify-center text-[12px] ${muted}`}>{children}</div>;
+}
+
+// ---------------------------------------------------------------------------
+// Gráficos (mismo look que el Dashboard de Hábitat: área gris, ejes simples,
+// etiquetas de valor cuando entran sin pisarse).
+
+interface TrendRow {
+  label: string;
+  value: number | null;
+  [k: string]: unknown;
+}
+
+function AreaTrend({
+  title,
+  rows,
+  percent = false,
+  detail,
+  height = "h-56",
+}: {
+  title: string;
+  rows: TrendRow[];
+  percent?: boolean;
+  /** Texto que sigue al valor en el tooltip. */
+  detail?: (value: number, row: TrendRow) => string;
+  height?: string;
+}) {
+  return (
+    <FittedChart label={`${title}, valores por período`} values={rows} percent={percent}>
+      {({ tooltipPortal, dense }) => (
+        <ChartContainer config={{ value: { label: title, color: GRAY } }} className={`${height} w-full`}>
+          <AreaChart accessibilityLayer data={rows} margin={{ left: 0, right: 24, top: 28 }}>
+            <CartesianGrid vertical={false} strokeDasharray="2 5" />
+            <XAxis
+              dataKey="label"
+              tickLine={false}
+              axisLine={false}
+              tickMargin={6}
+              interval="preserveStartEnd"
+              minTickGap={16}
+              fontSize={11}
+              padding={{ left: 12, right: 12 }}
+            />
+            <YAxis
+              width={44}
+              tickLine={false}
+              axisLine={false}
+              fontSize={11}
+              allowDecimals={false}
+              tickCount={3}
+              domain={percent ? [0, 100] : [0, "auto"]}
+              tickFormatter={(v) => `${v}${percent ? "%" : ""}`}
+            />
+            <ChartTooltip
+              portal={tooltipPortal}
+              cursor={false}
+              content={
+                <ChartTooltipContent
+                  className="max-w-full"
+                  formatter={(value, _name, item) => (
+                    <span className="max-w-56 whitespace-normal leading-relaxed">
+                      {format(Number(value), percent)}
+                      {detail ? detail(Number(value), item.payload as TrendRow) : ""}
+                    </span>
+                  )}
+                />
+              }
+            />
+            <Area
+              dataKey="value"
+              type="linear"
+              stroke="var(--color-value)"
+              strokeWidth={2}
+              fill="var(--color-value)"
+              fillOpacity={0.08}
+              isAnimationActive={false}
+              connectNulls={false}
+              dot={rows.length <= 31 ? { r: 3, fill: "var(--color-value)", fillOpacity: 1, strokeWidth: 0 } : false}
+              activeDot={{ r: 5, fillOpacity: 1 }}
+            >
+              {!dense && (
+                <LabelList
+                  dataKey="value"
+                  position="top"
+                  offset={10}
+                  fontSize={11}
+                  fill="rgb(var(--chart-foreground))"
+                  fillOpacity={1}
+                  formatter={(v) => (typeof v === "number" ? format(v, percent) : "")}
+                />
+              )}
+            </Area>
+          </AreaChart>
+        </ChartContainer>
       )}
+    </FittedChart>
+  );
+}
+
+type SeriesDef = {
+  key: string;
+  label: string;
+  /** Relleno suave bajo la línea (solo la serie principal). */
+  fill?: boolean;
+} & ({ color: string; theme?: never } | { color?: never; theme: { light: string; dark: string } });
+
+/** Varias series de área en grises, con leyenda. `stacked` apila las series. */
+function MultiArea<T extends { date: string }>({
+  title,
+  rows,
+  series,
+  stacked = false,
+}: {
+  title: string;
+  rows: T[];
+  series: SeriesDef[];
+  stacked?: boolean;
+}) {
+  const config: ChartConfig = Object.fromEntries(
+    series.map((s) => [s.key, s.theme ? { label: s.label, theme: s.theme } : { label: s.label, color: s.color }]),
+  );
+  const data = rows.map((r) => ({ ...r, label: shortDay(r.date) }));
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap items-center gap-4">
+        {series.map((s) => (
+          <span key={s.key} className={`flex items-center gap-1.5 text-[11.5px] ${muted}`}>
+            <span
+              aria-hidden
+              className="h-2 w-2 shrink-0 rounded-[2px]"
+              style={{ backgroundColor: `var(--legend-${s.key})` }}
+            />
+            {s.label}
+          </span>
+        ))}
+      </div>
+      <FittedChart label={`${title}, valores por día`}>
+        {({ tooltipPortal }) => (
+          <ChartContainer config={config} className="h-56 w-full">
+            <AreaChart accessibilityLayer data={data} margin={{ left: 0, right: 24, top: 12 }}>
+              <CartesianGrid vertical={false} strokeDasharray="2 5" />
+              <XAxis
+                dataKey="label"
+                tickLine={false}
+                axisLine={false}
+                tickMargin={6}
+                interval="preserveStartEnd"
+                minTickGap={16}
+                fontSize={11}
+                padding={{ left: 12, right: 12 }}
+              />
+              <YAxis width={44} tickLine={false} axisLine={false} fontSize={11} allowDecimals={false} tickCount={3} />
+              <ChartTooltip portal={tooltipPortal} cursor={false} content={<ChartTooltipContent className="max-w-full" />} />
+              {series.map((s) => (
+                <Area
+                  key={s.key}
+                  dataKey={s.key}
+                  type="linear"
+                  stackId={stacked ? "a" : undefined}
+                  stroke={`var(--color-${s.key})`}
+                  strokeWidth={stacked ? 1.5 : 2}
+                  fill={`var(--color-${s.key})`}
+                  fillOpacity={stacked ? 0.35 : s.fill ? 0.08 : 0}
+                  isAnimationActive={false}
+                  dot={false}
+                  activeDot={{ r: 4, fillOpacity: 1 }}
+                />
+              ))}
+            </AreaChart>
+          </ChartContainer>
+        )}
+      </FittedChart>
+      {/* La leyenda lee los mismos colores que el gráfico (variables --color-*
+          que define ChartContainer). Se replican acá porque la leyenda vive
+          fuera del contenedor del chart. */}
+      <LegendVars series={series} />
     </div>
   );
 }
 
-/** Stepper ± compacto (umbral de días hábiles). Reusado en la card de Backlog
- *  y en la sección Backlog operativo: ambos editan el mismo estado. */
+function LegendVars({ series }: { series: SeriesDef[] }) {
+  const rule = (theme: "light" | "dark") =>
+    series.map((s) => `--legend-${s.key}: ${s.theme ? s.theme[theme] : s.color};`).join(" ");
+  return (
+    <style
+      dangerouslySetInnerHTML={{
+        __html: `.dashboard-surface { ${rule("light")} } .dark .dashboard-surface { ${rule("dark")} }`,
+      }}
+    />
+  );
+}
+
+function ApprovalsPanel({ rows }: { rows: MetricsResponse["approvalsDaily"] }) {
+  const validados = rows.reduce((a, r) => a + r.comprobantesValidados, 0);
+  const rechazados = rows.reduce((a, r) => a + r.comprobantesRechazados, 0);
+  const titulos = rows.reduce((a, r) => a + r.titulos, 0);
+  const total = validados + rechazados + titulos;
+  return (
+    <Panel
+      title="Aprobaciones realizadas por el equipo"
+      description={`${count(total)} en el período · ${count(validados + rechazados)} comprobantes y ${count(titulos)} títulos revisados. Sin el cierre masivo del 18/11 ni imágenes agrupadas.`}
+    >
+      {total === 0 ? (
+        <EmptyChart>Sin revisiones del equipo en el período</EmptyChart>
+      ) : (
+        <MultiArea
+          title="Aprobaciones del equipo"
+          rows={rows}
+          stacked
+          series={[
+            { key: "comprobantesValidados", label: "Comprobantes validados", theme: { light: "#404040", dark: "#d4d4d4" } },
+            { key: "comprobantesRechazados", label: "Comprobantes rechazados o descartados", theme: { light: "#a3a3a3", dark: "#737373" } },
+            { key: "titulos", label: "Títulos revisados", theme: { light: "#d4d4d4", dark: "#404040" } },
+          ]}
+        />
+      )}
+    </Panel>
+  );
+}
+
+function SharePanel({ semanal, mensual }: { semanal: SharePoint[]; mensual: SharePoint[] }) {
+  const [escala, setEscala] = useState<Escala>("semanal");
+  const data = escala === "semanal" ? semanal : mensual;
+  const enCurso = data.at(-1)?.periodo;
+  const rows: TrendRow[] = data.map((p) => ({
+    label: escala === "semanal" ? p.label : p.label.replace(".", ""),
+    value: p.pct,
+    ia: p.ia,
+    equipo: p.equipo,
+    enCurso: p.periodo === enCurso,
+  }));
+  return (
+    <Panel
+      title={`Tasa de automatización · mensajes, ${escala === "semanal" ? "semana a semana" : "mes a mes"}`}
+      description="Mensajes enviados por IA sobre los enviados por IA y equipo. No depende del período elegido."
+      aside={
+        <Segmented
+          label="Agrupar por"
+          value={escala}
+          options={[
+            { value: "semanal" as const, label: "Semanal" },
+            { value: "mensual" as const, label: "Mensual" },
+          ]}
+          onChange={setEscala}
+        />
+      }
+    >
+      {rows.every((r) => r.value === null) ? (
+        <EmptyChart>Sin datos en el tramo</EmptyChart>
+      ) : (
+        <AreaTrend
+          title="Tasa de automatización"
+          rows={rows}
+          percent
+          detail={(_v, row) => ` · ${row.ia} IA / ${row.equipo} equipo${row.enCurso ? " · en curso" : ""}`}
+        />
+      )}
+      <p className={`mt-2 text-[11px] ${muted}`}>
+        {escala === "semanal" ? "Por semana, de lunes a domingo" : "Por mes calendario"} · el último tramo está en curso ·
+        sin dato antes de que se registren los mensajes del equipo
+      </p>
+    </Panel>
+  );
+}
+
+function CategoryChart({ rows }: { rows: { label: string; count: number }[] }) {
+  const total = rows.reduce((a, r) => a + r.count, 0);
+  const valueLabel = (value: number) => `${count(value)} · ${format(total ? Math.round((value / total) * 1000) / 10 : null, true)}`;
+  const labelWidth = Math.max(86, ...rows.map((r) => valueLabel(r.count).length * 7 + 16));
+  return (
+    <div>
+      <p className="mb-3 font-jakarta text-[32px] font-bold leading-none tracking-[-0.03em] tabular-nums text-neutral-900 dark:text-neutral-50">
+        {count(total)} <span className={`font-sans text-[12px] font-normal tracking-normal ${muted}`}>derivaciones</span>
+      </p>
+      <FittedChart label="Derivaciones por categoría, cantidad y porcentaje">
+        {({ tooltipPortal }) => (
+          <ChartContainer
+            config={{ count: { label: "Derivaciones", color: GRAY } }}
+            className="w-full"
+            style={{ height: Math.max(160, rows.length * 38 + 20) }}
+          >
+            <BarChart accessibilityLayer data={rows} layout="vertical" margin={{ left: 0, right: labelWidth, top: 4, bottom: 4 }}>
+              <XAxis type="number" hide />
+              <YAxis dataKey="label" type="category" width={150} axisLine={false} tickLine={false} fontSize={11} />
+              <ChartTooltip
+                portal={tooltipPortal}
+                content={
+                  <ChartTooltipContent
+                    className="max-w-full"
+                    hideLabel
+                    formatter={(value, _name, item) => (
+                      <span className="max-w-56 whitespace-normal leading-relaxed">
+                        {(item.payload as { label: string }).label}: {valueLabel(Number(value))}
+                      </span>
+                    )}
+                  />
+                }
+              />
+              <Bar dataKey="count" fill="var(--color-count)" barSize={12} radius={2} isAnimationActive={false}>
+                <LabelList
+                  dataKey="count"
+                  position="right"
+                  offset={8}
+                  fontSize={11}
+                  fill="rgb(var(--chart-foreground))"
+                  formatter={(v) => (typeof v === "number" ? valueLabel(v) : "")}
+                />
+              </Bar>
+            </BarChart>
+          </ChartContainer>
+        )}
+      </FittedChart>
+    </div>
+  );
+}
+
+/** Stepper ± compacto (umbral de días hábiles). Reusado en la tarjeta de
+ *  Backlog y en la sección Backlog operativo: ambos editan el mismo estado. */
 function Stepper({ value, onChange }: { value: number; onChange: (n: number) => void }) {
   return (
     <div className="flex items-center gap-1 rounded-md border border-neutral-200 dark:border-neutral-800">
       <button
+        type="button"
         onClick={() => onChange(Math.max(0, value - 1))}
         className="flex h-6 w-6 items-center justify-center rounded-l-md text-neutral-500 transition hover:bg-neutral-100 dark:hover:bg-neutral-800"
         aria-label="Bajar umbral"
       >
         <Minus className="h-3 w-3" strokeWidth={2} />
       </button>
-      <span className="w-5 text-center font-mono text-[12px] text-neutral-900 dark:text-neutral-100">
-        {value}
-      </span>
+      <span className="w-5 text-center font-mono text-[12px] text-neutral-900 dark:text-neutral-100">{value}</span>
       <button
+        type="button"
         onClick={() => onChange(value + 1)}
         className="flex h-6 w-6 items-center justify-center rounded-r-md text-neutral-500 transition hover:bg-neutral-100 dark:hover:bg-neutral-800"
         aria-label="Subir umbral"
@@ -428,68 +782,20 @@ function Stepper({ value, onChange }: { value: number; onChange: (n: number) => 
   );
 }
 
-function Section({
-  title,
-  aside,
-  children,
-}: {
-  title: string;
-  aside?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h2 className="text-[13px] font-medium text-neutral-900 dark:text-neutral-100">{title}</h2>
-        {typeof aside === "string" ? (
-          <span className="font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-            {aside}
-          </span>
-        ) : (
-          aside
-        )}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function FunnelRow({
-  label,
-  count,
-  total,
-  dot,
-}: {
-  label: string;
-  count: number;
-  total: number;
-  dot?: "neutral" | "ok" | "red";
-}) {
-  const pct = total ? (count / total) * 100 : 0;
-  const dotCls =
-    dot === "ok"
-      ? "bg-gold"
-      : dot === "red"
-        ? "bg-red-600 dark:bg-red-500"
-        : "bg-neutral-400 dark:bg-neutral-500";
+function FunnelRow({ label, count: n, total, dot }: { label: string; count: number; total: number; dot?: "red" }) {
+  const pct = total ? (n / total) * 100 : 0;
   return (
     <div className="flex items-center gap-3">
       <span className="flex w-24 shrink-0 items-center gap-1.5 text-[12px] text-neutral-700 dark:text-neutral-300">
-        {dot && <span className={`h-2 w-2 rounded-full ${dotCls}`} />}
+        {dot && <span aria-hidden className="h-2 w-2 rounded-full bg-red-600 dark:bg-red-500" />}
         {label}
       </span>
-      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
-        <div className="h-full bg-neutral-900 dark:bg-neutral-50" style={{ width: `${pct}%` }} />
+      <div className="h-2 flex-1 overflow-hidden rounded-sm bg-neutral-100 dark:bg-neutral-800">
+        <div className="h-full bg-neutral-500 dark:bg-neutral-400" style={{ width: `${pct}%` }} />
       </div>
-      <span className="w-8 shrink-0 text-right font-mono text-[12px] text-neutral-600 dark:text-neutral-300">
-        {count}
+      <span className="w-10 shrink-0 text-right font-mono text-[12px] tabular-nums text-neutral-600 dark:text-neutral-300">
+        {n}
       </span>
     </div>
-  );
-}
-
-function Empty({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="py-2 text-[12px] text-neutral-500 dark:text-neutral-500">{children}</p>
   );
 }

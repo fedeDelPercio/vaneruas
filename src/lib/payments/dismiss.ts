@@ -63,3 +63,18 @@ export function canonicoDeAgrupado(row: { status: string; validation_note?: stri
   const id = (row.validation_note ?? "").slice(MERGED_NOTE_PREFIX.length).trim();
   return id || null;
 }
+
+// ---------------------------------------------------------------------------
+// Cierre masivo: el 18/11 el equipo cerró de una sola vez los comprobantes que
+// ya había resuelto por WhatsApp (179 filas). No es una revisión hecha en el
+// panel ni un rechazo/descarte real: sale de TODAS las métricas de
+// comprobantes (embudo, confirmados, tiempo de validación, aprobaciones). Solo
+// lo usan las métricas; Aprobaciones y la ficha no cambian.
+
+/** Nota que dejó el cierre masivo del 18/11. */
+export const CIERRE_MASIVO_NOTE = "Resuelto por WhatsApp (cierre masivo 18/11)";
+
+/** ¿Esta fila (comprobante o título) se cerró en el cierre masivo del 18/11? */
+export function esCierreMasivo(row: { validation_note?: string | null }): boolean {
+  return (row.validation_note ?? "").startsWith(CIERRE_MASIVO_NOTE);
+}
