@@ -1,12 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { createPortal } from "react-dom";
+import { AlertTriangle, Bot, Loader2 } from "lucide-react";
 
 // Interruptor general del agente: enciende o apaga a la IA para TODAS las
 // conversaciones de WhatsApp. Cuando está en Humano, el agente no responde
 // ninguna conversación y atiende el equipo (útil durante un evento con mucha
-// consulta puntual). Pide confirmación porque impacta a todos los contactos.
+// consulta puntual). Pide confirmación en un modal porque impacta a todos los
+// contactos: apagar es destructivo (botón rojo); volver a activar lleva una
+// confirmación simple (botón dorado), porque Valentina vuelve a responder los
+// mensajes nuevos de todos.
 
 type Mode = "AI" | "HUMAN";
 
@@ -39,6 +43,16 @@ export function AgentModeToggle({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // ESC cierra la confirmación (salvo con el cambio en curso).
+  useEffect(() => {
+    if (!confirming) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape" && !busy) setConfirming(false);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [confirming, busy]);
 
   async function apply(next: Mode) {
     setBusy(true);
@@ -123,7 +137,7 @@ export function AgentModeToggle({
         aria-label={isAI ? "IA activa" : "IA apagada"}
         aria-busy={busy}
         disabled={busy}
-        onClick={() => setConfirming((v) => !v)}
+        onClick={() => setConfirming(true)}
         title={
           isAI
             ? "IA activa. Tocá para pasar todo a atención humana"
@@ -160,35 +174,66 @@ export function AgentModeToggle({
         </span>
       </button>
 
-      {confirming && (
-        <>
-          <div className="fixed inset-0 z-[55]" onClick={() => setConfirming(false)} />
-          <div className={`absolute z-[60] w-72 ${popoverPos} rounded-lg border border-neutral-200 bg-white p-3 shadow-soft dark:border-neutral-800 dark:bg-neutral-900 dark:shadow-soft-dark`}>
-            <p className="text-[12px] leading-relaxed text-neutral-600 dark:text-neutral-400">
-              {isAI
-                ? "Apagar la IA en todas las conversaciones. Valentina deja de responder y atiende el equipo"
-                : "Activar la IA en todas las conversaciones. Valentina vuelve a responder los mensajes nuevos. Los contactos marcados como humano en GoHighLevel quedan como están"}
-            </p>
-            <div className="mt-3 flex items-center justify-end gap-1">
-              <button
-                onClick={() => setConfirming(false)}
-                disabled={busy}
-                className="rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={() => void apply(next)}
-                disabled={busy}
-                className="flex items-center gap-1.5 btn-gold"
-              >
-                {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />}
-                {isAI ? "Apagar IA" : "Activar IA"}
-              </button>
+      {confirming &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[90] flex items-center justify-center bg-neutral-900/40 p-4 backdrop-blur-sm"
+            onClick={busy ? undefined : () => setConfirming(false)}
+          >
+            <div
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="agent-mode-title"
+              aria-describedby="agent-mode-desc"
+              className="w-full max-w-sm glass rounded-xl border border-neutral-200 p-5 shadow-soft dark:border-neutral-800 dark:shadow-soft-dark"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start gap-2.5">
+                {isAI ? (
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-500 dark:text-red-400" strokeWidth={1.75} />
+                ) : (
+                  <Bot className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gold-fg dark:text-gold" strokeWidth={1.75} />
+                )}
+                <div className="min-w-0 flex-1">
+                  <h2 id="agent-mode-title" className="text-[15px] font-medium tracking-tight-er text-neutral-900 dark:text-neutral-50">
+                    {isAI ? "¿Apagar a Valentina?" : "¿Activar a Valentina?"}
+                  </h2>
+                  <p id="agent-mode-desc" className="mt-1 text-[12px] leading-relaxed text-neutral-500 dark:text-neutral-400">
+                    {isAI
+                      ? "Esto apaga a Valentina en todas las conversaciones. No va a responder a nadie hasta que la vuelvan a activar."
+                      : "Valentina vuelve a responder los mensajes nuevos en todas las conversaciones. Los contactos marcados como humano en GoHighLevel quedan como están."}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  autoFocus
+                  onClick={() => setConfirming(false)}
+                  disabled={busy}
+                  className="rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void apply(next)}
+                  disabled={busy}
+                  className={
+                    isAI
+                      ? "flex items-center gap-1.5 rounded-md bg-red-600 px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+                      : "flex items-center gap-1.5 btn-gold"
+                  }
+                >
+                  {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />}
+                  {isAI ? "Apagar" : "Activar"}
+                </button>
+              </div>
             </div>
-          </div>
-        </>
-      )}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

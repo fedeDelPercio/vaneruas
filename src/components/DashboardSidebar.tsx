@@ -343,19 +343,35 @@ export function DashboardSidebar() {
         </nav>
 
         <div className={`shrink-0 border-t border-neutral-200 py-3 dark:border-neutral-800 ${compact ? "px-2" : "px-3"}`}>
-          {/* Interruptor general del agente + feedback del panel: en celular
-              viven en la barra superior. */}
+          {/* Pie: el interruptor de la IA solo, arriba; después el perfil y
+              una fila de botones-ícono parejos (feedback, tema, contraer,
+              cerrar sesión). En celular el interruptor y el feedback viven en
+              la barra superior. */}
           {!mobile && desktop && (
-            <div className={`mb-2 flex items-center ${compact ? "flex-col gap-1" : "justify-between gap-2"}`}>
+            <div className={`mb-2 flex ${compact ? "justify-center" : ""}`}>
               <AgentModeToggle placement="up" compact={compact} />
-              <FeedbackButton />
             </div>
           )}
-          <div className={`mb-3 flex items-center ${compact ? "flex-col gap-1" : "justify-between gap-2"}`}>
-            <div className={`flex items-center ${compact ? "" : "gap-2"}`}>
-              <ThemeToggle />
-              {!compact && <span className="text-[12px] text-neutral-500 dark:text-neutral-400">Tema</span>}
-            </div>
+          <div className={`flex items-center ${compact ? "flex-col gap-2" : "gap-2 px-1"}`}>
+            <Avatar name={profile!.name} size="sm" />
+            {!compact && (
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[12px] font-medium text-neutral-900 dark:text-neutral-100" title={profile!.name}>
+                  {profile!.name}
+                </p>
+                <p className="mt-0.5 text-[11px] text-neutral-500 dark:text-neutral-400">{roleLabel(profile!.role)}</p>
+              </div>
+            )}
+          </div>
+          <div
+            role="toolbar"
+            aria-label="Acciones del panel"
+            className={`mt-3 flex items-center border-t border-neutral-200 pt-2 dark:border-neutral-800 ${
+              compact ? "flex-col gap-1" : "justify-between"
+            }`}
+          >
+            {!mobile && desktop && <FeedbackButton />}
+            <ThemeToggle />
             {!mobile && (
               <button
                 type="button"
@@ -372,19 +388,8 @@ export function DashboardSidebar() {
                 )}
               </button>
             )}
-          </div>
-          <div className={`flex items-center ${compact ? "flex-col gap-2" : "gap-2 px-1"}`}>
-            <Avatar name={profile!.name} size="sm" />
-            {!compact && (
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[12px] font-medium text-neutral-900 dark:text-neutral-100" title={profile!.name}>
-                  {profile!.name}
-                </p>
-                <p className="mt-0.5 text-[11px] text-neutral-500 dark:text-neutral-400">{roleLabel(profile!.role)}</p>
-              </div>
-            )}
-            <button type="button" onClick={changeProfile} aria-label="Cambiar perfil" title="Cambiar perfil" className={iconButton}>
-              <LogOut className="h-3.5 w-3.5" strokeWidth={1.75} />
+            <button type="button" onClick={changeProfile} aria-label="Cerrar sesión" title="Cerrar sesión (cambiar de perfil)" className={iconButton}>
+              <LogOut className="h-4 w-4" strokeWidth={1.75} />
             </button>
           </div>
         </div>
