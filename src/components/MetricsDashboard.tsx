@@ -11,8 +11,10 @@ import { PaymentDonut } from "./PaymentDonut";
 
 // Dashboard de métricas del cliente, con el lenguaje visual del Dashboard de
 // Hábitat: tarjetas KPI con sparkline y variación contra el período anterior,
-// gráficos de área grises minimalistas y selectores segmentados. Lee
-// /api/metrics; ver ahí la definición de cada número.
+// gráficos grises minimalistas (barras por día, área para tasas) y selectores
+// segmentados. Toda la página va en Plus Jakarta (font-jakarta en la raíz; los
+// <text> de los SVG de recharts y los tooltips la heredan). Lee /api/metrics;
+// ver ahí la definición de cada número.
 
 type Days = 7 | 30 | 90;
 type Escala = "semanal" | "mensual";
@@ -174,11 +176,11 @@ export function MetricsDashboard() {
   }, [data]);
 
   return (
-    <div className="dashboard-surface mx-auto w-full max-w-5xl px-4 py-5 sm:px-6">
+    <div className="dashboard-surface mx-auto w-full max-w-5xl px-4 py-5 font-jakarta sm:px-6">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-[15px] font-medium tracking-tight-er text-neutral-900 dark:text-neutral-50">Métricas</h1>
-          <p className="mt-1 text-[12px] text-neutral-500">Últimos {days} días · hora de Argentina</p>
+          <h1 className="text-[15px] font-semibold tracking-tight-er text-neutral-900 dark:text-neutral-50">Métricas</h1>
+          <p className={`mt-1 text-[12px] ${muted}`}>Últimos {days} días · hora de Argentina</p>
         </div>
         <div className="flex items-center gap-2">
           <Segmented
@@ -206,7 +208,7 @@ export function MetricsDashboard() {
         </p>
       )}
       {loading && (
-        <div role="status" className="flex items-center justify-center gap-2 py-20 text-[12px] text-neutral-500">
+        <div role="status" className={`flex items-center justify-center gap-2 py-20 text-[12px] ${muted}`}>
           <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.75} />
           Cargando métricas…
         </div>
@@ -224,7 +226,7 @@ export function MetricsDashboard() {
                 percent
                 chart={data.kpis.automation}
               >
-                Mensajes enviados por IA sobre los enviados por IA y equipo.
+                Mensajes enviados por IA sobre los enviados por IA y equipo. Tendencia por semana.
                 {!data.kpis.automation.cubierto && (
                   <span className="mt-1 block text-[11px] text-warn-fg dark:text-warn">
                     {data.kpis.automation.coberturaDesde
@@ -242,7 +244,12 @@ export function MetricsDashboard() {
                 chart={data.kpis.received}
               >
                 {data.kpis.received.pending} pendientes
-                {data.kpis.received.descartados > 0 ? ` · ${data.kpis.received.descartados} descartados` : ""}
+                {data.kpis.received.cierreMasivo > 0
+                  ? ` · ${data.kpis.received.cierreMasivo} resueltos por WhatsApp (cierre masivo)`
+                  : ""}
+                {data.kpis.received.descartados > 0
+                  ? ` · ${data.kpis.received.descartados} descartados, fuera del total`
+                  : ""}
               </StatCard>
             </KpiTile>
             <KpiTile id="kpi-validation">
@@ -274,17 +281,14 @@ export function MetricsDashboard() {
           </div>
 
           <div className="space-y-4">
-            <Panel title="Actividad diaria" description="Mensajes de la conversación y comprobantes recibidos, por día.">
-              {data.daily.every((d) => d.mensajes === 0 && d.comprobantes === 0) ? (
+            <Panel title="Actividad diaria" description="Mensajes de la conversación (IA, equipo y contactos), por día.">
+              {data.daily.every((d) => d.mensajes === 0) ? (
                 <EmptyChart>Sin actividad en el período</EmptyChart>
               ) : (
-                <MultiArea
+                <DailyBars
                   title="Actividad diaria"
                   rows={data.daily}
-                  series={[
-                    { key: "mensajes", label: "Mensajes", color: GRAY, fill: true },
-                    { key: "comprobantes", label: "Comprobantes", theme: { light: "#262626", dark: "#e5e5e5" } },
-                  ]}
+                  series={[{ key: "mensajes", label: "Mensajes", color: GRAY }]}
                 />
               )}
             </Panel>
@@ -297,10 +301,10 @@ export function MetricsDashboard() {
               {data.daily.every((d) => d.equipo === 0) ? (
                 <EmptyChart>Sin mensajes del equipo en el período</EmptyChart>
               ) : (
-                <AreaTrend
+                <DailyBars
                   title="Mensajes del equipo"
-                  rows={data.daily.map((d) => ({ label: shortDay(d.date), value: d.equipo }))}
-                  detail={(v) => (v === 1 ? " mensaje" : " mensajes")}
+                  rows={data.daily}
+                  series={[{ key: "equipo", label: "Mensajes del equipo", color: GRAY }]}
                 />
               )}
             </Panel>
@@ -311,11 +315,11 @@ export function MetricsDashboard() {
 
             <div className="grid gap-4 lg:grid-cols-2">
               <Panel title="Comprobantes confirmados" description="Validados sobre los comprobantes reales del período.">
-                {data.paymentFunnel.received === 0 ? (
+                {data.paymentFunnel.pending + data.paymentFunnel.validated + data.paymentFunnel.rejected === 0 ? (
                   <EmptyChart>No llegaron comprobantes en este período</EmptyChart>
                 ) : (
                   <PaymentDonut
-                    received={data.paymentFunnel.received}
+                    reales={data.paymentFunnel.pending + data.paymentFunnel.validated + data.paymentFunnel.rejected}
                     validated={data.paymentFunnel.validated}
                     descartados={data.paymentFunnel.descartados}
                   />
@@ -324,19 +328,13 @@ export function MetricsDashboard() {
 
               <Panel
                 title="Embudo de comprobantes"
-                description="Comprobantes del período por estado actual. Sin imágenes agrupadas ni el cierre masivo del 18/11."
+                description="Comprobantes del período por estado actual. Sin imágenes agrupadas."
                 aside={approvalPct === null ? undefined : `${approvalPct}% de aprobación`}
               >
-                {data.paymentFunnel.received === 0 ? (
+                {data.paymentFunnel.received === 0 && data.paymentFunnel.descartados === 0 ? (
                   <EmptyChart>No llegaron comprobantes en este período</EmptyChart>
                 ) : (
-                  <div className="space-y-2.5">
-                    <FunnelRow label="Recibidos" count={data.paymentFunnel.received} total={data.paymentFunnel.received} />
-                    <FunnelRow label="Pendientes" count={data.paymentFunnel.pending} total={data.paymentFunnel.received} />
-                    <FunnelRow label="Validados" count={data.paymentFunnel.validated} total={data.paymentFunnel.received} />
-                    <FunnelRow label="Rechazados" count={data.paymentFunnel.rejected} total={data.paymentFunnel.received} dot="red" />
-                    <FunnelRow label="Descartados" count={data.paymentFunnel.descartados} total={data.paymentFunnel.received} />
-                  </div>
+                  <FunnelRows funnel={data.paymentFunnel} />
                 )}
               </Panel>
             </div>
@@ -359,7 +357,7 @@ export function MetricsDashboard() {
               description="Comprobantes pendientes hace varios días hábiles. No depende del período."
               aside={
                 <div className="flex items-center gap-2">
-                  <span className={`text-[11.5px] ${muted}`}>Umbral (días hábiles)</span>
+                  <span className={`text-[11px] ${muted}`}>Umbral (días hábiles)</span>
                   <Stepper value={threshold} onChange={setThreshold} />
                 </div>
               }
@@ -376,11 +374,11 @@ export function MetricsDashboard() {
                         <p className="truncate text-[13px] text-neutral-900 dark:text-neutral-100">
                           {p.senderName ?? "Sin remitente"}
                         </p>
-                        <p className={`font-mono text-[10.5px] uppercase tracking-wide ${muted}`}>
+                        <p className={`text-[11px] tabular-nums ${muted}`}>
                           Recibido {fmtDate(p.createdAt)} · {fmtAmount(p.amount)}
                         </p>
                       </div>
-                      <span className="shrink-0 font-mono text-[12px] text-warn-fg dark:text-warn">
+                      <span className="shrink-0 text-[12px] font-medium tabular-nums text-warn-fg dark:text-warn">
                         {p.businessDays} d háb
                       </span>
                     </li>
@@ -427,12 +425,12 @@ function Panel({
     <section className="min-w-0 rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900/40">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-[13px] font-medium leading-snug tracking-tight-er text-neutral-900 dark:text-neutral-100">
+          <h2 className="text-[13px] font-semibold leading-snug text-neutral-900 dark:text-neutral-50">
             {title}
           </h2>
           {description && <p className={`mt-1 text-[12px] ${muted}`}>{description}</p>}
         </div>
-        {typeof aside === "string" ? <span className={`text-[11.5px] tabular-nums ${muted}`}>{aside}</span> : aside}
+        {typeof aside === "string" ? <span className={`text-[11px] tabular-nums ${muted}`}>{aside}</span> : aside}
       </div>
       {children}
     </section>
@@ -444,8 +442,9 @@ function EmptyChart({ children }: { children: ReactNode }) {
 }
 
 // ---------------------------------------------------------------------------
-// Gráficos (mismo look que el Dashboard de Hábitat: área gris, ejes simples,
-// etiquetas de valor cuando entran sin pisarse).
+// Gráficos (mismo look que el Dashboard de Hábitat: grises, ejes simples sin
+// línea, grilla punteada suave). Barras para conteos por día; área para tasas,
+// con etiquetas de valor cuando entran sin pisarse.
 
 interface TrendRow {
   label: string;
@@ -542,12 +541,13 @@ function AreaTrend({
 type SeriesDef = {
   key: string;
   label: string;
-  /** Relleno suave bajo la línea (solo la serie principal). */
-  fill?: boolean;
 } & ({ color: string; theme?: never } | { color?: never; theme: { light: string; dark: string } });
 
-/** Varias series de área en grises, con leyenda. `stacked` apila las series. */
-function MultiArea<T extends { date: string }>({
+/**
+ * Barras por día en grises (estilo del BarChart de Hábitat: radio sutil, sin
+ * líneas de eje). Con más de una serie muestra leyenda; `stacked` las apila.
+ */
+function DailyBars<T extends { date: string }>({
   title,
   rows,
   series,
@@ -562,24 +562,27 @@ function MultiArea<T extends { date: string }>({
     series.map((s) => [s.key, s.theme ? { label: s.label, theme: s.theme } : { label: s.label, color: s.color }]),
   );
   const data = rows.map((r) => ({ ...r, label: shortDay(r.date) }));
+  const top = series.at(-1)?.key;
   return (
     <div>
-      <div className="mb-3 flex flex-wrap items-center gap-4">
-        {series.map((s) => (
-          <span key={s.key} className={`flex items-center gap-1.5 text-[11.5px] ${muted}`}>
-            <span
-              aria-hidden
-              className="h-2 w-2 shrink-0 rounded-[2px]"
-              style={{ backgroundColor: `var(--legend-${s.key})` }}
-            />
-            {s.label}
-          </span>
-        ))}
-      </div>
+      {series.length > 1 && (
+        <div className="mb-3 flex flex-wrap items-center gap-4">
+          {series.map((s) => (
+            <span key={s.key} className={`flex items-center gap-1.5 text-[11px] ${muted}`}>
+              <span
+                aria-hidden
+                className="h-2 w-2 shrink-0 rounded-[2px]"
+                style={{ backgroundColor: `var(--legend-${s.key})` }}
+              />
+              {s.label}
+            </span>
+          ))}
+        </div>
+      )}
       <FittedChart label={`${title}, valores por día`}>
         {({ tooltipPortal }) => (
           <ChartContainer config={config} className="h-56 w-full">
-            <AreaChart accessibilityLayer data={data} margin={{ left: 0, right: 24, top: 12 }}>
+            <BarChart accessibilityLayer data={data} margin={{ left: 0, right: 12, top: 12 }} barCategoryGap="22%">
               <CartesianGrid vertical={false} strokeDasharray="2 5" />
               <XAxis
                 dataKey="label"
@@ -589,33 +592,29 @@ function MultiArea<T extends { date: string }>({
                 interval="preserveStartEnd"
                 minTickGap={16}
                 fontSize={11}
-                padding={{ left: 12, right: 12 }}
               />
               <YAxis width={44} tickLine={false} axisLine={false} fontSize={11} allowDecimals={false} tickCount={3} />
-              <ChartTooltip portal={tooltipPortal} cursor={false} content={<ChartTooltipContent className="max-w-full" />} />
+              <ChartTooltip portal={tooltipPortal} content={<ChartTooltipContent className="max-w-full" />} />
               {series.map((s) => (
-                <Area
+                <Bar
                   key={s.key}
                   dataKey={s.key}
-                  type="linear"
                   stackId={stacked ? "a" : undefined}
-                  stroke={`var(--color-${s.key})`}
-                  strokeWidth={stacked ? 1.5 : 2}
                   fill={`var(--color-${s.key})`}
-                  fillOpacity={stacked ? 0.35 : s.fill ? 0.08 : 0}
+                  // Radio sutil solo arriba de la pila (o de cada barra suelta).
+                  radius={!stacked || s.key === top ? [2, 2, 0, 0] : 0}
+                  maxBarSize={28}
                   isAnimationActive={false}
-                  dot={false}
-                  activeDot={{ r: 4, fillOpacity: 1 }}
                 />
               ))}
-            </AreaChart>
+            </BarChart>
           </ChartContainer>
         )}
       </FittedChart>
       {/* La leyenda lee los mismos colores que el gráfico (variables --color-*
           que define ChartContainer). Se replican acá porque la leyenda vive
           fuera del contenedor del chart. */}
-      <LegendVars series={series} />
+      {series.length > 1 && <LegendVars series={series} />}
     </div>
   );
 }
@@ -645,14 +644,14 @@ function ApprovalsPanel({ rows }: { rows: MetricsResponse["approvalsDaily"] }) {
       {total === 0 ? (
         <EmptyChart>Sin revisiones del equipo en el período</EmptyChart>
       ) : (
-        <MultiArea
+        <DailyBars
           title="Aprobaciones del equipo"
           rows={rows}
           stacked
           series={[
-            { key: "comprobantesValidados", label: "Comprobantes validados", theme: { light: "#404040", dark: "#d4d4d4" } },
-            { key: "comprobantesRechazados", label: "Comprobantes rechazados o descartados", theme: { light: "#a3a3a3", dark: "#737373" } },
-            { key: "titulos", label: "Títulos revisados", theme: { light: "#d4d4d4", dark: "#404040" } },
+            { key: "comprobantesValidados", label: "Validados", theme: { light: "#404040", dark: "#d4d4d4" } },
+            { key: "comprobantesRechazados", label: "Rechazados o descartados", theme: { light: "#a3a3a3", dark: "#737373" } },
+            { key: "titulos", label: "Títulos revisados", theme: { light: "#d4d4d4", dark: "#525252" } },
           ]}
         />
       )}
@@ -712,7 +711,7 @@ function CategoryChart({ rows }: { rows: { label: string; count: number }[] }) {
   return (
     <div>
       <p className="mb-3 font-jakarta text-[32px] font-bold leading-none tracking-[-0.03em] tabular-nums text-neutral-900 dark:text-neutral-50">
-        {count(total)} <span className={`font-sans text-[12px] font-normal tracking-normal ${muted}`}>derivaciones</span>
+        {count(total)} <span className={`text-[12px] font-normal tracking-normal ${muted}`}>derivaciones</span>
       </p>
       <FittedChart label="Derivaciones por categoría, cantidad y porcentaje">
         {({ tooltipPortal }) => (
@@ -769,7 +768,7 @@ function Stepper({ value, onChange }: { value: number; onChange: (n: number) => 
       >
         <Minus className="h-3 w-3" strokeWidth={2} />
       </button>
-      <span className="w-5 text-center font-mono text-[12px] text-neutral-900 dark:text-neutral-100">{value}</span>
+      <span className="w-5 text-center text-[12px] font-medium tabular-nums text-neutral-900 dark:text-neutral-100">{value}</span>
       <button
         type="button"
         onClick={() => onChange(value + 1)}
@@ -782,20 +781,67 @@ function Stepper({ value, onChange }: { value: number; onChange: (n: number) => 
   );
 }
 
-function FunnelRow({ label, count: n, total, dot }: { label: string; count: number; total: number; dot?: "red" }) {
-  const pct = total ? (n / total) * 100 : 0;
+/** Filas del embudo. "Recibidos" coincide con la tarjeta: pendientes +
+ *  validados + rechazados + cierre masivo. Los descartados (no eran un
+ *  comprobante) van aparte, fuera del total. */
+function FunnelRows({ funnel }: { funnel: MetricsResponse["paymentFunnel"] }) {
+  const total = funnel.received;
   return (
-    <div className="flex items-center gap-3">
-      <span className="flex w-24 shrink-0 items-center gap-1.5 text-[12px] text-neutral-700 dark:text-neutral-300">
-        {dot && <span aria-hidden className="h-2 w-2 rounded-full bg-red-600 dark:bg-red-500" />}
-        {label}
-      </span>
-      <div className="h-2 flex-1 overflow-hidden rounded-sm bg-neutral-100 dark:bg-neutral-800">
+    <div className="space-y-3">
+      <FunnelRow label="Recibidos" count={total} total={total} strong />
+      <FunnelRow label="Pendientes" count={funnel.pending} total={total} />
+      <FunnelRow label="Validados" count={funnel.validated} total={total} />
+      <FunnelRow label="Rechazados" count={funnel.rejected} total={total} dot="red" />
+      {funnel.cierreMasivo > 0 && (
+        <FunnelRow label="Resueltos por WhatsApp (cierre masivo)" count={funnel.cierreMasivo} total={total} />
+      )}
+      {funnel.descartados > 0 && (
+        <div className="border-t border-neutral-200 pt-3 dark:border-neutral-800">
+          <FunnelRow
+            label="Descartados, no eran un comprobante"
+            count={funnel.descartados}
+            total={total}
+            hint="Fuera del total"
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FunnelRow({
+  label,
+  count: n,
+  total,
+  dot,
+  strong = false,
+  hint,
+}: {
+  label: string;
+  count: number;
+  total: number;
+  dot?: "red";
+  strong?: boolean;
+  hint?: string;
+}) {
+  const pct = total ? Math.min(100, (n / total) * 100) : 0;
+  return (
+    <div>
+      <div className="mb-1 flex items-baseline justify-between gap-3 text-[12px]">
+        <span
+          className={`flex min-w-0 items-center gap-1.5 ${
+            strong ? "font-medium text-neutral-900 dark:text-neutral-50" : "text-neutral-700 dark:text-neutral-300"
+          }`}
+        >
+          {dot && <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-red-600 dark:bg-red-500" />}
+          <span className="truncate">{label}</span>
+          {hint && <span className={`shrink-0 text-[11px] ${muted}`}>· {hint}</span>}
+        </span>
+        <span className="shrink-0 font-medium tabular-nums text-neutral-900 dark:text-neutral-50">{n.toLocaleString("es-AR")}</span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-sm bg-neutral-100 dark:bg-neutral-800">
         <div className="h-full bg-neutral-500 dark:bg-neutral-400" style={{ width: `${pct}%` }} />
       </div>
-      <span className="w-10 shrink-0 text-right font-mono text-[12px] tabular-nums text-neutral-600 dark:text-neutral-300">
-        {n}
-      </span>
     </div>
   );
 }

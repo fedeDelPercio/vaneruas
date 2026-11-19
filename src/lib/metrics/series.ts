@@ -1,6 +1,6 @@
 // Lógica pura de /metrics: ventanas por día en hora de Argentina, series
-// diarias, tasa de automatización, variación contra el período anterior y la
-// serie de aprobaciones del equipo. Sin red ni Supabase, para poder testearla
+// diarias y semanales, tasa de automatización, variación contra el período
+// anterior y la serie de aprobaciones del equipo. Sin red ni Supabase, para poder testearla
 // (scripts/test-metrics-series.ts).
 
 import { esAgrupado, esCierreMasivo, esDescartado } from "@/lib/payments/dismiss";
@@ -116,7 +116,7 @@ export function relativeDelta(current: number | null, previous: number | null): 
 }
 
 export interface KpiPoint {
-  /** Día YYYY-MM-DD (hora AR). */
+  /** Día YYYY-MM-DD (hora AR), o lunes de la semana en series semanales. */
   label: string;
   value: number | null;
 }
@@ -161,17 +161,121 @@ export interface MetricsPaymentRow {
 
 /**
  * Instantes de llegada de los comprobantes que cuentan como recibidos: sin
- * imágenes agrupadas, sin descartados (no eran un comprobante) y sin el cierre
- * masivo. Los pendientes cuentan una vez por grupo (por su canónico). Es el
- * mismo número que "recibidos − descartados" del embudo.
+ * imágenes agrupadas y sin descartados (no eran un comprobante). Los
+ * pendientes cuentan una vez por grupo (por su canónico).
+ *
+ * El cierre masivo del 18/11 SÍ cuenta: fueron comprobantes que llegaron y el
+ * equipo resolvió por WhatsApp. Se separa ANTES del filtro de descartados
+ * porque esas filas quedaron `rejected` y a veces sin monto, así que
+ * `esDescartado` las tomaría como descartes. Es el mismo número que el total
+ * "Recibidos" del embudo.
  */
 export function comprobantesRecibidos(rows: MetricsPaymentRow[]): string[] {
-  const counted = rows.filter((r) => !esAgrupado(r) && !esCierreMasivo(r));
+  const reales = rows.filter((r) => !esAgrupado(r));
+  const masivo = reales.filter(esCierreMasivo);
+  const counted = reales.filter((r) => !esCierreMasivo(r));
   const pendientes = groupPendingPayments(counted.filter((r) => r.status === "pending"));
   return [
     ...pendientes.map((g) => g.canonical.created_at),
     ...counted.filter((r) => r.status !== "pending" && !esDescartado(r)).map((r) => r.created_at),
+    ...masivo.map((r) => r.created_at),
   ];
+}
+
+export interface PaymentFunnel {
+  /** = pending + validated + rejected + cierreMasivo. Igual a la tarjeta. */
+  received: number;
+  /** Por grupo (varias capturas del mismo pago = 1). */
+  pending: number;
+  validated: number;
+  /** Rechazados de verdad: eran un pago y no sirvió. */
+  rejected: number;
+  /** Resueltos por WhatsApp en el cierre masivo del 18/11. */
+  cierreMasivo: number;
+  /** No eran un comprobante. Fuera del total, se informan aparte. */
+  descartados: number;
+}
+
+/**
+ * Embudo de comprobantes por estado actual. Mismo criterio que
+ * comprobantesRecibidos: sin agrupados, el cierre masivo separado ANTES de
+ * mirar descartados, y los descartados fuera del total.
+ */
+export function buildPaymentFunnel(rows: MetricsPaymentRow[]): PaymentFunnel {
+  const reales = rows.filter((r) => !esAgrupado(r));
+  const cierreMasivo = reales.filter(esCierreMasivo).length;
+  const counted = reales.filter((r) => !esCierreMasivo(r));
+  const pending = groupPendingPayments(counted.filter((r) => r.status === "pending")).length;
+  let validated = 0;
+  let rejected = 0;
+  let descartados = 0;
+  for (const r of counted) {
+    if (r.status === "pending") continue;
+    else if (r.status === "validated") validated++;
+    else if (esDescartado(r)) descartados++;
+    else rejected++;
+  }
+  return {
+    received: pending + validated + rejected + cierreMasivo,
+    pending,
+    validated,
+    rejected,
+    cierreMasivo,
+    descartados,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Tasa de automatización por semana (sparkline de la tarjeta).
+
+/** Lunes (YYYY-MM-DD) de la semana de ese día. */
+export function mondayOf(day: string): string {
+  // getUTCDay: 0 = domingo. Retrocedemos al lunes.
+  const dow = new Date(`${day}T00:00:00.000Z`).getUTCDay();
+  return shiftDay(day, -((dow + 6) % 7));
+}
+
+/**
+ * Semanas (lunes a domingo, hora AR) que cubren el período de `days` días que
+ * termina hoy, de la más vieja a la actual (en curso). Para que la línea tenga
+ * forma: al menos 8 semanas con 7 días y al menos 4 en los períodos largos.
+ * Devuelve el lunes de cada semana.
+ */
+export function weekKeys(days: number, now = new Date()): string[] {
+  const { keys } = metricWindow(days, now);
+  const last = mondayOf(keys.at(-1)!);
+  const first = mondayOf(keys[0]!);
+  const span = Math.round((Date.parse(last) - Date.parse(first)) / (7 * DAY_MS)) + 1;
+  const n = Math.max(days <= 7 ? 8 : 4, span);
+  return Array.from({ length: n }, (_, i) => shiftDay(last, (i - n + 1) * 7));
+}
+
+/**
+ * Tasa IA / (IA + equipo) por semana, alineada a `weeks` (lunes). Una semana
+ * que arranca antes de `coberturaDesde` va null (mismo criterio que el gráfico
+ * semana a semana: el conteo del equipo estaría incompleto).
+ */
+export function rateByWeek(
+  aiTs: string[],
+  humanTs: string[],
+  weeks: string[],
+  coberturaDesde: number | null,
+): (number | null)[] {
+  const idx = new Map(weeks.map((k, i) => [k, i]));
+  const count = (ts: string[]) => {
+    const out = weeks.map(() => 0);
+    for (const t of ts) {
+      const i = idx.get(mondayOf(arDay(new Date(t))));
+      if (i !== undefined) out[i]!++;
+    }
+    return out;
+  };
+  const ai = count(aiTs);
+  const human = count(humanTs);
+  return weeks.map((w, i) => {
+    if (coberturaDesde === null || new Date(arStart(w)).getTime() < coberturaDesde) return null;
+    return automationRate(ai[i]!, human[i]!);
+  });
 }
 
 // ---------------------------------------------------------------------------

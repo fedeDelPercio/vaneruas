@@ -1,26 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { clientEnv } from "@/lib/env";
-import { esAgrupado, esCierreMasivo, esDescartado } from "@/lib/payments/dismiss";
-import { groupPendingPayments } from "@/lib/payments/grouping";
+import { esCierreMasivo } from "@/lib/payments/dismiss";
 import { HUMAN_WAITING_REASON } from "@/lib/team-interventions";
 import {
   arDay,
   arStart,
   automationRate,
   average,
-  avgByDay,
   buildApprovalsDaily,
   buildKpi,
+  buildPaymentFunnel,
   comprobantesRecibidos,
   countByDay,
   DAY_MS,
   inRange,
   metricWindow,
-  rateByDay,
+  rateByWeek,
+  weekKeys,
   type ApprovalDay,
   type KpiData,
   type MetricsPaymentRow,
+  type PaymentFunnel,
 } from "@/lib/metrics/series";
 
 export const dynamic = "force-dynamic";
@@ -33,7 +34,9 @@ export const dynamic = "force-dynamic";
 // forma explícita además de la RLS.
 //
 //  - kpis          : tarjetas de arriba. Cada una trae total, total del período
-//                    anterior de igual largo, variación % y serie diaria.
+//                    anterior de igual largo, variación % y serie para la
+//                    mini tendencia (diaria; semanal en automatización; sin
+//                    serie en tiempo de validación).
 //  - byCategory    : derivaciones por categoría (agent_notifications.category)
 //  - messages      : conteo por rol (IA = assistant, humano = human, user = cliente)
 //  - paymentFunnel : comprobantes recibidos en el período por estado actual
@@ -45,8 +48,11 @@ export const dynamic = "force-dynamic";
 // El backlog NO se filtra por período: un pendiente viejo sigue siendo backlog
 // abierto sin importar la ventana que esté mirando el usuario.
 //
-// El cierre masivo del 18/11 (esCierreMasivo) queda afuera de toda métrica de
-// comprobantes: no fue una revisión en el panel ni un rechazo real.
+// El cierre masivo del 18/11 (esCierreMasivo): esos comprobantes SÍ llegaron,
+// así que cuentan como recibidos (tarjeta y total del embudo, en fila aparte).
+// No fue una revisión en el panel ni un rechazo/descarte real: queda afuera de
+// rechazados, descartados, tiempo de validación, aprobaciones del equipo, tasa
+// de aprobación y donut de confirmados.
 // ===========================================================================
 
 // "La contacta escribió con la IA en pausa" la abre el sistema, no es una
@@ -68,25 +74,16 @@ export interface MetricsResponse {
       /** false si el período empieza antes de esa fecha: el número queda alto. */
       cubierto: boolean;
     };
-    /** Comprobantes recibidos (sin agrupados, descartados ni cierre masivo). */
-    received: KpiData & { pending: number; descartados: number };
-    /** Tiempo medio de validación en ms. Subir es malo. */
+    /** Comprobantes recibidos (sin agrupados ni descartados; con cierre masivo). */
+    received: KpiData & { pending: number; descartados: number; cierreMasivo: number };
+    /** Tiempo medio de validación en ms. Subir es malo. Sin serie (sin sparkline). */
     validation: KpiData & { count: number };
     /** Pendientes abiertos (sin período). El umbral se aplica en el cliente. */
     backlog: KpiData;
   };
   byCategory: { category: string; count: number }[];
   messages: { assistant: number; human: number; user: number };
-  paymentFunnel: {
-    /** Imágenes que entraron a Aprobaciones (sin agrupados ni cierre masivo). */
-    received: number;
-    pending: number;
-    validated: number;
-    /** Rechazados de verdad: eran un pago y no sirvió. */
-    rejected: number;
-    /** No eran un comprobante (capturas, títulos sueltos). Ver lib/payments/dismiss. */
-    descartados: number;
-  };
+  paymentFunnel: PaymentFunnel;
   validation: { avgMs: number | null; count: number };
   pending: {
     id: string;
@@ -94,7 +91,7 @@ export interface MetricsResponse {
     senderName: string | null;
     amount: number | null;
   }[];
-  daily: { date: string; mensajes: number; comprobantes: number; equipo: number }[];
+  daily: { date: string; mensajes: number; equipo: number }[];
   approvalsDaily: ApprovalDay[];
   // Evolución del reparto IA / equipo, por semana y por mes. Va aparte del
   // período seleccionado a propósito: es una serie de tendencia, no una foto.
@@ -187,6 +184,10 @@ export async function GET(req: NextRequest) {
   const period = requested in PERIOD_DAYS ? requested : "30d";
   const days = PERIOD_DAYS[period]!;
   const { keys, since, prevSince } = metricWindow(days);
+  // Semanas de la mini tendencia de automatización (pueden arrancar antes del
+  // período: con 7 días se muestran 8 semanas).
+  const weeks = weekKeys(days);
+  const msgSince = arStart(weeks[0]!) < since ? arStart(weeks[0]!) : since;
 
   // --- Conteo de mensajes por rol en [desde, hasta). head:true: solo el count,
   //     sin traer filas, así que no sufre el tope de 1000.
@@ -336,15 +337,17 @@ export async function GET(req: NextRequest) {
     }));
   })();
 
-  // --- Mensajes del período actual (sin carteles de sistema): serie diaria de
-  //     actividad, del equipo y la tasa de automatización por día.
+  // --- Mensajes (sin carteles de sistema) desde el arranque de la primera
+  //     semana de la mini tendencia o del período, lo que sea antes: series
+  //     diarias de actividad y del equipo (filtradas al período) y la tasa de
+  //     automatización por semana.
   const msgRowsP = fetchAll<{ created_at: string; role: string }>((from, to) =>
     sb
       .from("messages")
       .select("created_at, role")
       .eq("client_slug", slug)
       .neq("role", "system")
-      .gte("created_at", since)
+      .gte("created_at", msgSince)
       .order("created_at")
       .order("id")
       .range(from, to),
@@ -379,36 +382,21 @@ export async function GET(req: NextRequest) {
   ]);
 
   // --- Embudo del período actual. Afuera: imágenes agrupadas (son el mismo
-  //     comprobante que su canónico) y el cierre masivo. Los pendientes se
-  //     cuentan por grupo (3 capturas de la misma transferencia = 1).
+  //     comprobante que su canónico). Los pendientes se cuentan por grupo (3
+  //     capturas de la misma transferencia = 1). El cierre masivo se separa
+  //     ANTES de mirar descartados: esas filas quedaron rejected y a veces sin
+  //     monto, y esDescartado las tomaría como descartes. Ver buildPaymentFunnel.
   const curPay = payRows.filter((r) => inRange(r.created_at, since));
   const prevPay = payRows.filter((r) => inRange(r.created_at, prevSince, since));
-  const counted = curPay.filter((r) => !esAgrupado(r) && !esCierreMasivo(r));
-  const pendingCount = groupPendingPayments(counted.filter((r) => r.status === "pending")).length;
-  let validated = 0;
-  let rejected = 0;
-  let descartados = 0;
-  for (const r of counted) {
-    if (r.status === "pending") continue;
-    else if (r.status === "validated") validated++;
-    else if (esDescartado(r)) descartados++;
-    else rejected++;
-  }
-  const funnel = {
-    received: pendingCount + validated + rejected + descartados,
-    pending: pendingCount,
-    validated,
-    rejected,
-    descartados,
-  };
+  const funnel = buildPaymentFunnel(curPay);
 
-  // --- KPI comprobantes recibidos (= recibidos − descartados del embudo).
+  // --- KPI comprobantes recibidos (= total "Recibidos" del embudo).
   const recibidosTs = comprobantesRecibidos(curPay);
   const prevRecibidosTs = comprobantesRecibidos(prevPay);
   const receivedSeries = countByDay(recibidosTs, keys);
 
-  // --- KPI tiempo medio de validación: validados (sin cierre masivo), por
-  //     día de validated_at.
+  // --- KPI tiempo medio de validación: validados (sin cierre masivo) con
+  //     validated_at en el período. Sin serie: la tarjeta no lleva sparkline.
   const tiempos = resolvedRows
     .filter((r) => r.status === "validated" && !esCierreMasivo(r))
     .map((r) => ({
@@ -419,19 +407,25 @@ export async function GET(req: NextRequest) {
   const prevTiempos = tiempos.filter((t) => inRange(t.at, prevSince, since));
   const avgMs = average(curTiempos.map((t) => t.ms));
 
-  // --- KPI tasa de automatización por mensajes.
+  // --- KPI tasa de automatización por mensajes. El número y el delta son del
+  //     período; la mini tendencia es semanal.
   const aiTs = msgRows.filter((r) => r.role === "assistant").map((r) => r.created_at);
   const equipoTs = msgRows.filter((r) => r.role === "human").map((r) => r.created_at);
+  const curMsgRows = msgRows.filter((r) => inRange(r.created_at, since));
   const automationTotal = automationRate(assistant, human);
   // El anterior solo es comparable si el registro del equipo ya lo cubría.
   const automationPrev = cubre(prevSince) ? automationRate(prevAssistant, prevHuman) : null;
 
-  const mensajesPorDia = countByDay(msgRows.map((r) => r.created_at), keys);
-  const equipoPorDia = countByDay(equipoTs, keys);
+  // countByDay ignora lo que cae fuera de `keys`, pero filtramos igual para
+  // que se lea que estas series son del período.
+  const mensajesPorDia = countByDay(curMsgRows.map((r) => r.created_at), keys);
+  const equipoPorDia = countByDay(
+    curMsgRows.filter((r) => r.role === "human").map((r) => r.created_at),
+    keys,
+  );
   const daily = keys.map((date, i) => ({
     date,
     mensajes: mensajesPorDia[i]!,
-    comprobantes: receivedSeries[i]!,
     equipo: equipoPorDia[i]!,
   }));
 
@@ -440,7 +434,7 @@ export async function GET(req: NextRequest) {
     since,
     kpis: {
       automation: {
-        ...buildKpi(automationTotal, automationPrev, keys, rateByDay(aiTs, equipoTs, keys, coberturaDesde)),
+        ...buildKpi(automationTotal, automationPrev, weeks, rateByWeek(aiTs, equipoTs, weeks, coberturaDesde)),
         ai: assistant,
         human,
         coberturaDesde: coberturaDesde ? new Date(coberturaDesde).toISOString() : null,
@@ -448,11 +442,12 @@ export async function GET(req: NextRequest) {
       },
       received: {
         ...buildKpi(recibidosTs.length, prevRecibidosTs.length, keys, receivedSeries),
-        pending: pendingCount,
-        descartados,
+        pending: funnel.pending,
+        descartados: funnel.descartados,
+        cierreMasivo: funnel.cierreMasivo,
       },
       validation: {
-        ...buildKpi(avgMs, average(prevTiempos.map((t) => t.ms)), keys, avgByDay(curTiempos, keys)),
+        ...buildKpi(avgMs, average(prevTiempos.map((t) => t.ms)), [], []),
         count: curTiempos.length,
       },
       backlog: buildKpi(pending.length, null, [], []),

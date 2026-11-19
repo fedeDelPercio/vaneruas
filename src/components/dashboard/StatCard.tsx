@@ -61,7 +61,7 @@ export function StatCard({
           invert={invert}
         />
       )}
-      {children && <div className={`mt-2 font-sans text-[12px] leading-relaxed ${muted}`}>{children}</div>}
+      {children && <div className={`mt-2 text-[12px] leading-relaxed ${muted}`}>{children}</div>}
     </div>
   );
 }

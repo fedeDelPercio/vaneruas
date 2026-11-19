@@ -12,11 +12,11 @@ const poppins = Poppins({
   variable: "--font-poppins",
   display: "swap",
 });
-// Plus Jakarta Sans: solo para las tarjetas de métricas (font-jakarta), igual
-// que el dashboard de Hábitat. El resto del panel sigue en Poppins.
+// Plus Jakarta Sans: toda la página de métricas (font-jakarta), igual que el
+// dashboard de Hábitat. El resto del panel sigue en Poppins.
 const plusJakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
-  weight: ["500", "600", "700"],
+  weight: ["400", "500", "600", "700"],
   display: "swap",
   variable: "--font-plus-jakarta",
 });
