@@ -13,14 +13,13 @@ import { groupPendingPayments } from "@/lib/payments/grouping";
 // una conversación necesita intervención si tiene notificaciones al equipo sin
 // resolver (`agent_notifications.resolved_at IS NULL`). Acá, con un ajuste:
 //
-//   - Cualquier categoría que no sea `validacion_pago` cuenta: derivaciones del
-//     agente, reclamos de certificado y las altas de Tiendup que no se pudieron
-//     hacer solas (escalado_manual de sistema).
-//   - `validacion_pago` cuenta solo si la conversación tiene un comprobante
-//     realmente pendiente de revisar (status pending, sin retención por
-//     título: esos esperan a la contacta, no al equipo). Hasta el 17/11/2026
-//     esas notificaciones no se resolvían nunca y quedaron cientos abiertas de
-//     pagos ya validados.
+//   - Cuenta toda categoría que no sea `validacion_pago`: derivaciones del
+//     agente, reclamos de certificado, las altas de Tiendup que no salieron
+//     solas y la contacta que escribió con la IA en pausa.
+//   - `validacion_pago` NO cuenta (19/11/2026): un comprobante por revisar es
+//     una aprobación y va en "Falta aprobar" (loadPendingApprovalConversationIds).
+//     Antes contaba si había un comprobante pendiente y el filtro "Derivadas"
+//     mezclaba aprobaciones con derivaciones reales.
 //
 // Con el cliente del panel RLS aísla por client_slug. Todo se trae paginado y
 // se cruza en memoria (nada de cientos de ids en un `.in()`).
@@ -33,54 +32,36 @@ export interface InterventionInfo {
   /** Notificaciones abiertas que no son `validacion_pago` (derivaciones,
    *  reclamos, altas de Tiendup que no salieron solas). */
   derivations: number;
-  /** Tiene una `validacion_pago` abierta con un comprobante pendiente. */
-  payment: boolean;
 }
 
 /**
- * Conversaciones que necesitan intervención → por qué. Las claves del Map son
- * el mismo conjunto de siempre (`.has()` / `.size` sirven como antes).
+ * Conversaciones con derivaciones reales abiertas → cuántas. Los comprobantes
+ * por revisar NO entran (van en "Falta aprobar"). Las claves del Map son el
+ * conjunto del filtro "Derivadas" (`.has()` / `.size`).
  * Filtra por `client_slug` explícito además de RLS.
  */
 export async function loadInterventionConversationIds(
   sb: Db,
   clientSlug: string,
 ): Promise<Map<string, InterventionInfo>> {
-  const [openNotifs, pendingPays] = await Promise.all([
-    fetchAllRows((from, to) =>
-      sb
-        .from("agent_notifications")
-        .select("id, conversation_id, category")
-        .eq("client_slug", clientSlug)
-        .is("resolved_at", null)
-        .order("created_at", { ascending: true })
-        .order("id", { ascending: true })
-        .range(from, to),
-    ),
-    fetchAllRows((from, to) =>
-      sb
-        .from("payment_validations")
-        .select("id, conversation_id")
-        .eq("client_slug", clientSlug)
-        .eq("status", "pending")
-        .eq("awaiting_title", false)
-        .not("conversation_id", "is", null)
-        .order("id", { ascending: true })
-        .range(from, to),
-    ),
-  ]);
-
-  const withPending = new Set(
-    pendingPays.map((p) => p.conversation_id).filter(Boolean) as string[],
+  const openNotifs = await fetchAllRows((from, to) =>
+    sb
+      .from("agent_notifications")
+      .select("id, conversation_id, category")
+      .eq("client_slug", clientSlug)
+      .is("resolved_at", null)
+      .neq("category", PAYMENT_NOTIFICATION_CATEGORY)
+      .not("conversation_id", "is", null)
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to),
   );
+
   const out = new Map<string, InterventionInfo>();
   for (const n of openNotifs) {
     if (!n.conversation_id) continue;
-    const isPayment = n.category === PAYMENT_NOTIFICATION_CATEGORY;
-    if (isPayment && !withPending.has(n.conversation_id)) continue;
-    const info = out.get(n.conversation_id) ?? { derivations: 0, payment: false };
-    if (isPayment) info.payment = true;
-    else info.derivations += 1;
+    const info = out.get(n.conversation_id) ?? { derivations: 0 };
+    info.derivations += 1;
     out.set(n.conversation_id, info);
   }
   return out;

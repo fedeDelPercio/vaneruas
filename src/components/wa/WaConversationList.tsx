@@ -12,7 +12,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { ConversationStatusPills, STATUS_ICON, STATUS_TONE, type StatusTone } from "../StatusPills";
+import { ConversationStatusPills, STATUS_ICON, type StatusTone } from "../StatusPills";
 import { clientEnv } from "@/lib/env";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { formatPhone } from "@/lib/search";
@@ -66,9 +66,10 @@ const FILTERS: {
   tone?: StatusTone;
 }[] = [
   { key: "all", label: "Todas", title: "Todas las conversaciones", Icon: Inbox },
-  // Conversaciones con notificaciones al equipo sin resolver (derivaciones,
-  // reclamos, altas de Tiendup pendientes, comprobantes sin revisar, la
-  // contacta que escribió con la IA en pausa). Mismo criterio que
+  // Conversaciones con derivaciones reales sin resolver (derivaciones del
+  // agente, reclamos, altas de Tiendup pendientes, la contacta que escribió
+  // con la IA en pausa). Los comprobantes por revisar NO: van en "Falta
+  // aprobar". Mismo criterio que
   // src/lib/interventions.ts. Botón con la mano, como "Pendientes" de Hábitat.
   {
     key: "intervencion",
@@ -558,15 +559,6 @@ export function WaConversationList({
                             {prefix && <span className="text-neutral-400 dark:text-neutral-500">{prefix}</span>}
                             {text}
                           </span>
-                          {c.needsTeam && !c.status.derivations && (
-                            // Intervención solo por un comprobante a revisar:
-                            // el pill "Aprobación" ya lo dice; la mano (la del
-                            // filtro "Derivadas") queda para que se vea que
-                            // es del equipo.
-                            <span title="Necesita intervención del equipo" className={`shrink-0 ${STATUS_TONE.derived.icon}`}>
-                              <Hand className="h-3 w-3" strokeWidth={2} />
-                            </span>
-                          )}
                           {waiting && !c.needsTeam && (
                             <span
                               title="El último mensaje es de la clienta"
