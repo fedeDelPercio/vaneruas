@@ -20,6 +20,7 @@ import {
 // `server-only` y no se puede importar desde un script.
 import { NOTIFY_TEAM_TOOL_SCHEMA } from "../src/lib/agent/tools/notify_team";
 import { sanitizeStyle } from "../src/lib/agent/sanitize";
+import { emailContextLine } from "../src/lib/payments/email-ask";
 import type { MessageCreateParamsNonStreaming } from "@anthropic-ai/sdk/resources/messages";
 
 const sb = createClient(
@@ -38,6 +39,10 @@ interface Caso {
   n: string;
   m: string;
   espera: string;
+  /** Mensajes previos de la conversación (opcional). */
+  historia?: { role: "user" | "assistant"; content: string }[];
+  /** Bloque "Pagos de esta conversación" que arma run.ts (opcional). */
+  pagos?: string;
   /** Aserciones opcionales (se imprimen como ok / FALLA, no cortan la corrida). */
   check?: {
     /** Categoría de notify_team esperada, o false si NO tiene que derivar. */
@@ -53,6 +58,9 @@ interface Caso {
 const OFRECE_CAMBIO = /(cambi|modific|actualiz|correg)\w*\s+(el|tu|de)?\s*(correo|mail)/i;
 const CONSULTA_EQUIPO = /(pregunt|consult|confirm|chequ|verific)\w*\s+(\w+\s+){0,3}(al|con el)\s+equipo|a\s+cu[aá]l\s+de\s+los\s+dos/i;
 const AL_DE_LA_WEB = /(web|p[aá]gina)/i;
+
+// Pedir de nuevo el correo.
+const PIDE_CORREO = /(pas[aá]s|mand[aá]s|compart\w*|dej[aá]s|envi[aá]s|necesit\w*|indic[aá]s|confirm[aá]s)\s+(\w+\s+){0,4}(correo|mail)/i;
 
 const CASOS: Caso[] = [
   { n: "Precio", m: "Hola! Cuanto sale la masterclass de peelings de verano?", espera: "$110.000 transferencia / $150.000 en 3 cuotas / USD 90 PayPal" },
@@ -81,6 +89,33 @@ const CASOS: Caso[] = [
     m: "quiero cambiar el correo del acceso a lucia.prueba@gmail.com",
     espera: "Deriva escalado_manual (Pide cambiar el correo de acceso: lucia.prueba@gmail.com)",
     check: { deriva: "escalado_manual" },
+  },
+  {
+    n: "Correo junto al comprobante, despues pregunta que mas necesitan",
+    historia: [
+      {
+        role: "user",
+        content: "[Imagen: comprobante de transferencia] Hola! te mando el comprobante de peelings de verano. Sofia Lioni sofi.prueba@gmail.com",
+      },
+      { role: "assistant", content: "Hola Sofi! Gracias, ya lo recibimos 🙌 El equipo lo valida y te confirmamos por acá" },
+    ],
+    m: "dale gracias! que mas necesitan de mi?",
+    pagos: emailContextLine("ya_tenemos"),
+    espera: "No necesita nada mas: el equipo valida el pago y el acceso le llega al correo. NO le pide el correo de nuevo",
+    check: { deriva: false, noDebe: [PIDE_CORREO] },
+  },
+  {
+    n: "Correo con espacios, pago verificado",
+    historia: [
+      { role: "user", content: "hola, mi correo para el acceso es lucia.prueba @ gmail . com" },
+      { role: "assistant", content: "Buenísimo Lucía, queda registrado para enviarte el acceso 🙌" },
+    ],
+    m: "ya me aprobaron el pago? que sigue ahora?",
+    // Peor caso: el código no reconoció el correo y la línea dice "SÍ"; la
+    // regla del prompt tiene que frenar el pedido igual.
+    pagos: emailContextLine("pedir"),
+    espera: "No vuelve a pedir el correo (ya lo dio con espacios). Le dice que el acceso le llega al correo",
+    check: { deriva: false, noDebe: [PIDE_CORREO] },
   },
 ];
 
@@ -149,10 +184,12 @@ async function main() {
         },
         {
           type: "text",
-          text: `=== Contexto de horario ===\nAhora es ${AHORA} (hora de Argentina).\n\n=== Estado del contacto ===\nEsta persona YA ES CLIENTA (ya pagó o acreditó su título).`,
+          text:
+            `=== Contexto de horario ===\nAhora es ${AHORA} (hora de Argentina).\n\n=== Estado del contacto ===\nEsta persona YA ES CLIENTA (ya pagó o acreditó su título).` +
+            (c.pagos ? `\n\n=== Pagos de esta conversación ===\n${c.pagos}` : ""),
         },
       ],
-      messages: [{ role: "user", content: c.m }],
+      messages: [...(c.historia ?? []), { role: "user", content: c.m }],
       tools: [NOTIFY_TEAM_TOOL_SCHEMA],
     };
     const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {

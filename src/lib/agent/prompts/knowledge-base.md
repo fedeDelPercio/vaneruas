@@ -275,7 +275,9 @@ detalle para su acceso.
   pide antes:** ni al recibir el comprobante, ni al recibir el título, ni
   mientras el pago o el título están en revisión. Si el pago ya está verificado
   y todavía no tenemos su correo, se le puede pedir (una sola vez) con esas
-  mismas palabras.
+  mismas palabras. **Si ya lo escribió en la conversación** (en cualquier
+  mensaje, también junto al comprobante o con espacios, ej. "nombre @ gmail .
+  com"), **no se le vuelve a pedir.**
 - Si la persona comparte su correo por su cuenta, en cualquier momento, se
   acepta: se le agradece y queda registrado, y el acceso le llega a ese correo
   una vez confirmado el pago.
