@@ -1,6 +1,6 @@
 // Tests sin red del estado en vivo de Tiendup (bloque de la ficha).
 //   npx tsx scripts/test-tiendup-status.ts
-import { decideTiendupStatus, maskEmail, paymentsWithEnrollAttempt } from "../src/lib/tiendup/status";
+import { decideTiendupStatus, maskEmail, paymentsWithEnrollAttempt, tiendupEditorMode } from "../src/lib/tiendup/status";
 import { notInTiendupError } from "../src/lib/tiendup/messages";
 
 let fail = 0;
@@ -98,7 +98,7 @@ check(
 );
 check(
   decideTiendupStatus({ listing: full, email: "otra@gmail.com", fullName: "Ana Ruiz", lastError: "Tiendup 500: boom" }),
-  { state: "error", error: "Tiendup 500: boom" },
+  { state: "error", error: "Tiendup no respondió (500 boom)" },
   "no figura y el último intento falló",
 );
 check(
@@ -169,6 +169,23 @@ check(
   0,
   "sin intentos",
 );
+
+// Campo de mail del bloque: destacado / colapsado / normal.
+{
+  const m = (accessState: Parameters<typeof tiendupEditorMode>[0]["accessState"], savedEmail: string | null = "a@gmail.com", mailState: Parameters<typeof tiendupEditorMode>[0]["mailState"] = "has_courses") =>
+    tiendupEditorMode({ accessState, savedEmail, mailState });
+  for (const st of ["error", "not_found", "pending", "granted_missing", "other_email", "unavailable"] as const) {
+    check(m(st), "highlight", `editor destacado con ${st}`);
+  }
+  check(m("enrolled"), "collapsed", "acceso enviado (enrolled) → colapsado");
+  check(m("granted"), "collapsed", "acceso enviado (granted) → colapsado");
+  check(m("enrolled", null, "no_email"), "collapsed", "enviado gana aunque no haya mail guardado");
+  check(m("awaiting_approval"), "normal", "falta aprobar → normal");
+  check(m("no_mapping"), "normal", "sin curso → normal");
+  check(m(null), "normal", "sin inscripción actual → normal");
+  check(m("awaiting_approval", null, "no_email"), "highlight", "sin mail guardado → destacado");
+  check(m(null, "  "), "highlight", "mail vacío → destacado");
+}
 
 if (fail) {
   console.error(`\n${fail} fallaron`);

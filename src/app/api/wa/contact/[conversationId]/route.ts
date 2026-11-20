@@ -8,7 +8,6 @@ import {
 } from "@/lib/payments/event-match";
 import { canonicoDeAgrupado, esAgrupado, esDescartado } from "@/lib/payments/dismiss";
 import { groupPendingPayments } from "@/lib/payments/grouping";
-import { normalizeContactEmail } from "@/lib/contact-email";
 import { displayCourseAccessError } from "@/lib/tiendup/messages";
 
 export const dynamic = "force-dynamic";
@@ -127,8 +126,8 @@ export interface ContactFicha {
   certificados: ContactNotification[];
   derivaciones: ContactNotification[];
   /**
-   * Corresponde mostrar el bloque "Tiendup" en vivo: correo con formato
-   * válido y algún comprobante pendiente o aprobado (ver
+   * Corresponde mostrar el bloque "Tiendup" en vivo: algún comprobante
+   * pendiente o aprobado, con o sin correo guardado (ver
    * src/lib/tiendup/status.ts). El estado se pide aparte, a
    * /api/wa/tiendup-status/[id], solo al abrir la ficha.
    */
@@ -440,12 +439,11 @@ export async function GET(
     createdAt: n.created_at,
     resolvedAt: n.resolved_at,
   });
-  // Bloque Tiendup: con mail válido y alguna inscripción (comprobante
-  // pendiente o aprobado). El estado distingue el mail del acceso al curso
-  // del evento actual (status-server.ts).
-  const tiendupCheck =
-    Boolean(normalizeContactEmail(email)) &&
-    rawPayments.some((p) => p.status === "validated" || p.status === "pending");
+  // Bloque Tiendup: con alguna inscripción (comprobante pendiente o aprobado),
+  // tenga o no correo: sin correo es justo cuando el equipo lo carga a mano
+  // desde el bloque. El estado distingue el mail del acceso al curso del
+  // evento actual (status-server.ts).
+  const tiendupCheck = rawPayments.some((p) => p.status === "validated" || p.status === "pending");
   const ficha: ContactFicha = {
     conversation: {
       id: conv.id,

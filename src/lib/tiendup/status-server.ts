@@ -13,12 +13,13 @@ import {
   tiendupMappedCourses,
   type CustomersListing,
 } from "./client";
-import { isNotInTiendupError } from "./messages";
+import { isNotInTiendupError, tidyTiendupError } from "./messages";
 import type { TiendupEnrolled } from "./match";
 import {
   decideCurrentAccess,
   decideMailStatus,
   decideTiendupStatus,
+  pickEnrollablePayment,
   type TiendupAccessStatus,
   type TiendupCourseStatus,
   type TiendupStatusResponse,
@@ -47,6 +48,18 @@ const TTL_OK_MS = 5 * 60_000;
 const TTL_FAIL_MS = 60_000;
 const cache = new Map<number, { at: number; value: Listing }>();
 const inflight = new Map<number, Promise<Listing>>();
+// Sube con cada invalidación: una lectura que arrancó antes no pisa el cache.
+const generation = new Map<number, number>();
+
+/**
+ * Descarta el listado cacheado de un curso (tras un alta desde el panel, para
+ * que la ficha muestre el estado nuevo y no el de hace 5 min).
+ */
+export function invalidateEnrolledListing(courseId: number): void {
+  cache.delete(courseId);
+  inflight.delete(courseId);
+  generation.set(courseId, (generation.get(courseId) ?? 0) + 1);
+}
 
 /**
  * Listado de inscriptos de un curso, con cache. null si no hay
@@ -58,12 +71,15 @@ export async function getEnrolledListing(courseId: number): Promise<Listing | nu
   if (hit && Date.now() - hit.at < (hit.value.complete ? TTL_OK_MS : TTL_FAIL_MS)) return hit.value;
   const running = inflight.get(courseId);
   if (running) return running;
+  const gen = generation.get(courseId) ?? 0;
   const p = listEnrolledChecked(courseId)
     .then((value) => {
-      cache.set(courseId, { at: Date.now(), value });
+      if ((generation.get(courseId) ?? 0) === gen) cache.set(courseId, { at: Date.now(), value });
       return value;
     })
-    .finally(() => inflight.delete(courseId));
+    .finally(() => {
+      if (inflight.get(courseId) === p) inflight.delete(courseId);
+    });
   inflight.set(courseId, p);
   return p;
 }
@@ -75,8 +91,9 @@ export async function getEnrolledListing(courseId: number): Promise<Listing | nu
  *   2. `current`: el acceso a la inscripción ACTUAL (último comprobante no
  *      rechazado) contra el curso mapeado a SU evento. Figurar en otro curso
  *      NO cuenta como acceso a este.
- * `show: false` si no tiene correo con formato válido o ningún comprobante
- * pendiente/aprobado. null = la conversación no existe (para este cliente).
+ * `show: false` si no tiene ningún comprobante pendiente/aprobado. Sin correo
+ * válido se muestra igual, con el mail en `no_email` (el equipo lo puede
+ * cargar desde la ficha). null = la conversación no existe (para este cliente).
  */
 export async function loadTiendupStatus(
   sb: Db,
@@ -92,7 +109,7 @@ export async function loadTiendupStatus(
       .maybeSingle(),
     sb
       .from("payment_validations")
-      .select("id, event_slug, status, course_access_granted_at, course_access_error, updated_at, created_at")
+      .select("id, event_slug, status, validation_note, course_access_granted_at, course_access_error, updated_at, created_at")
       .eq("conversation_id", conversationId)
       .eq("client_slug", clientSlug)
       .in("status", ["validated", "pending"])
@@ -105,9 +122,8 @@ export async function loadTiendupStatus(
 
   const valid = normalizeContactEmail(conv.contact_email);
   const payments = payRes.data ?? [];
-  if (!valid || !payments.length) return { show: false, courses: [] };
-  // Mismo correo que usa el alta (grant.ts): con el typo de dominio corregido.
-  const email = fixDominioDeCorreo(valid).email;
+  if (!payments.length) return { show: false, courses: [] };
+  const canEnroll = Boolean(pickEnrollablePayment(payments, (slug) => tiendupCourseIdForEvent(slug) !== null));
 
   // Inscripción actual: el comprobante aprobado más nuevo; si no hay, el
   // pendiente más nuevo.
@@ -115,6 +131,39 @@ export async function loadTiendupStatus(
   const currentCourseId = tiendupCourseIdForEvent(current.event_slug);
   const currentError = current.course_access_granted_at ? null : current.course_access_error?.trim() || null;
   const notInMarker = isNotInTiendupError(currentError);
+  const currentBase = {
+    eventSlug: current.event_slug,
+    eventTitle: eventBySlug(current.event_slug)?.label ?? current.event_slug ?? "evento sin identificar",
+    courseId: currentCourseId,
+  };
+
+  // Sin correo válido: el bloque se muestra igual (es justo el caso en que el
+  // equipo carga el correo a mano desde la ficha). No se consulta Tiendup: la
+  // línea del acceso sale de lo guardado en el comprobante.
+  if (!valid) {
+    const access = decideCurrentAccess({
+      paymentStatus: current.status,
+      granted: Boolean(current.course_access_granted_at),
+      courseId: currentCourseId,
+      courseState: currentCourseId
+        ? currentError && !notInMarker
+          ? { state: "error", error: tidyTiendupError(currentError) }
+          : { state: "unavailable" }
+        : null,
+      // Sin listado: "granted" (no "granted_missing") si ya tenía el alta, y
+      // "pending" (no "unavailable") si está aprobado sin alta.
+      listingComplete: !current.course_access_granted_at,
+    });
+    return {
+      show: true,
+      canEnroll,
+      mail: { state: "no_email", courses: [] },
+      current: { ...currentBase, ...access },
+      courses: [],
+    };
+  }
+  // Mismo correo que usa el alta (grant.ts): con el typo de dominio corregido.
+  const email = fixDominioDeCorreo(valid).email;
 
   let customersP: Promise<CustomersListing | null> | null = null;
   const getCustomers = () =>
@@ -177,12 +226,7 @@ export async function loadTiendupStatus(
     courseState,
     listingComplete: Boolean(currentListing?.complete),
   });
-  const currentStatus: TiendupAccessStatus = {
-    eventSlug: current.event_slug,
-    eventTitle: eventBySlug(current.event_slug)?.label ?? current.event_slug ?? "evento sin identificar",
-    courseId: currentCourseId,
-    ...access,
-  };
+  const currentStatus: TiendupAccessStatus = { ...currentBase, ...access };
 
   const courses: TiendupCourseStatus[] = perCourse.map((c) => ({
     courseId: c.courseId,
@@ -190,5 +234,5 @@ export async function loadTiendupStatus(
     state: c.state,
     otherEmailMasked: c.otherEmailMasked ?? null,
   }));
-  return { show: true, mail, current: currentStatus, courses };
+  return { show: true, canEnroll, mail, current: currentStatus, courses };
 }

@@ -203,30 +203,26 @@ async function run() {
     { action: "block", reason: "customer_check_failed" },
     "auto: sin listado → no inscribe",
   );
-  check(
-    decideCustomerGate({ mode: "auto", force: true, confirmNewCustomer: true, listing: shop, email: "otra@gmail.com" }),
-    { action: "block", reason: "not_in_tiendup" },
-    "auto: force/confirm se ignoran",
-  );
+  // Manual (botones del equipo): nunca pide confirmación ni bloquea.
   check(
     decideCustomerGate({ mode: "manual", listing: shop, email: "otra@gmail.com" }),
-    { action: "confirm", reason: "not_in_tiendup" },
-    "manual: no existe → pide confirmación",
+    { action: "enroll" },
+    "manual: no existe → inscribe directo (Tiendup crea el cliente)",
   );
   check(
     decideCustomerGate({ mode: "manual", listing: shopCut, email: "otra@gmail.com" }),
-    { action: "confirm", reason: "customer_check_failed" },
-    "manual: no se pudo verificar → pide confirmación",
+    { action: "enroll" },
+    "manual: no se pudo verificar → inscribe directo",
   );
   check(
-    decideCustomerGate({ mode: "manual", confirmNewCustomer: true, listing: null, email: "otra@gmail.com" }),
+    decideCustomerGate({ mode: "manual", listing: null, email: "otra@gmail.com" }),
     { action: "enroll" },
-    "manual con confirmNewCustomer → inscribe igual",
+    "manual: sin listado → inscribe directo",
   );
   check(
     decideCustomerGate({ mode: "manual", listing: shop, email: "Maria.Perez@gmail.com" }),
     { action: "enroll" },
-    "manual: existe → inscribe sin preguntar",
+    "manual: existe → inscribe",
   );
 
   // --- Decisión completa (inscriptos + clientes) ---
@@ -263,27 +259,37 @@ async function run() {
     { action: "block", reason: "customer_check_failed" },
     "auto: clientes incompletos → no inscribe",
   );
+  // Manual: "manual nunca pide confirmación". Para cualquier combinación de
+  // listado de clientes (completo / cortado / caído) y de match contra el
+  // curso, la decisión es inscribir o (si ya figura con el correo) marcar.
+  // Nunca name_conflict, block ni otra acción, y no lee clientes.
+  {
+    const listings = [shop, shopCut, { complete: true, customers: [] }, null];
+    const casos: { email: string; fullName: string | null; esperado: string }[] = [
+      { email: "nueva@gmail.com", fullName: null, esperado: "enroll" },
+      { email: "nueva@gmail.com", fullName: "Nueva Persona", esperado: "enroll" },
+      { email: "lu@gmail.com", fullName: "Lucía Fernández", esperado: "enroll" }, // mismo nombre, otro correo
+      { email: "maria.perez@gmail.com", fullName: "Maria Perez", esperado: "enroll" }, // cliente, no inscripta
+      { email: "lucifer@hotmail.com", fullName: "Lucía Fernández", esperado: "already_enrolled" },
+    ];
+    let malos = 0;
+    customerLoads = 0;
+    for (const l of listings) {
+      for (const c of casos) {
+        const d = await decideGrantAction({ mode: "manual", enrolled, ...c, loadCustomers: load(l) });
+        if (d.action !== c.esperado) {
+          malos++;
+          console.error(`  manual ${c.email} / ${c.fullName} / ${l ? (l.complete ? "completo" : "cortado") : "sin listado"} → ${d.action}`);
+        }
+      }
+    }
+    check(malos, 0, "manual nunca pide confirmación ni bloquea (20 combinaciones)");
+    check(customerLoads, 0, "manual: no lee el listado de clientes");
+  }
   check(
-    await decideGrantAction({ mode: "manual", enrolled, email: "nueva@gmail.com", fullName: null, loadCustomers: load(shop) }),
-    { action: "confirm", reason: "not_in_tiendup" },
-    "manual: ni inscripta ni cliente → confirmación",
-  );
-  customerLoads = 0;
-  check(
-    await decideGrantAction({ mode: "manual", force: true, enrolled, email: "lu@gmail.com", fullName: "Lucía Fernández", loadCustomers: load(shop) }),
-    { action: "enroll" },
-    "manual con force (conflicto aceptado) → inscribe sin volver a preguntar",
-  );
-  check(customerLoads, 0, "force: no lee clientes");
-  check(
-    await decideGrantAction({ mode: "manual", confirmNewCustomer: true, enrolled, email: "nueva@gmail.com", fullName: null, loadCustomers: load(shop) }),
-    { action: "enroll" },
-    "manual con confirmNewCustomer → inscribe",
-  );
-  check(
-    (await decideGrantAction({ mode: "manual", confirmNewCustomer: true, enrolled, email: "lu@gmail.com", fullName: "Lucía Fernández", loadCustomers: load(shop) })).action,
+    (await decideGrantAction({ mode: "auto", enrolled, email: "lu@gmail.com", fullName: "Lucía Fernández", loadCustomers: load(shop) })).action,
     "name_conflict",
-    "confirmNewCustomer no saltea el chequeo de otro correo",
+    "auto: el conflicto de nombre sigue frenando",
   );
 
   // --- Marcador para la ficha ---
@@ -291,7 +297,8 @@ async function run() {
   check(isNotInTiendupError(notInTiendupError()), true, "reconoce el marcador");
   check(isNotInTiendupError("Tiendup 500: NOT_IN_TIENDUP"), false, "solo como prefijo");
   check(displayCourseAccessError(notInTiendupError()), "El mail no figura en Tiendup", "se muestra sin prefijo");
-  check(displayCourseAccessError("Tiendup 500: boom"), "Tiendup 500: boom", "otros errores tal cual");
+  check(displayCourseAccessError("Tiendup 500: boom"), "Tiendup no respondió (500 boom)", "5xx: legible");
+  check(displayCourseAccessError("Tiendup 422: email inválido"), "Tiendup 422: email inválido", "4xx de validación tal cual");
   check(displayCourseAccessError("  "), null, "vacío → null");
 }
 

@@ -17,7 +17,7 @@ import {
   findCustomerByEmail,
   type CustomersListing,
 } from "./client";
-import { decideGrantAction, type CustomerGateReason } from "./customer-gate";
+import { decideGrantAction } from "./customer-gate";
 import {
   ACCESS_NOTICE_FAILED_SUMMARY,
   TIENDUP_ACCESS_MESSAGE,
@@ -30,22 +30,23 @@ import {
 // ===========================================================================
 // Alta en Tiendup de un comprobante validado.
 //
-// Es la lógica del botón "Dar acceso al curso" de Aprobaciones, compartida con
-// el alta automática (auto-enroll.ts). Antes de inscribir chequea el listado
-// real de inscriptos del curso:
-//   - match por correo → ya tiene acceso: solo se marca.
-//   - match por NOMBRE con otro correo → no inscribe (inscribir con el nuestro
-//     crea un cliente nuevo en Tiendup y la persona real queda sin acceso). El
-//     equipo puede forzarlo desde el botón; el alta automática nunca fuerza.
-//   - sin match → antes de inscribir, chequea que el correo exista como
-//     CLIENTE de la tienda (GET /customers): el enroll crea el cliente si no
-//     existe y eso es justo lo que no queremos con un correo mal capturado.
-//     Ver customer-gate.ts: el automático se frena (`not_in_tiendup` /
-//     `customer_check_failed`); el botón pide confirmación explícita
-//     (`needs_new_customer_confirm`) y con `confirmNewCustomer` inscribe igual.
+// Es la lógica del botón "Dar acceso al curso" de Aprobaciones y del botón
+// "Enviar a Tiendup" de la ficha, compartida con el alta automática
+// (auto-enroll.ts). Antes de inscribir chequea el listado real de inscriptos
+// del curso: si ya figura con este correo, solo se marca.
 //
-// Diferencias del modo automático (más conservador que el botón, porque nadie
-// mira el caso antes):
+// Manual (pedido del equipo): inscribe DIRECTO, sin confirmación previa. No
+// mira si la persona figura por nombre con otro correo ni si el correo es
+// cliente de la tienda: si no lo es, Tiendup crea el cliente.
+//
+// Automático (auto-enroll.ts, nadie mira el caso):
+//   - match por NOMBRE con otro correo → no inscribe (`name_conflict`);
+//   - sin match → chequea que el correo exista como CLIENTE de la tienda
+//     (GET /customers, customer-gate.ts): si no existe, o no se pudo verificar,
+//     no inscribe (`not_in_tiendup` / `customer_check_failed`) y queda la
+//     notificación "Alta en Tiendup pendiente".
+//
+// Además, el automático:
 //   - exige un correo con formato válido (normalizeContactEmail);
 //   - si el listado de inscriptos no se pudo leer completo, no inscribe.
 // ===========================================================================
@@ -72,9 +73,7 @@ export type GrantOutcome =
   /** Auto: el correo no existe como cliente de la tienda. No se inscribió. */
   | { kind: "not_in_tiendup"; email: string }
   /** Auto: no se pudo leer completo el listado de clientes. No se inscribió. */
-  | { kind: "customer_check_failed"; email: string }
-  /** Manual: no existe (o no se pudo verificar); el equipo tiene que confirmar. */
-  | { kind: "needs_new_customer_confirm"; email: string; reason: CustomerGateReason };
+  | { kind: "customer_check_failed"; email: string };
 
 // Si el correo no aparece en un listado de clientes cacheado de más de 1 min,
 // se relee una vez: quien se registró recién en la web no tiene que quedar
@@ -107,17 +106,25 @@ export function grantSucceeded(o: GrantOutcome): boolean {
 /**
  * Intenta dar el acceso al curso de un comprobante. No lanza: los errores de
  * Tiendup vuelven como `enroll_failed`. Si sale bien, marca el comprobante,
- * resuelve la notificación de alta pendiente y le avisa a la persona por
- * WhatsApp (una vez por curso).
+ * resuelve la notificación de alta pendiente y (salvo `notify: false`) le
+ * avisa a la persona por WhatsApp (una vez por curso).
  */
 export async function grantCourseAccess(
   paymentId: string,
-  opts: { mode: GrantMode; force?: boolean; confirmNewCustomer?: boolean; sb?: Db },
+  opts: {
+    /** manual = inscribe directo (sin confirmaciones); auto = conservador. */
+    mode: GrantMode;
+    /**
+     * false = no avisar a la persona por WhatsApp cuando el acceso queda dado
+     * (la notificación de alta pendiente se resuelve igual). Default true.
+     */
+    notify?: boolean;
+    sb?: Db;
+  },
 ): Promise<GrantResult> {
   const sb = opts.sb ?? getSupabaseServerClient();
   const auto = opts.mode === "auto";
-  const force = !auto && opts.force === true;
-  const confirmNewCustomer = !auto && opts.confirmNewCustomer === true;
+  const notify = opts.notify !== false;
 
   const { data: pay } = await sb
     .from("payment_validations")
@@ -160,8 +167,6 @@ export async function grantCourseAccess(
   }
   const decision = await decideGrantAction({
     mode: opts.mode,
-    force,
-    confirmNewCustomer,
     enrolled,
     email,
     fullName,
@@ -195,11 +200,6 @@ export async function grantCourseAccess(
       return { outcome: { kind: "not_in_tiendup", email }, conversationId };
     }
     return { outcome: { kind: "customer_check_failed", email }, conversationId };
-  } else if (decision.action === "confirm") {
-    return {
-      outcome: { kind: "needs_new_customer_confirm", email, reason: decision.reason },
-      conversationId,
-    };
   } else {
     const { name, lastName } = splitFullName(fullName);
     const result = await enrollCourseByEmail({ courseId, email, name, lastName });
@@ -222,7 +222,7 @@ export async function grantCourseAccess(
 
   // Acceso efectivo: lo que sigue es best-effort y nunca cambia el resultado.
   if (conversationId) {
-    await afterAccessGranted(sb, { paymentId, conversationId, eventSlug: pay.event_slug });
+    await afterAccessGranted(sb, { paymentId, conversationId, eventSlug: pay.event_slug, notify });
   }
   return { outcome, conversationId };
 }
@@ -257,13 +257,14 @@ async function markGranted(sb: Db, paymentId: string): Promise<void> {
 
 async function afterAccessGranted(
   sb: Db,
-  args: { paymentId: string; conversationId: string; eventSlug: string | null },
+  args: { paymentId: string; conversationId: string; eventSlug: string | null; notify: boolean },
 ): Promise<void> {
   try {
     await resolveSystemNotification(sb, args.conversationId, enrollmentPendingReason(args.paymentId));
   } catch (err) {
     console.error("[tiendup] no se pudo resolver la notificación de alta pendiente:", err);
   }
+  if (!args.notify) return;
   try {
     await sendAccessNotice(sb, args);
   } catch (err) {

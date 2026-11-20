@@ -1,6 +1,7 @@
 // Tests sin red de las dos líneas del bloque Tiendup (mail vs. acceso a la
 // inscripción actual).  npx tsx scripts/test-tiendup-access.ts
-import { decideCurrentAccess, decideMailStatus } from "../src/lib/tiendup/status";
+import { decideCurrentAccess, decideMailStatus, pickEnrollablePayment } from "../src/lib/tiendup/status";
+import { manualEmailNote } from "../src/lib/tiendup/messages";
 
 let fail = 0;
 function check(got: unknown, expected: unknown, label: string) {
@@ -93,6 +94,48 @@ check(
   { state: "unavailable" },
   "curso sin listado: no se afirma",
 );
+// Sin mail guardado (status-server): la línea del acceso sale de lo guardado.
+check(
+  decideCurrentAccess({ paymentStatus: "validated", granted: false, courseId: 554178, courseState: { state: "unavailable" }, listingComplete: true }),
+  { state: "pending" },
+  "sin mail: aprobado sin alta → pendiente",
+);
+check(
+  decideCurrentAccess({ paymentStatus: "validated", granted: true, courseId: 554178, courseState: { state: "unavailable" }, listingComplete: false }),
+  { state: "granted" },
+  "sin mail: alta ya marcada → enviado",
+);
+check(
+  decideCurrentAccess({ paymentStatus: "pending", granted: false, courseId: 554178, courseState: { state: "unavailable" }, listingComplete: true }),
+  { state: "awaiting_approval" },
+  "sin mail: pago sin aprobar",
+);
+
+// Pago al que se da el alta desde la ficha.
+const mapped = (slug: string | null) => slug === "masterclass-peelings-verano" || slug === "masterclass-higiene-facial-dermaplaning";
+const pays = [
+  { id: "a", status: "validated", event_slug: "masterclass-higiene-facial-dermaplaning", created_at: "2026-10-01T10:00:00Z", validation_note: null },
+  { id: "b", status: "validated", event_slug: "masterclass-peelings-verano", created_at: "2026-11-18T10:00:00Z", validation_note: null },
+  { id: "c", status: "pending", event_slug: "masterclass-peelings-verano", created_at: "2026-11-19T10:00:00Z", validation_note: null },
+  { id: "d", status: "validated", event_slug: "congreso", created_at: "2026-11-20T10:00:00Z", validation_note: null },
+  { id: "e", status: "rejected", event_slug: "masterclass-peelings-verano", created_at: "2026-11-20T11:00:00Z", validation_note: "Agrupado con el comprobante b" },
+];
+check(pickEnrollablePayment(pays, mapped)?.id ?? null, "b", "el aprobado más reciente con curso mapeado");
+check(pickEnrollablePayment(pays.filter((p) => p.status !== "validated"), mapped), null, "sin aprobado → null");
+check(pickEnrollablePayment([pays[3]!], mapped), null, "aprobado sin curso mapeado → null");
+
+// Nota de sistema del mail corregido por el equipo.
+check(
+  manualEmailNote("Vane", null, "juana@gmail.com"),
+  "Mail corregido por el equipo (Vane): sin mail → juana@gmail.com",
+  "nota sin mail previo",
+);
+check(
+  manualEmailNote("Vane", "juana@gmial.com", "juana@gmail.com"),
+  "Mail corregido por el equipo (Vane): juana@gmial.com → juana@gmail.com",
+  "nota con mail previo",
+);
+
 if (fail) {
   console.error(`${fail} fallas`);
   process.exit(1);

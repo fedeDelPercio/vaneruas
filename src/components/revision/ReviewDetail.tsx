@@ -105,7 +105,7 @@ export function ReviewDetail({
     void loadFicha();
   }, [loadFicha, refreshKey]);
 
-  const tiendup = useTiendupStatus(
+  const { status: tiendup, refresh: refreshTiendup } = useTiendupStatus(
     ficha && ficha.conversation.id === convId ? convId : null,
     Boolean(ficha?.tiendupCheck),
   );
@@ -201,7 +201,22 @@ export function ReviewDetail({
           </Section>
 
           <Section title="Acceso a Tiendup" className={tiendupRed ? "order-1" : "order-2"}>
-            <TiendupLiveBlock fetchState={tiendup} email={null} />
+            <TiendupLiveBlock
+              fetchState={tiendup}
+              email={null}
+              editor={
+                convId
+                  ? {
+                      conversationId: convId,
+                      email: ficha.conversation.email,
+                      onChanged: () => {
+                        refreshTiendup();
+                        void loadFicha();
+                      },
+                    }
+                  : undefined
+              }
+            />
             <div className={`${tiendup.phase === "idle" || (tiendup.phase === "done" && !tiendup.data.show) ? "" : "mt-3 "}flex items-center gap-2 text-[12px] text-neutral-700 dark:text-neutral-200`}>
               <Mail className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={1.75} />
               {ficha.conversation.email ? (

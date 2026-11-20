@@ -410,7 +410,10 @@ export function ContactPanel({
   const [openFile, setOpenFile] = useState<{ file: ContactFile; intent?: FileReviewIntent } | null>(null);
   const openReview = useCallback<OpenFile>((file, intent) => setOpenFile({ file, intent }), []);
   // Estado de Tiendup en vivo: se pide una vez al abrir la ficha, si corresponde.
-  const tiendup = useTiendupStatus(ficha?.conversation.id === conversationId ? conversationId : null, Boolean(ficha?.tiendupCheck));
+  const { status: tiendup, refresh: refreshTiendup } = useTiendupStatus(
+    ficha?.conversation.id === conversationId ? conversationId : null,
+    Boolean(ficha?.tiendupCheck),
+  );
 
   const load = useCallback(async () => {
     try {
@@ -500,7 +503,18 @@ export function ContactPanel({
   const tiendupBlock =
     tiendup.phase === "idle" || (tiendup.phase === "done" && !tiendup.data.show) ? null : (
       <Section title="Acceso a Tiendup">
-        <TiendupLiveBlock fetchState={tiendup} email={c?.email ?? null} />
+        <TiendupLiveBlock
+          fetchState={tiendup}
+          email={c?.email ?? null}
+          editor={{
+            conversationId,
+            email: c?.email ?? null,
+            onChanged: () => {
+              refreshTiendup();
+              void load();
+            },
+          }}
+        />
       </Section>
     );
   const tiendupRed = tiendupHasRed(tiendup);

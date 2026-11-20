@@ -446,19 +446,9 @@ export function PaymentsList() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busyAccessId, setBusyAccessId] = useState<string | null>(null);
-  // Confirmación del acceso: el operador tiene que LEER el mail antes de dar el
-  // acceso (los mails capturados por WhatsApp a veces vienen mal).
-  const [confirmAccessId, setConfirmAccessId] = useState<string | null>(null);
   // Confirmación de "Ya tiene acceso" (marcar como resuelto sin inscribir en
   // Tiendup): para casos que el equipo ya dio de alta por afuera.
   const [confirmMarkId, setConfirmMarkId] = useState<string | null>(null);
-  // Aviso de Tiendup: "ya parece inscripta con otro mail" (id → texto). Si está,
-  // la próxima confirmación va con force.
-  const [accessWarn, setAccessWarn] = useState<Record<string, string>>({});
-  // Aviso de Tiendup: "el correo no figura como cliente" (o no se pudo
-  // verificar). Si está, la próxima confirmación va con confirmNewCustomer:
-  // el equipo acepta que Tiendup cree un cliente nuevo.
-  const [accessNewCustomer, setAccessNewCustomer] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
   const [busyTitleId, setBusyTitleId] = useState<string | null>(null);
   const [confirmForceId, setConfirmForceId] = useState<string | null>(null);
@@ -567,48 +557,26 @@ export function PaymentsList() {
   }
 
   /**
-   * Da acceso al curso (Tiendup) para un pago de masterclass validado. SIEMPRE
-   * manual y con confirmación. Si Tiendup detecta que la persona ya está
-   * inscripta con OTRO mail, devuelve 409 y mostramos el aviso: recién ahí el
-   * equipo puede forzar (force=true) si verificó que el mail está bien.
+   * Da acceso al curso (Tiendup) para un pago de masterclass validado. Manual y
+   * directo, sin confirmación previa: el server inscribe aunque el correo no
+   * figure como cliente (Tiendup lo crea) o la persona figure con otro correo.
+   * Si queda dado, el server le avisa a la persona por WhatsApp.
    */
-  async function grantAccess(
-    id: string,
-    opts: { force?: boolean; confirmNewCustomer?: boolean } = {},
-  ) {
+  async function grantAccess(id: string) {
     setBusyAccessId(id);
     try {
       const r = await fetch(`/api/payments/${id}/grant-access`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          force: Boolean(opts.force),
-          confirmNewCustomer: Boolean(opts.confirmNewCustomer),
-        }),
+        body: JSON.stringify({}),
       });
       const j = await r.json().catch(() => ({}));
-
-      if (r.status === 409 && j.needsConfirm) {
-        // El correo no figura como cliente en Tiendup: inscribir crearía un
-        // cliente nuevo. Dejamos el confirm abierto con el aviso explícito.
-        setAccessNewCustomer((w) => ({ ...w, [id]: j.error as string }));
-        return;
-      }
-
-      if (r.status === 409 && j.warning) {
-        // Ya parece inscripta con otro mail: dejamos el aviso y el confirm abierto
-        // en modo "forzar".
-        setAccessWarn((w) => ({ ...w, [id]: j.error as string }));
-        setNotice(j.error as string);
-        return;
-      }
       if (!r.ok || !j.ok) {
         setNotice(
           j.error
             ? `No se pudo dar el acceso al curso: ${j.error}`
             : "No se pudo dar el acceso al curso",
         );
-        setConfirmAccessId(null);
         return;
       }
       setNotice(
@@ -616,29 +584,12 @@ export function PaymentsList() {
           ? `Ya estaba inscripta en el curso (${j.email}), quedó marcado en el panel`
           : `Acceso al curso dado a ${j.email ?? "el contacto"} ✨`,
       );
-      setConfirmAccessId(null);
-      clearAccessWarnings(id);
       await load(filterRef.current, searchRef.current);
     } catch {
       setNotice("Error de red al dar el acceso al curso");
     } finally {
       setBusyAccessId(null);
     }
-  }
-
-  function clearAccessWarnings(id: string) {
-    const drop = (w: Record<string, string>) => {
-      const next = { ...w };
-      delete next[id];
-      return next;
-    };
-    setAccessWarn(drop);
-    setAccessNewCustomer(drop);
-  }
-
-  function cancelAccess(id: string) {
-    setConfirmAccessId(null);
-    clearAccessWarnings(id);
   }
 
   /**
@@ -1407,66 +1358,6 @@ export function PaymentsList() {
                             <KeyRound className="h-3.5 w-3.5" strokeWidth={1.75} />
                             Acceso al curso dado
                           </span>
-                        ) : confirmAccessId === p.id ? (
-                          <>
-                            {/* El operador tiene que LEER el mail antes de confirmar. */}
-                            <span className="mr-auto flex items-center gap-1.5 text-[12px] text-neutral-600 dark:text-neutral-300">
-                              {accessNewCustomer[p.id] ? (
-                                <>
-                                  <AlertTriangle
-                                    className="h-3.5 w-3.5 shrink-0 text-red-600"
-                                    strokeWidth={1.75}
-                                  />
-                                  <span>
-                                    {accessNewCustomer[p.id]}{" "}
-                                    <span className="font-mono text-[12px] text-neutral-900 dark:text-neutral-100">
-                                      ({p.contactEmail})
-                                    </span>
-                                  </span>
-                                </>
-                              ) : accessWarn[p.id] ? (
-                                <>
-                                  <AlertTriangle
-                                    className="h-3.5 w-3.5 shrink-0 text-warn"
-                                    strokeWidth={1.75}
-                                  />
-                                  Ya parece tener acceso con otro correo. Dar acceso igual?
-                                </>
-                              ) : (
-                                <>
-                                  Dar acceso a{" "}
-                                  <span className="font-mono text-[12px] text-neutral-900 dark:text-neutral-100">
-                                    {p.contactEmail}
-                                  </span>
-                                  ?
-                                </>
-                              )}
-                            </span>
-                            <button
-                              onClick={() => cancelAccess(p.id)}
-                              disabled={accessBusy}
-                              className="rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                            >
-                              Cancelar
-                            </button>
-                            <button
-                              onClick={() =>
-                                void grantAccess(p.id, {
-                                  force: Boolean(accessWarn[p.id]),
-                                  confirmNewCustomer: Boolean(accessNewCustomer[p.id]),
-                                })
-                              }
-                              disabled={accessBusy}
-                              className="flex items-center gap-1.5 btn-gold"
-                            >
-                              {accessBusy ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
-                              ) : (
-                                <Check className="h-3.5 w-3.5" strokeWidth={2} />
-                              )}
-                              {accessWarn[p.id] || accessNewCustomer[p.id] ? "Dar acceso igual" : "Confirmar"}
-                            </button>
-                          </>
                         ) : confirmMarkId === p.id ? (
                           <>
                             <span className="mr-auto flex items-center gap-1.5 text-[12px] text-neutral-600 dark:text-neutral-300">
@@ -1495,12 +1386,16 @@ export function PaymentsList() {
                         ) : (
                           <>
                             <button
-                              onClick={() => setConfirmAccessId(p.id)}
+                              onClick={() => void grantAccess(p.id)}
                               disabled={accessBusy}
-                              title="Inscribir en el curso de Tiendup por su correo"
+                              title={`Inscribir en el curso de Tiendup con ${p.contactEmail ?? "su correo"}`}
                               className="flex items-center gap-1.5 rounded-md border border-neutral-200 px-3 py-2 text-[13px] font-medium text-neutral-700 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
                             >
-                              <KeyRound className="h-3.5 w-3.5" strokeWidth={1.75} />
+                              {accessBusy ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} />
+                              ) : (
+                                <KeyRound className="h-3.5 w-3.5" strokeWidth={1.75} />
+                              )}
                               Dar acceso al curso
                             </button>
                             <button

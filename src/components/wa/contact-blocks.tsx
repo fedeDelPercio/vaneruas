@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AtSign,
   ChevronDown,
@@ -14,7 +14,13 @@ import {
   UserRound,
 } from "lucide-react";
 import type { ContactNotification } from "@/app/api/wa/contact/[conversationId]/route";
-import type { TiendupAccessStatus, TiendupMailStatus, TiendupStatusResponse } from "@/lib/tiendup/status";
+import {
+  tiendupEditorMode,
+  type TiendupAccessStatus,
+  type TiendupMailStatus,
+  type TiendupStatusResponse,
+} from "@/lib/tiendup/status";
+import { TiendupEmailEditor } from "./TiendupEmailEditor";
 
 // Bloques compartidos de la ficha del contacto (/wa, ContactPanel) y de la
 // columna derecha de /revision (ReviewDetail): títulos de sección, lista con
@@ -289,31 +295,48 @@ export type TiendupFetch =
  * Pide el estado de Tiendup UNA vez por conversación, cuando la ficha dice que
  * corresponde (`enabled`). No se repite con el realtime de la ficha: el
  * listado de Tiendup tiene cache de 5 min en el server y no cambia por un
- * evento de la base.
+ * evento de la base. `refresh()` lo vuelve a pedir a mano (tras guardar el
+ * mail o dar el alta desde el bloque); mientras tanto se sigue mostrando el
+ * estado anterior.
  */
-export function useTiendupStatus(conversationId: string | null, enabled: boolean): TiendupFetch {
+export function useTiendupStatus(
+  conversationId: string | null,
+  enabled: boolean,
+): { status: TiendupFetch; refresh: () => void } {
   const [state, setState] = useState<{ convId: string | null; value: TiendupFetch }>({
     convId: null,
     value: { phase: "idle" },
   });
-  // Ya se pidió para esta conversación: el realtime de la ficha no lo repite.
+  const [nonce, setNonce] = useState(0);
+  // Ya se pidió para esta conversación (y este refresh): el realtime de la
+  // ficha no lo repite.
   const requested = useRef<string | null>(null);
   useEffect(() => {
-    if (!conversationId || !enabled || requested.current === conversationId) return;
-    requested.current = conversationId;
+    if (!conversationId || !enabled) return;
+    const key = `${conversationId}:${nonce}`;
+    if (requested.current === key) return;
+    requested.current = key;
     const convId = conversationId;
-    setState({ convId, value: { phase: "loading" } });
+    // Primera carga: "Consultando…". Refresh: se deja el estado anterior.
+    setState((prev) =>
+      prev.convId === convId && prev.value.phase === "done" ? prev : { convId, value: { phase: "loading" } },
+    );
     fetch(`/api/wa/tiendup-status/${convId}`, { cache: "no-store" })
       .then(async (r) => {
         const j = await r.json().catch(() => null);
         const value: TiendupFetch =
           !r.ok || !j ? { phase: "failed" } : { phase: "done", data: j as TiendupStatusResponse };
-        // Si mientras tanto se cambió de conversación, se descarta.
+        // Si mientras tanto se cambió de conversación (u otro refresh), se descarta.
+        if (requested.current !== key) return;
         setState((prev) => (prev.convId === convId ? { convId, value } : prev));
       })
-      .catch(() => setState((prev) => (prev.convId === convId ? { convId, value: { phase: "failed" } } : prev)));
-  }, [conversationId, enabled]);
-  return state.convId === conversationId ? state.value : { phase: "idle" };
+      .catch(() => {
+        if (requested.current !== key) return;
+        setState((prev) => (prev.convId === convId ? { convId, value: { phase: "failed" } } : prev));
+      });
+  }, [conversationId, enabled, nonce]);
+  const refresh = useCallback(() => setNonce((n) => n + 1), []);
+  return { status: state.convId === conversationId ? state.value : { phase: "idle" }, refresh };
 }
 
 type LiveTone = "ok" | "warn" | "bad" | "idle";
@@ -340,6 +363,8 @@ function mailLine(m: TiendupMailStatus): LiveLine {
       };
     case "not_found":
       return { text: "El mail no figura en Tiendup", tone: "bad", Icon: MailX };
+    case "no_email":
+      return { text: "Sin mail guardado", detail: "Cargalo abajo para poder dar el acceso", tone: "warn", Icon: MailX };
     default:
       return { text: "No se pudo validar el mail en Tiendup", tone: "idle", Icon: CloudOff };
   }
@@ -409,7 +434,17 @@ function LiveLineItem({ line, label }: { line: LiveLine; label: string }) {
  * Bloque "Tiendup" destacado: estado en vivo por curso. No rendea nada si no
  * corresponde (`show: false`) o todavía no se pidió.
  */
-export function TiendupLiveBlock({ fetchState, email }: { fetchState: TiendupFetch; email: string | null }) {
+export function TiendupLiveBlock({
+  fetchState,
+  email,
+  editor,
+}: {
+  fetchState: TiendupFetch;
+  /** Correo consultado (línea al pie). null = no se muestra. */
+  email: string | null;
+  /** Campo de mail editable + "Enviar a Tiendup" debajo de "Esta inscripción". */
+  editor?: { conversationId: string; email: string | null; onChanged: () => void };
+}) {
   if (fetchState.phase === "idle") return null;
   if (fetchState.phase === "done" && !fetchState.data.show) return null;
   const red = tiendupHasRed(fetchState);
@@ -442,12 +477,28 @@ export function TiendupLiveBlock({ fetchState, email }: { fetchState: TiendupFet
           <CloudOff className="h-3.5 w-3.5" strokeWidth={1.75} /> No se pudo consultar Tiendup
         </p>
       ) : (
-        <ul className="space-y-2.5">
-          {mail && <LiveLineItem label="Mail" line={mailLine(mail)} />}
-          {current && <LiveLineItem label="Esta inscripción" line={accessLine(current)} />}
-        </ul>
+        <>
+          <ul className="space-y-2.5">
+            {mail && <LiveLineItem label="Mail" line={mailLine(mail)} />}
+            {current && <LiveLineItem label="Esta inscripción" line={accessLine(current)} />}
+          </ul>
+          {editor && fetchState.phase === "done" && (
+            <TiendupEmailEditor
+              key={editor.conversationId}
+              conversationId={editor.conversationId}
+              email={editor.email}
+              canEnroll={Boolean(fetchState.data.canEnroll)}
+              mode={tiendupEditorMode({
+                mailState: mail?.state,
+                accessState: current?.state,
+                savedEmail: editor.email,
+              })}
+              onChanged={editor.onChanged}
+            />
+          )}
+        </>
       )}
-      {email && (
+      {email && !editor && (
         <p className="mt-2 truncate text-[11px] text-neutral-400 dark:text-neutral-500" title={email}>
           Correo consultado: {email}
         </p>

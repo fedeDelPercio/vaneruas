@@ -12,28 +12,23 @@ export const dynamic = "force-dynamic";
 // masterclass ya validado. Desde el 17/11/2026 el alta también corre sola al
 // validar (src/lib/tiendup/auto-enroll.ts): este botón queda para los casos que
 // el alta automática no pudo resolver (sin correo, figura con otro correo,
-// error de Tiendup) y para forzar.
+// error de Tiendup).
 //
 // La lógica vive en `grantCourseAccess` (src/lib/tiendup/grant.ts), compartida
-// con el alta automática. Antes de inscribir chequea el listado real de
-// inscriptos por correo y por nombre: si la persona figura con OTRO correo,
-// devuelve 409 con el aviso y el equipo decide si fuerza (force: true).
-//
-// Si no figura en el curso, antes de inscribir se chequea que el correo exista
-// como CLIENTE de la tienda (Tiendup crea uno nuevo si no existe). Si no
-// existe, o no se pudo verificar, devuelve 409 { needsConfirm: "not_in_tiendup"
-// | "customer_check_failed" } y el front pide confirmación explícita; con
-// confirmNewCustomer: true inscribe igual (force también lo saltea: ya aceptó
-// que se cree un cliente nuevo).
+// con el alta automática. En este botón (modo manual) inscribe DIRECTO, sin
+// confirmación previa (20/11/2026): si ya figura en el curso con este correo
+// solo se marca; si no, inscribe aunque la persona figure por nombre con otro
+// correo o el correo no sea cliente de la tienda (Tiendup crea el cliente).
+// Nunca devuelve 409 de confirmación. `force` y `confirmNewCustomer` se
+// aceptan en el body por compatibilidad y se ignoran.
 //
 // Si el acceso queda dado, se le avisa a la persona por WhatsApp (una vez por
 // curso). "Ya tiene acceso" (markOnly) solo marca: no toca Tiendup ni avisa.
 // ===========================================================================
 
 const bodySchema = z.object({
+  // Compatibilidad: se ignoran (el alta manual no pide confirmación).
   force: z.boolean().optional(),
-  // Confirmación explícita de que se cree un cliente NUEVO en Tiendup (el
-  // correo no figura como cliente de la tienda, o no se pudo verificar).
   confirmNewCustomer: z.boolean().optional(),
   // "Ya tiene acceso": marca el acceso como dado SIN inscribir en Tiendup. Para
   // casos que el equipo ya resolvió por afuera (la dieron de alta a mano, o ya
@@ -48,9 +43,7 @@ export async function PATCH(
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
   const parsed = bodySchema.safeParse(body).data;
-  const force = parsed?.force === true;
   const markOnly = parsed?.markOnly === true;
-  const confirmNewCustomer = parsed?.confirmNewCustomer === true;
 
   if (markOnly) {
     const sb = getSupabaseServerClient();
@@ -72,7 +65,7 @@ export async function PATCH(
     return NextResponse.json({ ok: true, markedOnly: true }, { status: 200 });
   }
 
-  const { outcome: o } = await grantCourseAccess(id, { mode: "manual", force, confirmNewCustomer });
+  const { outcome: o } = await grantCourseAccess(id, { mode: "manual" });
 
   switch (o.kind) {
     case "not_found":
@@ -111,40 +104,11 @@ export async function PATCH(
         { status: 200 },
       );
     case "name_conflict":
-      // Aparece la MISMA persona pero con OTRO correo. Inscribir con el nuestro
-      // crearía un cliente duplicado y no le daría acceso a su cuenta real.
-      return NextResponse.json(
-        {
-          ok: false,
-          warning: true,
-          error:
-            `Parece que ya tiene acceso como "${o.existing.name}" ` +
-            `con el correo ${o.existing.email}. Nuestro correo (${o.email}) es distinto: si la inscribís igual, ` +
-            `se va a crear un cliente NUEVO en Tiendup con ese correo y no va a acceder con su cuenta real. ` +
-            `Verificá el correo antes de forzar.`,
-          existing: o.existing,
-          ourEmail: o.email,
-        },
-        { status: 409 },
-      );
-    case "needs_new_customer_confirm":
-      return NextResponse.json(
-        {
-          ok: false,
-          needsConfirm: o.reason,
-          ourEmail: o.email,
-          error:
-            o.reason === "not_in_tiendup"
-              ? "Este correo no figura como cliente en Tiendup. Si seguís, Tiendup va a crear un cliente nuevo con ese correo. Dar acceso igual?"
-              : "No se pudo verificar si este correo figura como cliente en Tiendup. Si no figura, Tiendup va a crear un cliente nuevo con ese correo. Dar acceso igual?",
-        },
-        { status: 409 },
-      );
     case "not_in_tiendup":
     case "customer_check_failed":
       // Solo pasan en modo automático; acá no deberían llegar.
       return NextResponse.json(
-        { ok: false, error: "No se pudo verificar el correo en Tiendup" },
+        { ok: false, error: "No se pudo dar el acceso" },
         { status: 502 },
       );
     case "enrolled":

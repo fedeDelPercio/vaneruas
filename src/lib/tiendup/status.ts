@@ -13,7 +13,8 @@
 
 import { findCustomerByEmail, type TiendupCustomer } from "./customers";
 import { findExistingEnrollment, type TiendupEnrolled } from "./match";
-import { isNotInTiendupError } from "./messages";
+import { isNotInTiendupError, tidyTiendupError } from "./messages";
+import { MERGED_NOTE_PREFIX } from "../payments/dismiss";
 
 export type TiendupLiveState =
   | "enrolled"
@@ -41,8 +42,15 @@ export interface TiendupCourseStatus {
  *   - other_email: no figura con ese mail, pero sí alguien con el mismo nombre.
  *   - not_found: no figura (listados completos, o lo registró el alta automática).
  *   - unavailable: no se pudo comprobar.
+ *   - no_email: la conversación no tiene un correo válido guardado.
  */
-export type TiendupMailState = "has_courses" | "customer_no_courses" | "other_email" | "not_found" | "unavailable";
+export type TiendupMailState =
+  | "has_courses"
+  | "customer_no_courses"
+  | "other_email"
+  | "not_found"
+  | "unavailable"
+  | "no_email";
 
 export interface TiendupMailStatus {
   state: TiendupMailState;
@@ -88,8 +96,13 @@ export interface TiendupAccessStatus {
 
 /** Respuesta de GET /api/wa/tiendup-status/[conversationId]. */
 export interface TiendupStatusResponse {
-  /** false = no corresponde mostrar el bloque (sin correo válido o sin inscripción). */
+  /** false = no corresponde mostrar el bloque (sin comprobante pendiente ni aprobado). */
   show: boolean;
+  /**
+   * Hay un pago aprobado con curso mapeado al que dar el alta desde la ficha
+   * ("Enviar a Tiendup", ver pickEnrollablePayment).
+   */
+  canEnroll?: boolean;
   /** Línea 1: validación del mail en Tiendup. */
   mail?: TiendupMailStatus | null;
   /** Línea 2: acceso a la inscripción actual. null = no hay inscripción. */
@@ -192,7 +205,7 @@ export function decideTiendupStatus(args: {
   }
   const lastError = args.lastError?.trim() || null;
   const notInMarker = isNotInTiendupError(lastError);
-  if (lastError && !notInMarker) return { state: "error", error: lastError };
+  if (lastError && !notInMarker) return { state: "error", error: tidyTiendupError(lastError) };
 
   const customers = args.customers ?? null;
   const isCustomer = Boolean(customers && findCustomerByEmail(customers.customers, args.email));
@@ -246,4 +259,58 @@ export function paymentsWithEnrollAttempt(args: {
     if (m && known.has(m[1]!)) ids.add(m[1]!);
   }
   return ids;
+}
+
+/**
+ * Pago al que se le da el alta desde la ficha: el comprobante aprobado
+ * (`validated`, no agrupado) más reciente cuyo evento tiene curso de Tiendup
+ * mapeado. `payments` en cualquier orden; `hasCourse` dice si el evento mapea
+ * (tiendupCourseIdForEvent, que es server-only). null si no hay.
+ */
+export function pickEnrollablePayment<
+  T extends { status: string; event_slug: string | null; created_at: string; validation_note?: string | null },
+>(payments: readonly T[], hasCourse: (eventSlug: string | null) => boolean): T | null {
+  return (
+    payments
+      .filter(
+        (p) =>
+          p.status === "validated" &&
+          !(p.validation_note ?? "").startsWith(MERGED_NOTE_PREFIX) &&
+          hasCourse(p.event_slug),
+      )
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null
+  );
+}
+
+/**
+ * Cómo se muestra el campo de mail + "Enviar a Tiendup" en el bloque de la
+ * ficha:
+ *   - "highlight": hay que actuar (sin mail, o la inscripción actual está en
+ *     error / no figura / pendiente / alta marcada que no figura / otro mail /
+ *     sin verificar): visible y destacado para cargar el mail y reintentar;
+ *   - "collapsed": el acceso ya está enviado (enrolled / granted): detrás de
+ *     un link "Corregir mail";
+ *   - "normal": el resto (falta aprobar el pago, sin curso mapeado, sin
+ *     inscripción actual).
+ */
+export type TiendupEditorMode = "highlight" | "collapsed" | "normal";
+
+const EDITOR_ATTENTION: ReadonlySet<TiendupAccessState> = new Set<TiendupAccessState>([
+  "error",
+  "not_found",
+  "pending",
+  "granted_missing",
+  "other_email",
+  "unavailable",
+]);
+
+export function tiendupEditorMode(args: {
+  mailState: TiendupMailState | null | undefined;
+  accessState: TiendupAccessState | null | undefined;
+  savedEmail: string | null | undefined;
+}): TiendupEditorMode {
+  if (args.accessState === "enrolled" || args.accessState === "granted") return "collapsed";
+  if (!args.savedEmail?.trim() || args.mailState === "no_email") return "highlight";
+  if (args.accessState && EDITOR_ATTENTION.has(args.accessState)) return "highlight";
+  return "normal";
 }

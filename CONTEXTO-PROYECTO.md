@@ -372,14 +372,14 @@ Aprobaciones, detalles que importan:
   lectura. Se lee en cada ejecución, sin cache; si la tabla falla se cae a la
   env.
 - **"Dar acceso al curso"** (respaldo manual, `grantCourseAccess` en
-  `src/lib/tiendup/grant.ts`) inscribe en Tiendup por correo. Antes chequea el
-  listado real de inscriptos por correo y por nombre; si la persona figura con
-  otro correo, avisa y no inscribe (inscribir con un correo malo crea un
-  cliente fantasma y la persona real queda sin acceso). Si el correo no
-  existe como cliente de la tienda (o no se pudo verificar) devuelve 409
-  `needsConfirm` y el panel pide confirmar que se cree un cliente nuevo
-  ("Dar acceso igual", body `confirmNewCustomer: true`). "Ya tiene acceso" solo
-  marca, sin tocar Tiendup ni avisar.
+  `src/lib/tiendup/grant.ts`) y **"Enviar a Tiendup"** de la ficha (`POST
+  /api/wa/contact/[id]/email`, sin aviso a la persona) inscriben en Tiendup por
+  correo **directo, sin confirmación previa** (decisión de Federico,
+  20/11/2026): si ya figura en el curso con ese correo solo se marca; si no,
+  inscribe aunque figure por nombre con otro correo o el correo no sea cliente
+  de la tienda (Tiendup crea el cliente). El chequeo de "otro correo" y de
+  "cliente de la tienda" queda solo para el alta automática. "Ya tiene acceso"
+  solo marca, sin tocar Tiendup ni avisar.
 - **Cuando el acceso queda dado** (automático o botón) se manda por WhatsApp
   `TIENDUP_ACCESS_MESSAGE` (`src/lib/tiendup/messages.ts`), una vez por curso.
   Si no sale (ventana de 24 h), queda `delivery_failed` en el comprobante y una
