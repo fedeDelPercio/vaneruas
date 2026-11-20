@@ -70,6 +70,7 @@ const TYPOS_DE_DOMINIO: Record<string, string> = {
   "gmail.co": "gmail.com",
   "gmial.com": "gmail.com",
   "gmai.com": "gmail.com",
+  "gmal.com": "gmail.com",
   "hotmail.con": "hotmail.com",
   "hotmail.cmo": "hotmail.com",
   "hotmail.om": "hotmail.com",

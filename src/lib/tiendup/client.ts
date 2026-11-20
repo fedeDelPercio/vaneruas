@@ -20,6 +20,7 @@ import "server-only";
 // ===========================================================================
 
 import type { TiendupEnrolled } from "./match";
+import { postEnrollWithRetry } from "./enroll-request";
 import {
   createCustomersCache,
   fetchAllCustomers,
@@ -68,7 +69,9 @@ export interface EnrollResult {
 /**
  * Da acceso (inscribe) a un curso de Tiendup por email. Crea el cliente en
  * Tiendup si no existe. Idempotente (si ya está inscripto, devuelve ok).
- * Best-effort: nunca lanza; devuelve { ok:false, error } ante cualquier problema.
+ * Reintenta los errores transitorios (403 "site not found", 429, 5xx, red;
+ * ver enroll-request.ts). Best-effort: nunca lanza; devuelve { ok:false,
+ * error } ante cualquier problema, con el error ya legible (sin HTML).
  */
 export async function enrollCourseByEmail(args: {
   courseId: number;
@@ -86,34 +89,16 @@ export async function enrollCourseByEmail(args: {
   if (args.name?.trim()) customer.name = args.name.trim();
   if (args.lastName?.trim()) customer.last_name = args.lastName.trim();
 
-  try {
-    const res = await fetch(`${baseUrl()}/learning/courses/${args.courseId}/enroll`, {
-      method: "POST",
-      headers: {
-        "x-api-key": key,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({ customer, enrollment_type: args.enrollmentType ?? "paid" }),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-    const text = await res.text().catch(() => "");
-    if (!res.ok) {
-      return { ok: false, error: `Tiendup ${res.status}: ${text.slice(0, 200)}` };
-    }
-    // Respuesta esperada: {"status":"OK"}.
-    try {
-      const json = JSON.parse(text) as { status?: string };
-      if (json.status && json.status !== "OK") {
-        return { ok: false, error: `Tiendup respondió status ${json.status}` };
-      }
-    } catch {
-      // Sin JSON parseable pero 2xx: lo damos por OK.
-    }
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  const res = await postEnrollWithRetry({
+    url: `${baseUrl()}/learning/courses/${args.courseId}/enroll`,
+    apiKey: key,
+    body: { customer, enrollment_type: args.enrollmentType ?? "paid" },
+    timeoutMs: TIMEOUT_MS,
+  });
+  if (res.attempts > 1) {
+    console.warn(`[tiendup] enroll curso ${args.courseId}: ${res.attempts} intentos, ${res.ok ? "ok" : res.error}`);
   }
+  return res.ok ? { ok: true } : { ok: false, error: res.error };
 }
 
 // --- Chequeo previo: ¿ya está inscripta? ----------------------------------

@@ -63,9 +63,51 @@ export function isNotInTiendupError(error: string | null | undefined): boolean {
   return Boolean(error?.trim().startsWith(NOT_IN_TIENDUP_PREFIX));
 }
 
-/** Error guardado para mostrar en el panel: sin el prefijo técnico. */
+/** Error guardado para mostrar en el panel: sin el prefijo técnico ni HTML crudo. */
 export function displayCourseAccessError(error: string | null | undefined): string | null {
   const e = error?.trim();
   if (!e) return null;
-  return isNotInTiendupError(e) ? e.slice(NOT_IN_TIENDUP_PREFIX.length).trim() || NOT_IN_TIENDUP_TEXT : e;
+  return isNotInTiendupError(e)
+    ? e.slice(NOT_IN_TIENDUP_PREFIX.length).trim() || NOT_IN_TIENDUP_TEXT
+    : tidyTiendupError(e);
+}
+
+// --- Errores de la API de Tiendup legibles ----------------------------------
+
+const TIENDUP_HTTP_ERROR_RE = /^Tiendup (\d{3}):\s*([\s\S]*)$/;
+
+function stripHtml(s: string): string {
+  return s
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Texto de error de Tiendup apto para guardar y mostrar: sin HTML crudo y
+ * acotado. "Tiendup 403: <div>site not found</div>" → "Tiendup no respondió
+ * (403 site not found)". Un 4xx de validación con cuerpo de texto/JSON queda
+ * "Tiendup 422: <detalle>". Idempotente: un texto ya prolijo vuelve igual.
+ */
+export function tidyTiendupError(raw: string): string {
+  const m = TIENDUP_HTTP_ERROR_RE.exec(raw.trim());
+  if (!m) return stripHtml(raw).slice(0, 200);
+  const status = Number(m[1]);
+  const body = m[2] ?? "";
+  const hadHtml = /<[a-z!/][^>]*>/i.test(body);
+  const text = stripHtml(body).slice(0, 120);
+  if (hadHtml || status === 429 || status >= 500 || (status === 403 && /site not found/i.test(text))) {
+    return `Tiendup no respondió (${status}${text ? ` ${text}` : ""})`;
+  }
+  return `Tiendup ${status}: ${text}`.trim().slice(0, 200);
+}
+
+// --- Corrección manual del mail desde la ficha ------------------------------
+
+/** Nota de sistema cuando el equipo carga o corrige el mail desde la ficha. */
+export function manualEmailNote(actor: string, previous: string | null, next: string): string {
+  const who = actor.trim() || "sin perfil";
+  return `Mail corregido por el equipo (${who}): ${previous?.trim() || "sin mail"} → ${next}`;
 }

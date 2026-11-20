@@ -1,7 +1,7 @@
 import "server-only";
 
 import { getSupabaseServerClient } from "@/lib/supabase/server";
-import { serverEnv } from "@/lib/env";
+import { clientEnv, serverEnv } from "@/lib/env";
 import { dispatchEvent } from "@/lib/webhooks/dispatcher";
 import { sendTeamNotificationAlert } from "@/lib/email/sender";
 import { runOrchestrator } from "./orchestrator";
@@ -18,7 +18,8 @@ import type {
   TraceStatus,
 } from "./types";
 import type { Json } from "@/lib/supabase/types";
-import { normalizeContactEmail } from "@/lib/contact-email";
+import { extractContactEmail, normalizeContactEmail } from "@/lib/contact-email";
+import { findContactEmailInHistory } from "@/lib/payments/email-request";
 import { emailAskState, emailContextLine } from "@/lib/payments/email-ask";
 import { esAgrupado } from "@/lib/payments/dismiss";
 import { AGENT_HANDOFF_FILTER } from "@/lib/team-interventions";
@@ -150,7 +151,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
   // Pagos enviados en esta conversación: le pasamos los montos al orquestador
   // para que pueda deducir a qué evento se refiere una consulta de detalle
   // (matcheando el monto transferido con el precio de un evento vigente).
-  const paymentContext = await loadPaymentContext(input.conversationId);
+  const paymentContext = await loadPaymentContext(input.conversationId, input.userMessage);
 
   let totalInput = 0;
   let totalOutput = 0;
@@ -356,10 +357,10 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
  * de un evento vigente y deducir a qué evento se refiere una consulta. Devuelve
  * "" si no hay pagos (best-effort: nunca tumba la corrida).
  */
-async function loadPaymentContext(conversationId: string): Promise<string> {
+async function loadPaymentContext(conversationId: string, turnMessage: string): Promise<string> {
   const [amounts, email] = await Promise.all([
     loadPaymentAmountsContext(conversationId),
-    loadEmailContext(conversationId),
+    loadEmailContext(conversationId, turnMessage),
   ]);
   return [amounts, email].filter(Boolean).join("\n");
 }
@@ -369,22 +370,41 @@ async function loadPaymentContext(conversationId: string): Promise<string> {
  * se pide con el pago verificado (y el título, si hacía falta, aprobado).
  * Antes le decía "pedile el correo" apenas había un comprobante y Valentina lo
  * pedía antes de tiempo. Vacío si no hay comprobantes.
+ *
+ * "Tenemos correo" = guardado en la conversación, o escrito en el mensaje de
+ * este turno, o en cualquier mensaje anterior de la persona (extractor
+ * tolerante: "nombre @ gmail . com" también cuenta). Así el contexto no queda
+ * desactualizado si el guardado no corrió (otro camino, o el correo no pisó
+ * uno anterior) y Valentina no pide un correo que ya le dieron.
  */
-async function loadEmailContext(conversationId: string): Promise<string> {
+async function loadEmailContext(conversationId: string, turnMessage: string): Promise<string> {
   try {
     const sb = getSupabaseServerClient();
+    const slug = clientEnv.NEXT_PUBLIC_CLIENT_SLUG;
     const [{ data: pays }, { data: conv }] = await Promise.all([
       sb
         .from("payment_validations")
         .select("status, awaiting_title, validation_note")
         .eq("conversation_id", conversationId)
+        .eq("client_slug", slug)
         .order("created_at", { ascending: false })
         .limit(50),
-      sb.from("conversations").select("contact_email").eq("id", conversationId).maybeSingle(),
+      sb
+        .from("conversations")
+        .select("contact_email")
+        .eq("id", conversationId)
+        .eq("client_slug", slug)
+        .maybeSingle(),
     ]);
+    const hasPayment = (pays ?? []).some((p) => !esAgrupado(p));
+    let hasEmail = Boolean(normalizeContactEmail(conv?.contact_email)) || Boolean(extractContactEmail(turnMessage));
+    // El historial solo se lee si importa (hay comprobantes y no hay correo).
+    if (!hasEmail && hasPayment) {
+      hasEmail = Boolean(await findContactEmailInHistory(sb, conversationId, slug));
+    }
     const state = emailAskState({
-      hasEmail: Boolean(normalizeContactEmail(conv?.contact_email)),
-      hasPayment: (pays ?? []).some((p) => !esAgrupado(p)),
+      hasEmail,
+      hasPayment,
       hasApprovedPayment: (pays ?? []).some((p) => p.status === "validated" && !p.awaiting_title),
     });
     return emailContextLine(state);

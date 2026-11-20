@@ -13,6 +13,7 @@ import {
   secondEmailNote,
 } from "@/lib/contact-email";
 import { autoEnrollConversation } from "@/lib/tiendup/auto-enroll";
+import { findContactEmailInHistory } from "@/lib/payments/email-request";
 import { sendTeamNotificationAlert } from "@/lib/email/sender";
 import { evaluateConversationCritical } from "@/lib/critical/evaluate";
 import {
@@ -419,9 +420,6 @@ async function openHumanWaitingNotice(conversationId: string): Promise<void> {
   }
 }
 
-/** Últimos mensajes de la contacta que se miran buscando un correo perdido. */
-const EMAIL_LOOKBACK = 15;
-
 /**
  * Si el mensaje del usuario contiene un correo válido, lo guarda en
  * conversations.contact_email: es el correo que usa el alta en Tiendup. Si ya
@@ -441,36 +439,26 @@ async function captureContactEmail(
 ): Promise<void> {
   try {
     const sb = getSupabaseServerClient();
+    const slug = clientEnv.NEXT_PUBLIC_CLIENT_SLUG;
     const { data: conv } = await sb
       .from("conversations")
       .select("contact_email")
       .eq("id", conversationId)
+      .eq("client_slug", slug)
       .maybeSingle();
     const current = normalizeContactEmail(conv?.contact_email);
     let email = extractContactEmail(content);
 
-    // Rescate: el correo puede haber llegado en un mensaje ANTERIOR del mismo
-    // turno. Pasa seguido: la contacta escribe "Nombre + mail" y un segundo
-    // después manda la foto del comprobante o del título; el debounce reancla el
-    // turno al adjunto y este camino solo ve el texto del adjunto, que viene
-    // vacío. Solo se busca si todavía NO tenemos un correo válido, para no pisar
-    // uno bueno con otro viejo que la contacta ya corrigió.
+    // Rescate: el correo puede haber llegado en un mensaje ANTERIOR. Pasa
+    // seguido: la contacta escribe "Nombre + mail" y un segundo después manda
+    // la foto del comprobante o del título (el debounce reancla el turno al
+    // adjunto y este camino solo ve su texto, que viene vacío), o lo dejó mucho
+    // antes de que se lo pidan en una conversación larga. Se busca en TODO el
+    // historial (findContactEmailInHistory), solo si todavía NO tenemos un
+    // correo válido, para no pisar uno bueno con otro viejo ya corregido.
     if (!email) {
       if (current) return;
-      const { data: previos } = await sb
-        .from("messages")
-        .select("content")
-        .eq("conversation_id", conversationId)
-        .eq("role", "user")
-        .order("created_at", { ascending: false })
-        .limit(EMAIL_LOOKBACK);
-      for (const m of previos ?? []) {
-        const hit = extractContactEmail(m.content);
-        if (hit) {
-          email = hit;
-          break;
-        }
-      }
+      email = await findContactEmailInHistory(sb, conversationId, slug);
     }
     if (!email || email === current) return;
 
@@ -481,6 +469,7 @@ async function captureContactEmail(
         .from("payment_validations")
         .select("status, course_access_granted_at, course_access_error")
         .eq("conversation_id", conversationId)
+        .eq("client_slug", slug)
         .limit(50);
       // Ante error de lectura no se pisa: perder el correo bueno es peor.
       accessInProgress =
@@ -497,16 +486,23 @@ async function captureContactEmail(
         .from("messages")
         .select("id")
         .eq("conversation_id", conversationId)
+        .eq("client_slug", slug)
         .eq("role", "system")
         .eq("content", note)
         .limit(1);
       if (!dup?.length) {
-        await sb.from("messages").insert({ conversation_id: conversationId, role: "system", content: note });
+        await sb
+          .from("messages")
+          .insert({ conversation_id: conversationId, client_slug: slug, role: "system", content: note });
       }
       return;
     }
 
-    await sb.from("conversations").update({ contact_email: email }).eq("id", conversationId);
+    await sb
+      .from("conversations")
+      .update({ contact_email: email })
+      .eq("id", conversationId)
+      .eq("client_slug", slug);
     // Empujar el correo al contacto de GHL (best-effort, requiere contacts.write).
     if (opts.source === "whatsapp" && opts.externalId) {
       await ghlUpdateContact(opts.externalId, { email });

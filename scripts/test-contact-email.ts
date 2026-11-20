@@ -1,8 +1,10 @@
 // Tests deterministas de la extracción y validación del correo de la contacta.
 //   npx tsx scripts/test-contact-email.ts
+import { fixDominioDeCorreo } from "../src/lib/tiendup/match";
 import {
   decideContactEmailUpdate,
   extractContactEmail,
+  findEmailInMessages,
   normalizeContactEmail,
   secondEmailNote,
 } from "../src/lib/contact-email";
@@ -37,6 +39,55 @@ check(extractContactEmail("Juana Pérez · juana@gmail.com · Masterclass"), "ju
 check(extractContactEmail("mail: nombre@example.com o juana@gmail.com"), "juana@gmail.com", "salta el de ejemplo y toma el siguiente");
 check(extractContactEmail("te paso el comprobante"), null, "sin correo");
 check(extractContactEmail("arroba @ gmail punto com"), null, "dictado sin formato");
+
+// Extracción tolerante (espacios, dictado, prefijos pegados).
+check(extractContactEmail("nombre @gmail.com"), "nombre@gmail.com", "espacio antes de la @");
+check(extractContactEmail("mi mail es Nombre @ gmail.com gracias"), "nombre@gmail.com", "espacios a los dos lados de la @");
+check(extractContactEmail("nombre@ gmail .com"), "nombre@gmail.com", "espacios alrededor del punto del dominio");
+check(extractContactEmail("nombre @ gmail . com . ar"), "nombre@gmail.com.ar", "dominio .com.ar con espacios");
+check(extractContactEmail("nombre arroba gmail punto com"), "nombre@gmail.com", "dictado arroba/punto");
+check(extractContactEmail("juana punto perez arroba hotmail punto com"), "juana.perez@hotmail.com", "dictado con punto en la parte local");
+check(extractContactEmail("juana(at)gmail.com"), "juana@gmail.com", "(at)");
+check(extractContactEmail("Mail:juana@gmail.com"), "juana@gmail.com", "prefijo Mail: pegado");
+check(extractContactEmail("Correo-juana@gmail.com"), "juana@gmail.com", "prefijo Correo- pegado");
+check(extractContactEmail("EMAIL: juana@gmail.com"), "juana@gmail.com", "prefijo EMAIL:");
+check(extractContactEmail("mailen@gmail.com"), "mailen@gmail.com", "nombre que empieza con mail no se recorta");
+check(extractContactEmail("juana @ gmail.com. Gracias!"), "juana@gmail.com", "texto pegado después del dominio");
+check(extractContactEmail("juana @hotmail.con"), "juana@hotmail.con", "dominio mal escrito se acepta (lo corrige fixDominioDeCorreo)");
+check(extractContactEmail("Juana Pérez · juana@gmail.com · otro @ hotmail.com"), "juana@gmail.com", "primer correo válido gana");
+// Falsos positivos que NO se aceptan.
+check(extractContactEmail("seguime en ig @juan"), null, "handle de instagram sin dominio");
+check(extractContactEmail("mi ig es @juan.perez"), null, "handle de instagram con punto");
+check(extractContactEmail("te escribo a las 13:45hs"), null, "horario");
+check(extractContactEmail("transferí $ 110.000 @ las 13.45"), null, "monto y hora con @");
+check(extractContactEmail("mi mail es @gmail.com"), null, "sin parte local");
+check(extractContactEmail("nombre @ gmail"), null, "sin TLD");
+
+// Typos de dominio que se corrigen al inscribir (fixDominioDeCorreo).
+for (const [typo, ok] of [
+  ["gmial.com", "gmail.com"],
+  ["gmal.com", "gmail.com"],
+  ["gmail.con", "gmail.com"],
+  ["gmail.co", "gmail.com"],
+  ["hotmail.con", "hotmail.com"],
+  ["hotmial.com", "hotmail.com"],
+  ["outlook.con", "outlook.com"],
+  ["yahoo.con", "yahoo.com"],
+] as const) {
+  check(fixDominioDeCorreo(`juana@${typo}`).email, `juana@${ok}`, `fixDominioDeCorreo ${typo}`);
+}
+check(fixDominioDeCorreo("juana@gmail.com.ar").email, "juana@gmail.com.ar", "fixDominioDeCorreo no toca .com.ar");
+
+// Rescate en historial (más nuevo primero, primer hit).
+const historial = [
+  { content: "dale gracias" },
+  { content: "" },
+  ...Array.from({ length: 40 }, (_, i) => ({ content: `mensaje ${i}` })),
+  { content: "te paso el comprobante, mi correo es vieja @ gmail.com" },
+  { content: "antes: primera@gmail.com" },
+];
+check(findEmailInMessages(historial), "vieja@gmail.com", "historial largo: el más nuevo con correo (caption con espacios)");
+check(findEmailInMessages([{ content: "hola" }, { content: null }]), null, "historial sin correo");
 
 // Segundo correo: cuándo se pisa y cuándo no (D-72).
 const dec = (current: string | null, incoming: string | null, accessInProgress: boolean) =>
