@@ -8,10 +8,10 @@ import { grantCourseAccess } from "@/lib/tiendup/grant";
 import { tiendupCourseIdForEvent } from "@/lib/tiendup/client";
 import { invalidateEnrolledListing } from "@/lib/tiendup/status-server";
 import { pickEnrollablePayment } from "@/lib/tiendup/status";
-import { manualEmailNote } from "@/lib/tiendup/messages";
+import { TIENDUP_QUEUED_SILENT_MESSAGE, errorAfterEmailChange, manualEmailNote } from "@/lib/tiendup/messages";
 
 export const dynamic = "force-dynamic";
-// El alta reintenta errores transitorios de Tiendup (hasta 3 intentos).
+// El alta reintenta errores transitorios de Tiendup (con tope de 35 s).
 export const maxDuration = 60;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -27,7 +27,11 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 //    una corrección manual del equipo (no aplica keep_and_note de
 //    decideContactEmailUpdate, que es para lo que llega por el chat). Deja una
 //    nota de sistema "Mail corregido por el equipo (<perfil>): <antes> → <nuevo>".
-//    No se empuja a GHL.
+//    No se empuja a GHL. Si el mail cambió, limpia el error del último intento
+//    de los pagos aprobados sin acceso: era del mail anterior, y así la cola de
+//    reintentos (retry-pending.ts) los retoma en automático aunque solo se haya
+//    tocado "Guardar". Un pedido silencioso en cola conserva el silencio
+//    (errorAfterEmailChange): el cambio de mail no habilita el aviso.
 // 2. Con enroll: true, da el alta con la MISMA lógica del botón "Dar acceso al
 //    curso" (grantCourseAccess, modo manual) sobre el pago aprobado más
 //    reciente con curso mapeado:
@@ -65,6 +69,10 @@ export interface SaveEmailResponse {
   /** El alta usó el correo con el dominio corregido (gmail.con → gmail.com). */
   enrolledEmail?: string;
   error?: string;
+  /** Tiendup no respondió: quedó en la cola de reintentos (status 202). */
+  queued?: boolean;
+  /** Texto para mostrar cuando quedó en cola. */
+  message?: string;
 }
 
 function reply(body: SaveEmailResponse, status = 200) {
@@ -125,6 +133,25 @@ export async function POST(
       content: manualEmailNote(profile.name, previous, email),
     });
     if (noteErr) console.error("[wa/email] no se pudo registrar la nota del cambio de mail:", noteErr.message);
+    const { data: withError, error: readErr } = await sb
+      .from("payment_validations")
+      .select("id, course_access_error")
+      .eq("conversation_id", conversationId)
+      .eq("client_slug", slug)
+      .eq("status", "validated")
+      .is("course_access_granted_at", null)
+      .not("course_access_error", "is", null);
+    if (readErr) console.error("[wa/email] no se pudo leer el error de acceso:", readErr.message);
+    const nowIso = new Date().toISOString();
+    for (const p of withError ?? []) {
+      const { error: clearErr } = await sb
+        .from("payment_validations")
+        .update({ course_access_error: errorAfterEmailChange(p.course_access_error, nowIso) })
+        .eq("id", p.id)
+        .eq("client_slug", slug)
+        .is("course_access_granted_at", null);
+      if (clearErr) console.error("[wa/email] no se pudo limpiar el error de acceso:", clearErr.message);
+    }
   }
   if (!enroll) return reply({ ok: true, email });
 
@@ -159,6 +186,9 @@ export async function POST(
       });
     }
     case "enroll_failed":
+      if (o.queued) {
+        return reply({ ok: false, email, enrolled: false, queued: true, message: TIENDUP_QUEUED_SILENT_MESSAGE }, 202);
+      }
       return reply({ ok: false, email, enrolled: false, error: o.error || "No se pudo dar el acceso" }, 502);
     case "not_validated":
       return reply({ ok: false, email, enrolled: false, error: "Sin pago aprobado" }, 409);

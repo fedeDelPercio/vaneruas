@@ -53,13 +53,13 @@ async function main() {
   check([r.res.ok, r.calls, r.waits], [true, 1, []], "OK de una");
 
   r = await run([SITE_NOT_FOUND, OK]);
-  check([r.res.ok, r.calls, r.waits], [true, 2, [1500]], "403 site not found y después OK");
+  check([r.res.ok, r.calls, r.waits], [true, 2, [2000]], "403 site not found y después OK");
 
-  r = await run([SITE_NOT_FOUND, SITE_NOT_FOUND, SITE_NOT_FOUND]);
+  r = await run([SITE_NOT_FOUND, SITE_NOT_FOUND, SITE_NOT_FOUND, SITE_NOT_FOUND]);
   check(
     [r.res.ok, r.calls, r.waits, r.res.error],
-    [false, 3, [1500, 4000], "Tiendup no respondió (403 site not found)"],
-    "403 site not found siempre: 2 reintentos y error sin HTML",
+    [false, 4, [2000, 5000, 10000], "Tiendup no respondió (403 site not found)"],
+    "403 site not found siempre: 3 reintentos y error sin HTML",
   );
 
   r = await run([{ status: 429, body: "Too Many Requests" }, { status: 502, body: "<html><body>Bad gateway</body></html>" }, OK]);
@@ -69,7 +69,7 @@ async function main() {
   check([r.res.ok, r.calls], [true, 2], "error de red se reintenta");
 
   r = await run([{ throws: "The operation was aborted due to timeout" }, { throws: "timeout" }, { throws: "timeout" }]);
-  check([r.res.ok, r.calls, r.res.error], [false, 3, "Tiendup sin respuesta: timeout"], "timeout siempre: 3 intentos");
+  check([r.res.ok, r.calls, r.res.error], [false, 4, "Tiendup sin respuesta: timeout"], "timeout siempre: 4 intentos");
 
   r = await run([{ status: 422, body: '{"message":"invalid email"}' }, OK]);
   check(

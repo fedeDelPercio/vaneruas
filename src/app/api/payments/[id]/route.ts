@@ -14,6 +14,8 @@ import {
 } from "@/lib/payments/email-request";
 
 export const dynamic = "force-dynamic";
+// El alta automática corre en after() y reintenta errores de Tiendup (tope 35 s).
+export const maxDuration = 60;
 
 // Confirmación que recibe la profesional cuando su pago queda aprobado: textos
 // en src/lib/payments/messages.ts. Si ya tenemos su correo, la de siempre

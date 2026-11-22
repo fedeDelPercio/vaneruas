@@ -571,6 +571,12 @@ export function PaymentsList() {
         body: JSON.stringify({}),
       });
       const j = await r.json().catch(() => ({}));
+      if (r.status === 202 && j.queued) {
+        // Tiendup no respondió: no es un error del equipo, lo retoma la cola.
+        setNotice(j.message);
+        await load(filterRef.current, searchRef.current);
+        return;
+      }
       if (!r.ok || !j.ok) {
         setNotice(
           j.error

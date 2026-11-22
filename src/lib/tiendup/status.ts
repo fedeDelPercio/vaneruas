@@ -13,7 +13,7 @@
 
 import { findCustomerByEmail, type TiendupCustomer } from "./customers";
 import { findExistingEnrollment, type TiendupEnrolled } from "./match";
-import { isNotInTiendupError, tidyTiendupError } from "./messages";
+import { displayCourseAccessError, isNotInTiendupError, parseRetryError } from "./messages";
 import { MERGED_NOTE_PREFIX } from "../payments/dismiss";
 
 export type TiendupLiveState =
@@ -21,6 +21,7 @@ export type TiendupLiveState =
   | "other_email"
   | "customer_not_enrolled"
   | "not_found"
+  | "queued"
   | "error"
   | "unavailable";
 
@@ -69,6 +70,7 @@ export interface TiendupMailStatus {
  *   - awaiting_approval: el pago todavía no está aprobado.
  *   - pending: aprobado, sin alta todavía.
  *   - not_found: aprobado, el alta automática frenó porque el mail no figura en Tiendup.
+ *   - queued: Tiendup no respondió y la cola lo reintenta sola.
  *   - error: el último intento de alta falló (texto en `error`).
  *   - no_mapping: el evento no tiene curso de Tiendup mapeado.
  *   - unavailable: no se pudo comprobar.
@@ -81,6 +83,7 @@ export type TiendupAccessState =
   | "awaiting_approval"
   | "pending"
   | "not_found"
+  | "queued"
   | "error"
   | "no_mapping"
   | "unavailable";
@@ -155,6 +158,7 @@ export function decideCurrentAccess(args: {
   if (args.granted) return { state: args.listingComplete ? "granted_missing" : "granted" };
   if (cs.state === "other_email") return { state: "other_email", otherEmailMasked: cs.otherEmailMasked ?? null };
   if (args.paymentStatus !== "validated") return { state: "awaiting_approval" };
+  if (cs.state === "queued") return { state: "queued", error: cs.error ?? null };
   if (cs.state === "error") return { state: "error", error: cs.error ?? null };
   if (cs.state === "not_found") return { state: "not_found" };
   // Listado del curso completo y no figura: pendiente aunque no se haya
@@ -205,7 +209,8 @@ export function decideTiendupStatus(args: {
   }
   const lastError = args.lastError?.trim() || null;
   const notInMarker = isNotInTiendupError(lastError);
-  if (lastError && !notInMarker) return { state: "error", error: tidyTiendupError(lastError) };
+  if (parseRetryError(lastError)) return { state: "queued", error: displayCourseAccessError(lastError) };
+  if (lastError && !notInMarker) return { state: "error", error: displayCourseAccessError(lastError) };
 
   const customers = args.customers ?? null;
   const isCustomer = Boolean(customers && findCustomerByEmail(customers.customers, args.email));
@@ -297,6 +302,7 @@ export type TiendupEditorMode = "highlight" | "collapsed" | "normal";
 
 const EDITOR_ATTENTION: ReadonlySet<TiendupAccessState> = new Set<TiendupAccessState>([
   "error",
+  "queued",
   "not_found",
   "pending",
   "granted_missing",

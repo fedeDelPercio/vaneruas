@@ -21,6 +21,7 @@ import "server-only";
 
 import type { TiendupEnrolled } from "./match";
 import { postEnrollWithRetry } from "./enroll-request";
+import { fetchAllEnrolled } from "./enrolled-list";
 import {
   createCustomersCache,
   fetchAllCustomers,
@@ -64,6 +65,16 @@ function baseUrl(): string {
 export interface EnrollResult {
   ok: boolean;
   error?: string;
+  /** El fallo fue transitorio (Tiendup no respondió): se puede reintentar. */
+  transient?: boolean;
+}
+
+/** Opciones de reintento de las lecturas (ver transient.ts). */
+export interface TiendupReadOpts {
+  /** Instante (ms epoch) que ningún request puede pasar. */
+  deadlineAt?: number;
+  /** [] = sin reintentos por página (la ficha, para no martillar). */
+  retryDelaysMs?: readonly number[];
 }
 
 /**
@@ -79,6 +90,9 @@ export async function enrollCourseByEmail(args: {
   name?: string | null;
   lastName?: string | null;
   enrollmentType?: "free" | "paid";
+  deadlineAt?: number;
+  /** [] = un solo intento (la cola reintenta en la próxima corrida). */
+  retryDelaysMs?: readonly number[];
 }): Promise<EnrollResult> {
   const key = process.env.TIENDUP_API_KEY;
   if (!key) return { ok: false, error: "TIENDUP_API_KEY no configurada" };
@@ -94,11 +108,13 @@ export async function enrollCourseByEmail(args: {
     apiKey: key,
     body: { customer, enrollment_type: args.enrollmentType ?? "paid" },
     timeoutMs: TIMEOUT_MS,
+    deadlineAt: args.deadlineAt,
+    delaysMs: args.retryDelaysMs,
   });
   if (res.attempts > 1) {
     console.warn(`[tiendup] enroll curso ${args.courseId}: ${res.attempts} intentos, ${res.ok ? "ok" : res.error}`);
   }
-  return res.ok ? { ok: true } : { ok: false, error: res.error };
+  return res.ok ? { ok: true } : { ok: false, error: res.error, transient: res.transient };
 }
 
 // --- Chequeo previo: ¿ya está inscripta? ----------------------------------
@@ -112,8 +128,8 @@ export async function enrollCourseByEmail(args: {
 // fixDominioDeCorreo vive en match.ts (puro, lo usan también los scripts).
 
 /** Trae TODOS los inscriptos al curso (paginado). [] ante error. */
-export async function listEnrolled(courseId: number): Promise<TiendupEnrolled[]> {
-  return (await listEnrolledChecked(courseId)).enrolled;
+export async function listEnrolled(courseId: number, opts: TiendupReadOpts = {}): Promise<TiendupEnrolled[]> {
+  return (await listEnrolledChecked(courseId, opts)).enrolled;
 }
 
 /**
@@ -124,43 +140,18 @@ export async function listEnrolled(courseId: number): Promise<TiendupEnrolled[]>
  */
 export async function listEnrolledChecked(
   courseId: number,
+  opts: TiendupReadOpts = {},
 ): Promise<{ enrolled: TiendupEnrolled[]; complete: boolean }> {
   const key = process.env.TIENDUP_API_KEY;
   if (!key) return { enrolled: [], complete: false };
-  const out: TiendupEnrolled[] = [];
-  let complete = false;
-  try {
-    for (let page = 1; page <= 50; page++) {
-      const res = await fetch(
-        `${baseUrl()}/learning/courses/${courseId}/enrolled?limit=100&page=${page}`,
-        {
-          headers: { "x-api-key": key, Accept: "application/json" },
-          signal: AbortSignal.timeout(TIMEOUT_MS),
-        },
-      );
-      if (!res.ok) break;
-      const json = (await res.json()) as {
-        data?: { name?: string; last_name?: string; email?: string }[];
-        pages?: number;
-      };
-      const rows = json.data ?? [];
-      for (const r of rows) {
-        out.push({
-          name: r.name ?? null,
-          lastName: r.last_name ?? null,
-          email: r.email ?? null,
-        });
-      }
-      const pages = Number(json.pages ?? 1);
-      if (page >= pages || rows.length === 0) {
-        complete = true;
-        break;
-      }
-    }
-  } catch {
-    // best-effort: si falla, devolvemos lo que juntamos.
-  }
-  return { enrolled: out, complete };
+  return fetchAllEnrolled({
+    apiKey: key,
+    baseUrl: baseUrl(),
+    courseId,
+    timeoutMs: TIMEOUT_MS,
+    deadlineAt: opts.deadlineAt,
+    retryDelaysMs: opts.retryDelaysMs,
+  });
 }
 
 // --- Clientes de la tienda --------------------------------------------------
@@ -173,10 +164,18 @@ const customersCache = createCustomersCache();
  * 10 min si vino completo, 1 min si no. `maxAgeMs` acota la edad aceptada
  * (0 = releer). Sin key → { ok:false, complete:false }. Nunca lanza.
  */
-export async function listCustomersChecked(opts: { maxAgeMs?: number } = {}): Promise<CustomersListing> {
+export async function listCustomersChecked(
+  opts: { maxAgeMs?: number } & TiendupReadOpts = {},
+): Promise<CustomersListing> {
   return customersCache.get({
     maxAgeMs: opts.maxAgeMs,
-    loader: () => fetchAllCustomers({ apiKey: process.env.TIENDUP_API_KEY, baseUrl: baseUrl() }),
+    loader: () =>
+      fetchAllCustomers({
+        apiKey: process.env.TIENDUP_API_KEY,
+        baseUrl: baseUrl(),
+        deadlineAt: opts.deadlineAt,
+        retryDelaysMs: opts.retryDelaysMs,
+      }),
   });
 }
 

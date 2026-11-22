@@ -13,6 +13,7 @@ import {
   secondEmailNote,
 } from "@/lib/contact-email";
 import { autoEnrollConversation } from "@/lib/tiendup/auto-enroll";
+import { retryPendingEnrollments } from "@/lib/tiendup/retry-pending";
 import { findContactEmailInHistory } from "@/lib/payments/email-request";
 import { sendTeamNotificationAlert } from "@/lib/email/sender";
 import { evaluateConversationCritical } from "@/lib/critical/evaluate";
@@ -104,6 +105,24 @@ export async function POST(req: NextRequest) {
   await drainWaOutbox();
 
   return NextResponse.json({ claimed: claimed.length, processed, failed });
+}
+
+/**
+ * GET = cron de Vercel (los crons siempre llaman con GET). Corre SOLO la cola
+ * de reintentos de Tiendup: los POST de los webhooks no la disparan, porque
+ * cada mensaje entrante sumaría llamadas a Tiendup justo cuando está caído.
+ */
+export async function GET(req: NextRequest) {
+  if (!isAuthorized(req)) {
+    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  }
+  try {
+    const retries = await retryPendingEnrollments({ sb: getSupabaseServerClient() });
+    return NextResponse.json({ retries });
+  } catch (err) {
+    console.error("[tiendup] reintentos: falló la corrida:", err instanceof Error ? err.message : err);
+    return NextResponse.json({ retries: null });
+  }
 }
 
 /** Procesa un job: corre el agente y persiste la respuesta. */

@@ -49,6 +49,7 @@ function mockFetch(pages: Record<number, PageBody>) {
 
 const row = (id: number, email: string) => ({ id, name: `N${id}`, last_name: `A${id}`, email, phone: null });
 const BASE = "https://shop.example.test";
+const noSleep = async () => {};
 
 async function run() {
   // --- Paginación ---
@@ -58,7 +59,7 @@ async function run() {
       2: { status: "OK", data: [row(3, "c@x.com"), row(4, "d@x.com")], count: 5, pages: 3, current: 2, next: 3 },
       3: { status: "OK", data: [row(5, "e@x.com")], count: 5, pages: 3, current: 3, next: null },
     });
-    const r = await fetchAllCustomers({ apiKey: "k", baseUrl: BASE, fetchImpl: impl });
+    const r = await fetchAllCustomers({ apiKey: "k", baseUrl: BASE, fetchImpl: impl, sleep: noSleep });
     check([r.ok, r.complete, r.customers.length], [true, true, 5], "pagina hasta pages y junta todo");
     check(
       calls.map((u) => new URL(u).searchParams.get("page")),
@@ -74,7 +75,7 @@ async function run() {
       1: { data: [row(1, "a@x.com"), row(2, "b@x.com")], count: "3", pages: "2" },
       2: { data: [row(3, "c@x.com")], count: "3", pages: "2" },
     });
-    const r = await fetchAllCustomers({ apiKey: "k", baseUrl: BASE, fetchImpl: impl });
+    const r = await fetchAllCustomers({ apiKey: "k", baseUrl: BASE, fetchImpl: impl, sleep: noSleep });
     check([r.complete, r.customers.length], [true, 3], "tolera páginas más chicas y count/pages como string");
   }
   {
@@ -83,7 +84,7 @@ async function run() {
       1: { data: [row(1, "a@x.com")], next: 2 },
       2: { data: [row(2, "b@x.com")], next: null },
     });
-    const r = await fetchAllCustomers({ apiKey: "k", baseUrl: BASE, fetchImpl: impl });
+    const r = await fetchAllCustomers({ apiKey: "k", baseUrl: BASE, fetchImpl: impl, sleep: noSleep });
     check([r.complete, r.customers.length, calls.length], [true, 2, 2], "sin pages, corta por next vacío");
   }
   {
@@ -93,22 +94,22 @@ async function run() {
       2: 500,
       3: { data: [row(3, "c@x.com")], pages: 3, count: 3 },
     });
-    const r = await fetchAllCustomers({ apiKey: "k", baseUrl: BASE, fetchImpl: impl });
+    const r = await fetchAllCustomers({ apiKey: "k", baseUrl: BASE, fetchImpl: impl, sleep: noSleep });
     check([r.ok, r.complete, r.customers.length], [false, false, 1], "HTTP 500 en una página: incompleto");
   }
   {
     const { impl } = mockFetch({ 1: "boom" });
-    const r = await fetchAllCustomers({ apiKey: "k", baseUrl: BASE, fetchImpl: impl });
+    const r = await fetchAllCustomers({ apiKey: "k", baseUrl: BASE, fetchImpl: impl, sleep: noSleep });
     check([r.ok, r.complete], [false, false], "error de red: incompleto, no lanza");
   }
   {
     const { impl } = mockFetch({ 1: { status: "ERROR", data: [] } });
-    const r = await fetchAllCustomers({ apiKey: "k", baseUrl: BASE, fetchImpl: impl });
+    const r = await fetchAllCustomers({ apiKey: "k", baseUrl: BASE, fetchImpl: impl, sleep: noSleep });
     check(r.complete, false, "status distinto de OK: incompleto");
   }
   {
     const { impl } = mockFetch({ 1: { status: "OK", data: "nada" } });
-    const r = await fetchAllCustomers({ apiKey: "k", baseUrl: BASE, fetchImpl: impl });
+    const r = await fetchAllCustomers({ apiKey: "k", baseUrl: BASE, fetchImpl: impl, sleep: noSleep });
     check(r.complete, false, "data no es array: incompleto");
   }
   {
@@ -118,17 +119,17 @@ async function run() {
       1: { data: [row(1, "a@x.com"), row(2, "b@x.com")], count: 4, pages: 2 },
       2: { data: [row(2, "b@x.com"), row(3, "c@x.com")], count: 4, pages: 2 },
     });
-    const r = await fetchAllCustomers({ apiKey: "k", baseUrl: BASE, fetchImpl: impl });
+    const r = await fetchAllCustomers({ apiKey: "k", baseUrl: BASE, fetchImpl: impl, sleep: noSleep });
     check([r.complete, r.customers.length], [false, 3], "duplicado + total que no cierra: incompleto, sin duplicar");
   }
   {
     const { impl, calls } = mockFetch({});
-    const r = await fetchAllCustomers({ apiKey: "", baseUrl: BASE, fetchImpl: impl });
+    const r = await fetchAllCustomers({ apiKey: "", baseUrl: BASE, fetchImpl: impl, sleep: noSleep });
     check([r.ok, r.complete, calls.length], [false, false, 0], "sin key: no llama a nada");
   }
   {
     const { impl } = mockFetch({ 1: { data: [], count: 0, pages: 0 } });
-    const r = await fetchAllCustomers({ apiKey: "k", baseUrl: BASE, fetchImpl: impl });
+    const r = await fetchAllCustomers({ apiKey: "k", baseUrl: BASE, fetchImpl: impl, sleep: noSleep });
     check([r.complete, r.customers.length], [true, 0], "tienda sin clientes: completo y vacío");
   }
 

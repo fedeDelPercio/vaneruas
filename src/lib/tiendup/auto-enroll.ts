@@ -12,6 +12,7 @@ import {
 } from "./grant";
 import type { AutoEnrollResolution } from "./auto-enroll-flag";
 import { getTiendupAutoEnrollSetting } from "./auto-enroll-setting";
+import { isSilentAccessError, parseRetryError } from "./messages";
 
 // ===========================================================================
 // Alta automática en Tiendup.
@@ -56,17 +57,18 @@ interface PaymentRow {
   status: string;
   awaiting_title: boolean;
   course_access_granted_at: string | null;
+  course_access_error?: string | null;
 }
 
 const PAYMENT_COLS =
-  "id, conversation_id, event_slug, status, awaiting_title, course_access_granted_at";
+  "id, conversation_id, event_slug, status, awaiting_title, course_access_granted_at, course_access_error";
 
 /**
  * ¿Este comprobante está esperando acceso? Mismo criterio que la pestaña
  * "Falta acceso" de Aprobaciones: masterclass con el acceso vigente, pago
  * validado y acceso sin dar. Además, que no esté retenido por el título.
  */
-function waitsForAccess(p: PaymentRow): boolean {
+export function waitsForAccess(p: PaymentRow): boolean {
   const ev = eventBySlug(p.event_slug);
   const isMasterclass = Boolean(ev) && ev!.slug !== "congreso";
   return (
@@ -79,7 +81,7 @@ function waitsForAccess(p: PaymentRow): boolean {
 }
 
 /** Motivo legible para el equipo, o null si no corresponde avisar. */
-function pendingReason(o: GrantOutcome): string | null {
+export function pendingReason(o: GrantOutcome): string | null {
   switch (o.kind) {
     case "no_email":
       return "todavía no tenemos su correo (se le pidió al confirmar el pago)";
@@ -103,8 +105,16 @@ function pendingReason(o: GrantOutcome): string | null {
 }
 
 async function enrollOne(sb: Db, p: PaymentRow, trigger: string): Promise<void> {
+  // Pedido manual en cola: lo retoma retry-pending.ts en modo manual. Un intento
+  // automático acá podría pisar esa marca con un "no figura".
+  if (parseRetryError(p.course_access_error)?.kind === "manual") return;
   try {
-    const { outcome } = await grantCourseAccess(p.id, { mode: "auto", sb });
+    // Un pedido silencioso ("Enviar a Tiendup") sigue sin avisar a la persona.
+    const { outcome } = await grantCourseAccess(p.id, {
+      mode: "auto",
+      notify: !isSilentAccessError(p.course_access_error),
+      sb,
+    });
     if (grantSucceeded(outcome)) {
       console.log(`[tiendup] alta automática ok (${trigger}): pago ${p.id}`);
       return;

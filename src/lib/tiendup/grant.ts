@@ -18,13 +18,19 @@ import {
   type CustomersListing,
 } from "./client";
 import { decideGrantAction } from "./customer-gate";
+import { getTiendupAutoEnrollSetting } from "./auto-enroll-setting";
 import {
   ACCESS_NOTICE_FAILED_SUMMARY,
   TIENDUP_ACCESS_MESSAGE,
   accessNoticeFailedReason,
   enrollmentPendingReason,
   enrollmentPendingSummary,
+  isGaveUpError,
+  isNameConflictError,
+  isNotInTiendupError,
+  nameConflictError,
   notInTiendupError,
+  nextRetryError,
 } from "./messages";
 
 // ===========================================================================
@@ -49,6 +55,9 @@ import {
 // Además, el automático:
 //   - exige un correo con formato válido (normalizeContactEmail);
 //   - si el listado de inscriptos no se pudo leer completo, no inscribe.
+//
+// Fallos transitorios: quedan con un marcador RETRY_* en course_access_error y
+// los retoma la cola del cron (retry-pending.ts), respetando el modo original.
 // ===========================================================================
 
 type Db = SupabaseClient<Database>;
@@ -69,7 +78,14 @@ export type GrantOutcome =
     }
   | { kind: "already_enrolled"; email: string; emailFixed: boolean }
   | { kind: "enrolled"; email: string; emailFixed: boolean }
-  | { kind: "enroll_failed"; error: string }
+  | {
+      kind: "enroll_failed";
+      error: string;
+      /** Tiendup no respondió: se puede reintentar. */
+      transient?: boolean;
+      /** Quedó en la cola de reintentos del cron. */
+      queued?: boolean;
+    }
   /** Auto: el correo no existe como cliente de la tienda. No se inscribió. */
   | { kind: "not_in_tiendup"; email: string }
   /** Auto: no se pudo leer completo el listado de clientes. No se inscribió. */
@@ -80,14 +96,18 @@ export type GrantOutcome =
 // frenada por el cache.
 const CUSTOMERS_REFRESH_IF_OLDER_MS = 60_000;
 
-async function loadCustomersFor(email: string): Promise<CustomersListing> {
-  let listing = await listCustomersChecked();
+// Tope para todas las llamadas a Tiendup de un alta inline: la función corta a
+// los 60 s y después del alta todavía falta avisar por WhatsApp.
+const GRANT_DEADLINE_MS = 35_000;
+
+async function loadCustomersFor(email: string, deadlineAt: number): Promise<CustomersListing> {
+  let listing = await listCustomersChecked({ deadlineAt });
   if (
     listing.complete &&
     !findCustomerByEmail(listing.customers, email) &&
     Date.now() - listing.fetchedAt > CUSTOMERS_REFRESH_IF_OLDER_MS
   ) {
-    listing = await listCustomersChecked({ maxAgeMs: 0 });
+    listing = await listCustomersChecked({ maxAgeMs: 0, deadlineAt });
   }
   return listing;
 }
@@ -120,15 +140,24 @@ export async function grantCourseAccess(
      */
     notify?: boolean;
     sb?: Db;
+    /**
+     * Lo llama la cola del cron: un solo POST (reintenta la próxima corrida) y,
+     * con el listado de inscriptos caído, no inscribe tampoco en manual.
+     */
+    fromQueue?: boolean;
+    /** Tiempo máximo para las llamadas a Tiendup (default 35 s). */
+    deadlineMs?: number;
   },
 ): Promise<GrantResult> {
   const sb = opts.sb ?? getSupabaseServerClient();
   const auto = opts.mode === "auto";
   const notify = opts.notify !== false;
+  const fromQueue = opts.fromQueue === true;
+  const deadlineAt = Date.now() + (opts.deadlineMs ?? GRANT_DEADLINE_MS);
 
   const { data: pay } = await sb
     .from("payment_validations")
-    .select("id, status, event_slug, conversation_id")
+    .select("id, status, event_slug, conversation_id, course_access_error")
     .eq("id", paymentId)
     .maybeSingle();
   if (!pay) return { outcome: { kind: "not_found" }, conversationId: null };
@@ -157,20 +186,37 @@ export async function grantCourseAccess(
   const fullName = conv?.display_name ?? null;
 
   // --- Chequeo previo contra el listado real de inscriptos de Tiendup ---
+  // Marca el caso para la cola, con la intención de aviso del pedido original
+  // (nextRetryError conserva el primer fallo mientras sea el mismo pedido).
+  const saveForRetry = async (text: string, queueOff = false) => {
+    // Una caída de Tiendup no devuelve a la cola lo que ya espera a una persona.
+    const stored = pay.course_access_error;
+    if (auto && (isNotInTiendupError(stored) || isNameConflictError(stored) || isGaveUpError(stored))) return;
+    const nowIso = new Date().toISOString();
+    const marker = nextRetryError({ stored, mode: opts.mode, notify, text, nowIso, queueOff });
+    await sb
+      .from("payment_validations")
+      .update({ course_access_error: marker, updated_at: nowIso })
+      .eq("id", paymentId);
+  };
+
   let enrolled;
-  if (auto) {
-    const listing = await listEnrolledChecked(courseId);
-    if (!listing.complete) return { outcome: { kind: "listing_failed" }, conversationId };
+  if (auto || fromQueue) {
+    const listing = await listEnrolledChecked(courseId, { deadlineAt });
+    if (!listing.complete) {
+      await saveForRetry("No se pudo leer el listado de inscriptos (Tiendup no respondió)");
+      return { outcome: { kind: "listing_failed" }, conversationId };
+    }
     enrolled = listing.enrolled;
   } else {
-    enrolled = await listEnrolled(courseId);
+    enrolled = await listEnrolled(courseId, { deadlineAt });
   }
   const decision = await decideGrantAction({
     mode: opts.mode,
     enrolled,
     email,
     fullName,
-    loadCustomers: () => loadCustomersFor(email),
+    loadCustomers: () => loadCustomersFor(email, deadlineAt),
   });
 
   let outcome: GrantOutcome;
@@ -180,6 +226,11 @@ export async function grantCourseAccess(
     outcome = { kind: "already_enrolled", email, emailFixed };
   } else if (decision.action === "name_conflict") {
     const e = decision.existing;
+    // Lo resuelve una persona: la marca lo saca de la cola de reintentos.
+    await sb
+      .from("payment_validations")
+      .update({ course_access_error: nameConflictError(), updated_at: new Date().toISOString() })
+      .eq("id", paymentId);
     return {
       outcome: {
         kind: "name_conflict",
@@ -199,22 +250,33 @@ export async function grantCourseAccess(
         .eq("id", paymentId);
       return { outcome: { kind: "not_in_tiendup", email }, conversationId };
     }
+    await saveForRetry("No se pudo verificar el correo en Tiendup (Tiendup no respondió)");
     return { outcome: { kind: "customer_check_failed", email }, conversationId };
   } else {
     const { name, lastName } = splitFullName(fullName);
-    const result = await enrollCourseByEmail({ courseId, email, name, lastName });
+    const result = await enrollCourseByEmail({
+      courseId,
+      email,
+      name,
+      lastName,
+      deadlineAt,
+      ...(fromQueue ? { retryDelaysMs: [] } : {}),
+    });
     if (!result.ok) {
-      await sb
-        .from("payment_validations")
-        .update({
-          course_access_error: result.error ?? "error desconocido",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", paymentId);
-      return {
-        outcome: { kind: "enroll_failed", error: result.error ?? "error desconocido" },
-        conversationId,
-      };
+      const error = result.error ?? "error desconocido";
+      const transient = result.transient === true;
+      const queued = transient && (fromQueue || (await retryQueueEnabled()));
+      // Sin marcador, un transitorio entraría a la cola como automático y con
+      // aviso cuando se prenda: un pedido silencioso lo guarda igual.
+      if (queued || (transient && !notify)) {
+        await saveForRetry(error, !queued);
+      } else {
+        await sb
+          .from("payment_validations")
+          .update({ course_access_error: error, updated_at: new Date().toISOString() })
+          .eq("id", paymentId);
+      }
+      return { outcome: { kind: "enroll_failed", error, transient, queued }, conversationId };
     }
     await markGranted(sb, paymentId);
     outcome = { kind: "enrolled", email, emailFixed };
@@ -225,6 +287,15 @@ export async function grantCourseAccess(
     await afterAccessGranted(sb, { paymentId, conversationId, eventSlug: pay.event_slug, notify });
   }
   return { outcome, conversationId };
+}
+
+/** La cola corre solo con el alta automática prendida. Ante la duda, no promete. */
+async function retryQueueEnabled(): Promise<boolean> {
+  try {
+    return (await getTiendupAutoEnrollSetting()).enabled && Boolean(process.env.TIENDUP_API_KEY);
+  } catch {
+    return false;
+  }
 }
 
 /**

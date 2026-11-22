@@ -63,13 +63,127 @@ export function isNotInTiendupError(error: string | null | undefined): boolean {
   return Boolean(error?.trim().startsWith(NOT_IN_TIENDUP_PREFIX));
 }
 
+// --- Marcadores de la cola de reintentos (retry-pending.ts) -------------------
+//
+// Sin schema nuevo: viven en course_access_error.
+//   RETRY_AUTO: [iso] texto    en cola, se reintenta en automático;
+//   RETRY_MANUAL: [iso] texto  en cola, lo pidió el equipo (puede crear cliente);
+//   RETRY_GAVE_UP: texto       pasaron 24 h, ya no se reintenta solo;
+//   NAME_CONFLICT: texto       figura con otro correo, lo resuelve una persona.
+// [iso] es el primer fallo: updated_at no sirve porque cada reintento lo mueve.
+//
+// Variante _SILENT (RETRY_AUTO_SILENT:, RETRY_MANUAL_SILENT:,
+// RETRY_GAVE_UP_SILENT:): el pedido vino de "Enviar a Tiendup" (notify: false)
+// y cuando el acceso quede dado NO se le avisa a la persona por WhatsApp. Los
+// marcadores sin sufijo siguen significando lo mismo que antes.
+
+export type RetryKind = "auto" | "manual";
+
+export const RETRY_AUTO_PREFIX = "RETRY_AUTO:";
+export const RETRY_MANUAL_PREFIX = "RETRY_MANUAL:";
+export const RETRY_GAVE_UP_PREFIX = "RETRY_GAVE_UP:";
+export const NAME_CONFLICT_PREFIX = "NAME_CONFLICT:";
+export const NAME_CONFLICT_TEXT = "Figura inscripta en Tiendup con otro correo";
+const RETRY_DEFAULT_TEXT = "Tiendup no respondió";
+const RETRY_RE = /^RETRY_(AUTO|MANUAL)(_SILENT)?:\s*(?:\[([^\]]+)\]\s*)?([\s\S]*)$/;
+const GAVE_UP_RE = /^RETRY_GAVE_UP(?:_SILENT)?:\s*/;
+const SILENT_RE = /^RETRY_(?:AUTO|MANUAL|GAVE_UP)_SILENT:/;
+
+/** Valor de course_access_error para un caso en cola de reintento. */
+export function retryError(kind: RetryKind, text: string, firstFailedAt: string, silent = false): string {
+  const base = kind === "manual" ? RETRY_MANUAL_PREFIX : RETRY_AUTO_PREFIX;
+  const prefix = silent ? base.replace(/:$/, "_SILENT:") : base;
+  return `${prefix} [${firstFailedAt}] ${displayCourseAccessError(text) || RETRY_DEFAULT_TEXT}`;
+}
+
+/** ¿El pedido guardado es de los que no le avisan a la persona? */
+export function isSilentAccessError(error: string | null | undefined): boolean {
+  return SILENT_RE.test(error?.trim() ?? "");
+}
+
+/**
+ * Marcador a guardar cuando un alta falla de forma transitoria. Conserva el
+ * primer fallo mientras siga siendo el mismo pedido (mismo modo y misma
+ * intención de aviso). Un intento automático nunca le saca el silencio a un
+ * pedido silencioso. `queueOff`: la cola no estaba corriendo y al equipo se le
+ * informó el error; si después se prende, se retoma en automático (no crea
+ * clientes) y sin aviso.
+ */
+export function nextRetryError(args: {
+  stored: string | null | undefined;
+  mode: RetryKind;
+  notify: boolean;
+  text: string;
+  nowIso: string;
+  queueOff?: boolean;
+}): string {
+  const prev = parseRetryError(args.stored);
+  const auto = args.mode === "auto";
+  const kind: RetryKind = auto ? (prev?.kind ?? "auto") : args.queueOff ? "auto" : "manual";
+  const silent = !args.notify || (auto && isSilentAccessError(args.stored));
+  const same = prev?.kind === kind && prev.silent === silent;
+  const first = same && prev.firstFailedAt ? prev.firstFailedAt : args.nowIso;
+  return retryError(kind, args.text, first, silent);
+}
+
+/**
+ * Valor de course_access_error cuando el equipo cambia el mail: el error era
+ * del mail anterior y se limpia, pero un pedido silencioso sigue sin avisar
+ * (vuelve a la cola en automático, con plazo nuevo).
+ */
+export function errorAfterEmailChange(stored: string | null | undefined, nowIso: string): string | null {
+  if (!isSilentAccessError(stored)) return null;
+  return retryError("auto", displayCourseAccessError(stored) ?? RETRY_DEFAULT_TEXT, nowIso, true);
+}
+
+export function parseRetryError(
+  error: string | null | undefined,
+): { kind: RetryKind; silent: boolean; firstFailedAt: string | null; text: string } | null {
+  const m = RETRY_RE.exec(error?.trim() ?? "");
+  if (!m) return null;
+  return {
+    kind: m[1] === "MANUAL" ? "manual" : "auto",
+    silent: Boolean(m[2]),
+    firstFailedAt: m[3] ?? null,
+    text: m[4]?.trim() || RETRY_DEFAULT_TEXT,
+  };
+}
+
+export function gaveUpError(text: string, silent = false): string {
+  const prefix = silent ? RETRY_GAVE_UP_PREFIX.replace(/:$/, "_SILENT:") : RETRY_GAVE_UP_PREFIX;
+  return `${prefix} ${displayCourseAccessError(text) || RETRY_DEFAULT_TEXT}`;
+}
+
+export function isGaveUpError(error: string | null | undefined): boolean {
+  return GAVE_UP_RE.test(error?.trim() ?? "");
+}
+
+export function nameConflictError(): string {
+  return `${NAME_CONFLICT_PREFIX} ${NAME_CONFLICT_TEXT}`;
+}
+
+export function isNameConflictError(error: string | null | undefined): boolean {
+  return Boolean(error?.trim().startsWith(NAME_CONFLICT_PREFIX));
+}
+
+/** Respuesta de "Dar acceso" cuando el caso quedó en la cola. */
+export const TIENDUP_QUEUED_MESSAGE =
+  "Tiendup no responde ahora. Quedó en cola: se reintenta solo cada minuto y le llega el aviso cuando entre.";
+
+/** Respuesta de "Enviar a Tiendup" en cola: ese botón nunca le escribe a la persona. */
+export const TIENDUP_QUEUED_SILENT_MESSAGE =
+  "Tiendup no responde ahora. Quedó en cola: se reintenta solo cada minuto.";
+
 /** Error guardado para mostrar en el panel: sin el prefijo técnico ni HTML crudo. */
 export function displayCourseAccessError(error: string | null | undefined): string | null {
   const e = error?.trim();
   if (!e) return null;
-  return isNotInTiendupError(e)
-    ? e.slice(NOT_IN_TIENDUP_PREFIX.length).trim() || NOT_IN_TIENDUP_TEXT
-    : tidyTiendupError(e);
+  if (isNotInTiendupError(e)) return e.slice(NOT_IN_TIENDUP_PREFIX.length).trim() || NOT_IN_TIENDUP_TEXT;
+  const retry = parseRetryError(e);
+  if (retry) return tidyTiendupError(retry.text);
+  if (isGaveUpError(e)) return tidyTiendupError(e.replace(GAVE_UP_RE, "").trim()) || RETRY_DEFAULT_TEXT;
+  if (isNameConflictError(e)) return e.slice(NAME_CONFLICT_PREFIX.length).trim() || NAME_CONFLICT_TEXT;
+  return tidyTiendupError(e);
 }
 
 // --- Errores de la API de Tiendup legibles ----------------------------------

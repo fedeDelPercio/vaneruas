@@ -13,7 +13,8 @@ import {
   tiendupMappedCourses,
   type CustomersListing,
 } from "./client";
-import { isNotInTiendupError, tidyTiendupError } from "./messages";
+import { getTiendupAutoEnrollSetting } from "./auto-enroll-setting";
+import { displayCourseAccessError, isNotInTiendupError, parseRetryError } from "./messages";
 import type { TiendupEnrolled } from "./match";
 import {
   decideCurrentAccess,
@@ -72,7 +73,8 @@ export async function getEnrolledListing(courseId: number): Promise<Listing | nu
   const running = inflight.get(courseId);
   if (running) return running;
   const gen = generation.get(courseId) ?? 0;
-  const p = listEnrolledChecked(courseId)
+  // Sin reintentos por página: abrir fichas no debe sumar carga si Tiendup cae.
+  const p = listEnrolledChecked(courseId, { retryDelaysMs: [] })
     .then((value) => {
       if ((generation.get(courseId) ?? 0) === gen) cache.set(courseId, { at: Date.now(), value });
       return value;
@@ -129,7 +131,12 @@ export async function loadTiendupStatus(
   // pendiente más nuevo.
   const current = payments.find((p) => p.status === "validated") ?? payments[0]!;
   const currentCourseId = tiendupCourseIdForEvent(current.event_slug);
-  const currentError = current.course_access_granted_at ? null : current.course_access_error?.trim() || null;
+  let currentError = current.course_access_granted_at ? null : current.course_access_error?.trim() || null;
+  // Con el alta automática apagada la cola no corre: no mostrar "en cola".
+  if (parseRetryError(currentError)) {
+    const queueOn = await getTiendupAutoEnrollSetting().then((s) => s.enabled, () => false);
+    if (!queueOn) currentError = displayCourseAccessError(currentError);
+  }
   const notInMarker = isNotInTiendupError(currentError);
   const currentBase = {
     eventSlug: current.event_slug,
@@ -146,9 +153,11 @@ export async function loadTiendupStatus(
       granted: Boolean(current.course_access_granted_at),
       courseId: currentCourseId,
       courseState: currentCourseId
-        ? currentError && !notInMarker
-          ? { state: "error", error: tidyTiendupError(currentError) }
-          : { state: "unavailable" }
+        ? parseRetryError(currentError)
+          ? { state: "queued", error: displayCourseAccessError(currentError) }
+          : currentError && !notInMarker
+            ? { state: "error", error: displayCourseAccessError(currentError) }
+            : { state: "unavailable" }
         : null,
       // Sin listado: "granted" (no "granted_missing") si ya tenía el alta, y
       // "pending" (no "unavailable") si está aprobado sin alta.
@@ -167,7 +176,7 @@ export async function loadTiendupStatus(
 
   let customersP: Promise<CustomersListing | null> | null = null;
   const getCustomers = () =>
-    (customersP ??= process.env.TIENDUP_API_KEY ? listCustomersChecked() : Promise.resolve(null));
+    (customersP ??= process.env.TIENDUP_API_KEY ? listCustomersChecked({ retryDelaysMs: [] }) : Promise.resolve(null));
 
   const mapped = tiendupMappedCourses();
   const listings = new Map<number, Listing | null>(

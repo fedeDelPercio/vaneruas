@@ -6,6 +6,7 @@ import {
   ChevronDown,
   CircleAlert,
   CircleCheck,
+  Clock,
   CloudOff,
   Flag,
   KeyRound,
@@ -393,6 +394,8 @@ function accessLine(c: TiendupAccessStatus): LiveLine {
       return { text: `Pendiente de alta para ${ev}`, detail: "Pago aprobado, todavía sin acceso al curso", tone: "warn", Icon: KeyRound };
     case "not_found":
       return { text: `Pendiente de alta para ${ev}`, detail: "El alta automática frenó: el mail no figura en Tiendup", tone: "bad", Icon: MailX };
+    case "queued":
+      return { text: "En cola de reintento: Tiendup no respondió", detail: `${ev}. Se reintenta solo cada minuto`, tone: "warn", Icon: Clock };
     case "error":
       return { text: `Error en el alta para ${ev}`, detail: c.error ?? null, tone: "bad", Icon: CircleAlert };
     case "no_mapping":

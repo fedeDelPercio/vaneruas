@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { CircleAlert, CircleCheck, KeyRound, Loader2, Pencil } from "lucide-react";
+import { CircleAlert, CircleCheck, Clock, KeyRound, Loader2, Pencil } from "lucide-react";
 import { normalizeContactEmail } from "@/lib/contact-email";
 import type { TiendupEditorMode } from "@/lib/tiendup/status";
 import type { SaveEmailResponse } from "@/app/api/wa/contact/[conversationId]/email/route";
@@ -19,7 +19,7 @@ import { useProfile } from "../ProfileProvider";
 // "collapsed" detrás de "Corregir mail" (acceso ya enviado), "normal" visible.
 // ===========================================================================
 
-type Result = { tone: "ok" | "bad"; text: string } | null;
+type Result = { tone: "ok" | "bad" | "info"; text: string } | null;
 type Busy = null | "save" | "enroll";
 
 export function TiendupEmailEditor({
@@ -73,7 +73,9 @@ export function TiendupEmailEditor({
         body: JSON.stringify({ email: normalized, enroll, profileId: profile.id }),
       });
       const j = (await r.json().catch(() => ({}))) as SaveEmailResponse;
-      if (!r.ok || !j.ok) {
+      if (r.status === 202 && j.queued) {
+        setResult({ tone: "info", text: j.message ?? "Quedó en cola de reintento" });
+      } else if (!r.ok || !j.ok) {
         if (r.status === 400 && j.error === "Mail inválido") setInvalid(true);
         else setResult({ tone: "bad", text: j.error ?? "No se pudo guardar" });
       } else if (enroll) {
@@ -210,11 +212,17 @@ function ResultLine({ result }: { result: NonNullable<Result> }) {
     <p
       role="status"
       className={`mt-2 flex items-start gap-1.5 text-[11.5px] leading-snug ${
-        result.tone === "ok" ? "text-ok-fg dark:text-ok" : "text-red-700 dark:text-red-400"
+        result.tone === "ok"
+          ? "text-ok-fg dark:text-ok"
+          : result.tone === "info"
+            ? "text-neutral-600 dark:text-neutral-300"
+            : "text-red-700 dark:text-red-400"
       }`}
     >
       {result.tone === "ok" ? (
         <CircleCheck className="mt-px h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+      ) : result.tone === "info" ? (
+        <Clock className="mt-px h-3.5 w-3.5 shrink-0 text-warn" strokeWidth={2} />
       ) : (
         <CircleAlert className="mt-px h-3.5 w-3.5 shrink-0" strokeWidth={2} />
       )}

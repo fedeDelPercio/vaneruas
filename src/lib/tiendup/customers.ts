@@ -20,6 +20,8 @@
 // scripts/test-tiendup-customers.ts sin red. client.ts lo re-exporta.
 // ===========================================================================
 
+import { fetchPageWithRetry, type FetchLike } from "./transient";
+
 export interface TiendupCustomer {
   id: string | null;
   name: string | null;
@@ -36,8 +38,6 @@ export interface CustomersListing {
   /** Cuándo se leyó (ms epoch). Para decidir si vale la pena releer. */
   fetchedAt: number;
 }
-
-type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 const PAGE_LIMIT = 100;
 // Tope de páginas: aun si Tiendup capara el límite a 25, cubre 10.000 clientes.
@@ -93,15 +93,20 @@ function str(v: unknown): string | null {
  *     registra mientras paginamos, el corrimiento puede duplicar o saltear
  *     filas: en ese caso queda incompleto y se reintenta después.
  * Los duplicados (mismo id, o mismo correo sin id) se descartan.
+ *
+ * Cada página se reintenta ante fallos transitorios (transient.ts). Si aun así
+ * falla, el listado queda incompleto: nunca se afirma algo con datos cortados.
  */
 export async function fetchAllCustomers(args: {
   apiKey: string | null | undefined;
   baseUrl: string;
   fetchImpl?: FetchLike;
   now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+  retryDelaysMs?: readonly number[];
+  deadlineAt?: number;
 }): Promise<CustomersListing> {
   const now = args.now ?? Date.now;
-  const fetchImpl: FetchLike = args.fetchImpl ?? ((i, init) => fetch(i, init));
   if (!args.apiKey) return { ok: false, complete: false, customers: [], fetchedAt: now() };
 
   const out: TiendupCustomer[] = [];
@@ -112,11 +117,17 @@ export async function fetchAllCustomers(args: {
 
   try {
     for (let page = 1; page <= MAX_PAGES; page++) {
-      const res = await fetchImpl(`${args.baseUrl}/customers?limit=${PAGE_LIMIT}&page=${page}`, {
-        headers: { "x-api-key": args.apiKey, Accept: "application/json" },
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+      const res = await fetchPageWithRetry({
+        url: `${args.baseUrl}/customers?limit=${PAGE_LIMIT}&page=${page}`,
+        apiKey: args.apiKey,
+        timeoutMs: TIMEOUT_MS,
+        fetchImpl: args.fetchImpl,
+        sleep: args.sleep,
+        delaysMs: args.retryDelaysMs,
+        deadlineAt: args.deadlineAt,
+        now,
       });
-      if (!res.ok) {
+      if (!res) {
         ok = false;
         break;
       }

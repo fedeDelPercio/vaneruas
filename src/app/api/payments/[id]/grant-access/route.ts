@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { grantCourseAccess, markCourseAccessOnly } from "@/lib/tiendup/grant";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { TIENDUP_QUEUED_MESSAGE } from "@/lib/tiendup/messages";
 
 export const dynamic = "force-dynamic";
+// El alta reintenta errores transitorios de Tiendup (con tope de 35 s).
+export const maxDuration = 60;
 
 // ===========================================================================
 // PATCH /api/payments/[id]/grant-access
@@ -117,6 +120,12 @@ export async function PATCH(
         { status: 200 },
       );
     case "enroll_failed":
+      if (o.queued) {
+        return NextResponse.json(
+          { ok: false, queued: true, message: TIENDUP_QUEUED_MESSAGE },
+          { status: 202 },
+        );
+      }
       return NextResponse.json(
         { ok: false, error: o.error || "No se pudo dar el acceso" },
         { status: 502 },

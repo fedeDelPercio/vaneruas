@@ -380,6 +380,20 @@ Aprobaciones, detalles que importan:
   de la tienda (Tiendup crea el cliente). El chequeo de "otro correo" y de
   "cliente de la tienda" queda solo para el alta automática. "Ya tiene acceso"
   solo marca, sin tocar Tiendup ni avisar.
+- **Cola de reintentos de Tiendup** (`src/lib/tiendup/retry-pending.ts`, reglas
+  puras en `retry-policy.ts`). Tiendup puede responder varios minutos `403 site
+  not found`. El cron de cada minuto (`GET /api/jobs/process`, que corre solo
+  esto; los `POST` de webhooks no) retoma los pagos validados sin acceso, con
+  correo válido, si el alta automática está prendida. Hasta 8 por corrida, de a
+  uno, y corta al primer fallo transitorio. Cada pago, como mucho cada 2 min; a
+  las 24 h del primer fallo deja de reintentar y avisa al equipo. Estado sin
+  schema nuevo, en `course_access_error`: `RETRY_AUTO:` (nunca crea clientes),
+  `RETRY_MANUAL:` (lo pidió el equipo, puede crearlo), `RETRY_GAVE_UP:` y
+  `NAME_CONFLICT:`. Con sufijo `_SILENT` (`RETRY_MANUAL_SILENT:`, etc.) el pedido
+  vino de "Enviar a Tiendup" y la cola no le avisa a la persona. No reintenta
+  `NOT_IN_TIENDUP`, conflictos de nombre ni errores no transitorios. Si el equipo
+  cambia el mail, se limpia el error y vuelve a la cola en automático (un pedido
+  `_SILENT` sigue sin aviso). Los botones responden `202 { queued: true }`.
 - **Cuando el acceso queda dado** (automático o botón) se manda por WhatsApp
   `TIENDUP_ACCESS_MESSAGE` (`src/lib/tiendup/messages.ts`), una vez por curso.
   Si no sale (ventana de 24 h), queda `delivery_failed` en el comprobante y una
