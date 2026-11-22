@@ -22,6 +22,7 @@ import {
 import {
   RETRY_GIVE_UP_MS,
   RETRY_MIN_INTERVAL_MS,
+  RETRY_LOOKBACK_MS,
   decideRetry,
   planRetries,
   retryResultOf,
@@ -58,6 +59,7 @@ function row(over: Partial<RetryRow> = {}): RetryRow {
     course_access_granted_at: null,
     course_access_error: null,
     updated_at: ago(10 * MIN),
+    created_at: ago(60 * MIN),
     ...over,
   };
 }
@@ -217,6 +219,13 @@ async function main() {
   // --- Backoff y 24 h ---
   check(decide(row({ updated_at: ago(RETRY_MIN_INTERVAL_MS - 1000) })).action, "wait", "menos de 2 min: espera");
   check(decide(row({ updated_at: ago(RETRY_MIN_INTERVAL_MS) })).action, "retry", "a los 2 min: reintenta");
+  check(decide(row({ created_at: ago(RETRY_LOOKBACK_MS + MIN) })).action, "skip", "backlog viejo sin marcador: no entra");
+  check(decide(row({ created_at: ago(RETRY_LOOKBACK_MS - MIN) })).action, "retry", "sin marcador dentro de 72 h: entra");
+  check(
+    decide(row({ created_at: ago(30 * 24 * 60 * MIN), course_access_error: retryError("auto", "caído", ago(60 * MIN)) })).action,
+    "retry",
+    "viejo pero con marcador RETRY_: sigue en cola",
+  );
   check(
     decide(row({ course_access_error: retryError("auto", "caído", ago(RETRY_GIVE_UP_MS)), updated_at: ago(MIN) })),
     { action: "give_up", text: "caído" },

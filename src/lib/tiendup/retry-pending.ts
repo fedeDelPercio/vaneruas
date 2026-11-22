@@ -40,7 +40,7 @@ import {
 type Db = SupabaseClient<Database>;
 
 const ROW_COLS =
-  "id, conversation_id, event_slug, status, awaiting_title, course_access_granted_at, course_access_error, updated_at";
+  "id, conversation_id, event_slug, status, awaiting_title, course_access_granted_at, course_access_error, updated_at, created_at";
 const MAX_ROWS = 1000;
 const CONVERSATIONS_CHUNK = 100;
 // La corrida no arranca otro intento pasado este tiempo.

@@ -22,6 +22,14 @@ export const RETRY_MIN_INTERVAL_MS = 2 * 60_000;
 /** Desde el primer fallo registrado, después de esto se deja de reintentar. */
 export const RETRY_GIVE_UP_MS = 24 * 60 * 60_000;
 export const RETRY_DEFAULT_MAX = 8;
+/**
+ * Comprobantes SIN marcador RETRY_* solo entran si se crearon hace menos de
+ * esto. Evita que el primer deploy de la cola recorra el backlog viejo (pagos
+ * de octubre que el equipo resolvió por afuera de Tiendup sin marcarlos) y les
+ * mande el aviso de acceso por WhatsApp semanas después. Los que ya tienen
+ * marcador (fallaron con la cola activa) siguen hasta su tope de 24 h.
+ */
+export const RETRY_LOOKBACK_MS = 72 * 60 * 60_000;
 
 export interface RetryRow {
   id: string;
@@ -32,6 +40,7 @@ export interface RetryRow {
   course_access_granted_at: string | null;
   course_access_error: string | null;
   updated_at: string;
+  created_at: string;
 }
 
 export type RetryDecision =
@@ -57,6 +66,10 @@ export function decideRetry(args: {
   }
 
   const marker = parseRetryError(error);
+  if (!marker) {
+    const created = Date.parse(row.created_at);
+    if (!Number.isFinite(created) || now - created > RETRY_LOOKBACK_MS) return { action: "skip" };
+  }
   // Un error sin marcador solo entra si es transitorio (los viejos, previos a
   // la cola). No se sabe quién lo originó: va en automático, que no crea
   // clientes. Su plazo de 24 h arranca con el primer reintento que falle.

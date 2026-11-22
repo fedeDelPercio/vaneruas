@@ -394,6 +394,9 @@ Aprobaciones, detalles que importan:
   `NOT_IN_TIENDUP`, conflictos de nombre ni errores no transitorios. Si el equipo
   cambia el mail, se limpia el error y vuelve a la cola en automático (un pedido
   `_SILENT` sigue sin aviso). Los botones responden `202 { queued: true }`.
+  Un pago SIN marcador `RETRY_*` solo entra si se creó hace menos de 72 h
+  (`RETRY_LOOKBACK_MS`): así el primer deploy no recorre el backlog viejo ni
+  manda avisos de acceso semanas después.
 - **Cuando el acceso queda dado** (automático o botón) se manda por WhatsApp
   `TIENDUP_ACCESS_MESSAGE` (`src/lib/tiendup/messages.ts`), una vez por curso.
   Si no sale (ventana de 24 h), queda `delivery_failed` en el comprobante y una
