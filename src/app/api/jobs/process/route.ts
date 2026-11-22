@@ -8,13 +8,20 @@ import { handleAttachmentIntake } from "@/lib/titles/handle";
 import { resolveWhatsAppTurn } from "@/lib/agent/debounce";
 import {
   decideContactEmailUpdate,
+  isNewPurchaseEmail,
+  newPurchaseEmailNote,
   extractContactEmail,
   normalizeContactEmail,
   secondEmailNote,
 } from "@/lib/contact-email";
 import { autoEnrollConversation } from "@/lib/tiendup/auto-enroll";
 import { retryPendingEnrollments } from "@/lib/tiendup/retry-pending";
-import { findContactEmailInHistory } from "@/lib/payments/email-request";
+import {
+  findContactEmailInHistory,
+  findEmailNearPurchase,
+  loadNewPurchaseContext,
+} from "@/lib/payments/email-request";
+import { markMessageDelivered } from "@/lib/whatsapp-delivery";
 import { sendTeamNotificationAlert } from "@/lib/email/sender";
 import { evaluateConversationCritical } from "@/lib/critical/evaluate";
 import {
@@ -173,6 +180,7 @@ async function processJob(job: AgentJob): Promise<void> {
       await captureContactEmail(job.conversation_id, attachMsg.content, {
         externalId: convForEmail?.external_id ?? null,
         source: convForEmail?.source ?? null,
+        afterComprobante: true,
       });
       await supabase
         .from("agent_jobs")
@@ -445,7 +453,8 @@ async function openHumanWaitingNotice(conversationId: string): Promise<void> {
  * teníamos otro, se pisa solo mientras no haya pago validado ni intento de alta
  * (la persona lo está corrigiendo); después se deja el primero y se registra el
  * nuevo en una nota de sistema para el equipo (`decideContactEmailUpdate`,
- * D-72). Se valida el formato
+ * D-72), salvo que sea el correo de una compra nueva: ahí pisa al anterior y
+ * deja nota (`isNewPurchaseEmail`). Se valida el formato
  * (`normalizeContactEmail`) para no inscribir con basura y crear un cliente
  * fantasma. Si el correo es nuevo y hay un pago validado esperando el acceso,
  * dispara el alta automática. Best-effort: cualquier error se loguea y no
@@ -454,7 +463,7 @@ async function openHumanWaitingNotice(conversationId: string): Promise<void> {
 async function captureContactEmail(
   conversationId: string,
   content: string | null,
-  opts: { externalId: string | null; source: string | null },
+  opts: { externalId: string | null; source: string | null; afterComprobante?: boolean },
 ): Promise<void> {
   try {
     const sb = getSupabaseServerClient();
@@ -475,14 +484,33 @@ async function captureContactEmail(
     // antes de que se lo pidan en una conversación larga. Se busca en TODO el
     // historial (findContactEmailInHistory), solo si todavía NO tenemos un
     // correo válido, para no pisar uno bueno con otro viejo ya corregido.
-    if (!email) {
-      if (current) return;
+    let incomingAtIso = new Date().toISOString();
+    if (!email && current) {
+      // Ya hay correo y este mensaje no trae otro. Solo al llegar un comprobante
+      // se mira si escribió uno distinto justo antes ("nombre + mail" y después
+      // la foto): recién ahora se sabe que ese correo era de una compra nueva.
+      if (!opts.afterComprobante) return;
+      const period = await loadNewPurchaseContext(sb, {
+        conversationId,
+        storedEmail: current,
+        incomingAtIso,
+      });
+      if (!period) return;
+      const near = await findEmailNearPurchase(sb, conversationId, period.periodStartIso);
+      if (!near || near.email === current) return;
+      // Este rescate solo sirve para una compra nueva: si no, un correo viejo
+      // del chat podría pisar uno que corrigió el equipo.
+      if (!isNewPurchaseEmail({ ...period, incomingAtIso: near.atIso })) return;
+      email = near.email;
+      incomingAtIso = near.atIso;
+    } else if (!email) {
       email = await findContactEmailInHistory(sb, conversationId, slug);
     }
     if (!email || email === current) return;
 
     // Ya teníamos otro correo: ¿hubo pago validado o intento de alta?
     let accessInProgress = false;
+    let paysFailed = false;
     if (current) {
       const { data: pays, error: paysErr } = await sb
         .from("payment_validations")
@@ -491,13 +519,18 @@ async function captureContactEmail(
         .eq("client_slug", slug)
         .limit(50);
       // Ante error de lectura no se pisa: perder el correo bueno es peor.
+      paysFailed = Boolean(paysErr);
       accessInProgress =
         Boolean(paysErr) ||
         (pays ?? []).some(
           (p) => p.status === "validated" || p.course_access_granted_at || p.course_access_error,
         );
     }
-    const decision = decideContactEmailUpdate({ current, incoming: email, accessInProgress });
+    const purchase =
+      current && accessInProgress && !paysFailed
+        ? await loadNewPurchaseContext(sb, { conversationId, storedEmail: current, incomingAtIso })
+        : null;
+    const decision = decideContactEmailUpdate({ current, incoming: email, accessInProgress, purchase });
     if (decision === "ignore") return;
     if (decision === "keep_and_note" && current) {
       const note = secondEmailNote(current, email);
@@ -522,6 +555,15 @@ async function captureContactEmail(
       .update({ contact_email: email })
       .eq("id", conversationId)
       .eq("client_slug", slug);
+    // Compra nueva: el equipo ve qué correo reemplazó a cuál.
+    if (decision === "replace" && current && accessInProgress) {
+      await sb.from("messages").insert({
+        conversation_id: conversationId,
+        client_slug: slug,
+        role: "system",
+        content: newPurchaseEmailNote(current, email),
+      });
+    }
     // Empujar el correo al contacto de GHL (best-effort, requiere contacts.write).
     if (opts.source === "whatsapp" && opts.externalId) {
       await ghlUpdateContact(opts.externalId, { email });
@@ -615,12 +657,7 @@ async function deliverAgentReply(opts: {
       const ghlMessageId = await ghlSendWhatsApp(contactId, segment.content);
       // Guardar el messageId de GHL en la burbuja, para deduplicar después el
       // webhook OutboundMessage (que va a reportar este mismo envío).
-      if (ghlMessageId) {
-        await supabase
-          .from("messages")
-          .update({ external_id: ghlMessageId })
-          .eq("id", segment.id);
-      }
+      await markMessageDelivered(segment.id, ghlMessageId);
     } catch (err) {
       const message = err instanceof Error ? err.message : "error desconocido";
       console.error(`[ghl] envío falló, encolo en wa_outbox: ${message}`);
@@ -675,6 +712,16 @@ async function drainWaOutbox(): Promise<void> {
         .from("wa_outbox")
         .update({ sent_at: new Date().toISOString(), error: null })
         .eq("id", row.id);
+      // El reintento salió: la burbuja original cuenta como entregada (si era
+      // un pedido de correo, no se vuelve a pedir).
+      await supabase
+        .from("messages")
+        .update({ delivered_at: new Date().toISOString() })
+        .eq("conversation_id", row.conversation_id)
+        .eq("role", "assistant")
+        .eq("content", row.content)
+        .is("external_id", null)
+        .is("delivered_at", null);
     } catch (err) {
       const message = err instanceof Error ? err.message : "error desconocido";
       await supabase

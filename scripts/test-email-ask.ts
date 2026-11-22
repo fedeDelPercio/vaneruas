@@ -1,9 +1,9 @@
 // Tests deterministas de cuándo se pide el correo (BUG 3, 18/11/2026).
 //   npx tsx scripts/test-email-ask.ts
 //
-// Sin red. Regla: el correo se pide SOLO con todo aprobado (pago verificado y
-// título si hacía falta), en el mismo mensaje de la aprobación, y una sola vez
-// por pago.
+// Sin red. Cubre el mensaje de aprobación y el modo con EMAIL_ASK_ON_RECEIPT
+// apagado (solo se pide con todo aprobado). El pedido al recibir el comprobante
+// está en scripts/test-email-receipt.ts.
 import {
   approvalMessage,
   emailAskState,

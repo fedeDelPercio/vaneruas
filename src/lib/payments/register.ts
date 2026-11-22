@@ -9,7 +9,13 @@ import { downloadComprobante } from "./storage";
 import { extractPaymentData, type PaymentExtraction } from "./extract";
 import { resolveStoredEventSlug } from "./event-match";
 import { assistantSaidRecently } from "@/lib/messages/dedup";
-import { ATTACHMENT_RECEIVED_MESSAGE, COMPROBANTE_RECEIVED_MESSAGE } from "./messages";
+import {
+  ATTACHMENT_RECEIVED_MESSAGE,
+  COMPROBANTE_RECEIVED_ASK_EMAIL_MESSAGE,
+  COMPROBANTE_RECEIVED_MESSAGE,
+} from "./messages";
+import { emailAskOnReceiptEnabled, receiptMessage } from "./email-ask";
+import { emailAlreadyAsked, paymentPeriodStart, resolveConversationEmail } from "./email-request";
 import { findGroupOf, groupPendingPayments } from "./grouping";
 
 export const PAYMENT_NOTIFICATION_CATEGORY = "validacion_pago";
@@ -127,8 +133,8 @@ export async function handlePaymentComprobante(
       extraNote:
         "Comprobante RETENIDO: esperando que la contacta acredite su título. Validá el título desde el panel para habilitarlo, o forzá la aprobación si corresponde.",
     });
-    // El correo NO se pide acá: se pide recién cuando el pago quede aprobado
-    // (PATCH /api/payments/[id], ver email-ask.ts).
+    // El correo NO se pide acá: primero el título. Se pide en el mensaje de
+    // título validado (titles/handle.ts, ver email-ask.ts).
     await supabase.from("messages").insert({
       conversation_id: args.conversationId,
       role: "system",
@@ -189,10 +195,17 @@ export async function handlePaymentComprobante(
   //    texto hace poco (mandó varios comprobantes juntos), no lo repetimos.
   //    El texto es fijo (messages.ts): sale tal cual, en una sola burbuja, sin
   //    pasar por sanitize (conserva el punto, el salto de línea y los emojis).
+  //    Si falta el correo, esta misma burbuja lo pide (email-ask.ts).
   const receivedMsg = looksLikeReceipt
-    ? COMPROBANTE_RECEIVED_MESSAGE
+    ? await comprobanteReply(args.conversationId, inserted?.id ?? null, storedEventSlug)
     : ATTACHMENT_RECEIVED_MESSAGE;
-  if (!(await assistantSaidRecently(args.conversationId, receivedMsg))) {
+  // El dedup mira las dos variantes: en un burst, la segunda imagen ya ve el
+  // correo como pedido y si no mandaría la confirmación sin pedido, otra burbuja.
+  const variants = looksLikeReceipt
+    ? [COMPROBANTE_RECEIVED_MESSAGE, COMPROBANTE_RECEIVED_ASK_EMAIL_MESSAGE]
+    : [receivedMsg];
+  const alreadySaid = await Promise.all(variants.map((v) => assistantSaidRecently(args.conversationId, v)));
+  if (!alreadySaid.some(Boolean)) {
     const { data: received } = await supabase
       .from("messages")
       .insert({ conversation_id: args.conversationId, role: "assistant", content: receivedMsg })
@@ -205,12 +218,35 @@ export async function handlePaymentComprobante(
     });
   }
 
-  // 5b. El correo NO se pide acá (antes iba en una burbuja aparte y se leía
-  //     inconexo): se pide al aprobar el pago, en el mismo mensaje de la
-  //     aprobación (PATCH /api/payments/[id], ver email-ask.ts).
-
   // 6. Reordenar la conversación.
   await touchConversation(args.conversationId);
+}
+
+/**
+ * Confirmación del comprobante, con el pedido de correo si corresponde. Ante
+ * cualquier error, la confirmación de siempre: nunca se queda sin respuesta.
+ */
+async function comprobanteReply(
+  conversationId: string,
+  paymentId: string | null,
+  eventSlug: string | null,
+): Promise<string> {
+  if (!paymentId || !emailAskOnReceiptEnabled()) return COMPROBANTE_RECEIVED_MESSAGE;
+  try {
+    const supabase = getSupabaseServerClient();
+    const email = await resolveConversationEmail(supabase, conversationId);
+    const alreadyAsked = email
+      ? true
+      : await emailAlreadyAsked(
+          supabase,
+          conversationId,
+          await paymentPeriodStart(supabase, { conversationId, eventSlug, paymentId }),
+        );
+    return receiptMessage({ hasEmail: Boolean(email), alreadyAsked, askOnReceipt: true }).content;
+  } catch (err) {
+    console.error("[payments] no se pudo decidir el pedido de correo:", err instanceof Error ? err.message : "error");
+    return COMPROBANTE_RECEIVED_MESSAGE;
+  }
 }
 
 /**

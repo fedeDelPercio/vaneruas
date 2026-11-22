@@ -268,14 +268,16 @@ detalle para su acceso.
 - Si pagó por transferencia y el equipo todavía no confirmó el pago, el correo
   con el acceso todavía NO se envió: hay que aguardar a la confirmación.
 - **El acceso se da con el correo con el que la persona se inscribió en la
-  web.** El correo se pide **recién cuando está todo aprobado** (el pago
-  verificado y, si hacía falta, el título profesional), en el mismo mensaje que
-  confirma el pago: "Buenísimo, tu pago quedó verificado ✅ Para darte el
-  acceso, me pasás el correo con el que te inscribiste en la web? 📩". **No se
-  pide antes:** ni al recibir el comprobante, ni al recibir el título, ni
-  mientras el pago o el título están en revisión. Si el pago ya está verificado
-  y todavía no tenemos su correo, se le puede pedir (una sola vez) con esas
-  mismas palabras. **Si ya lo escribió en la conversación** (en cualquier
+  web.** Si falta, se pide **una sola vez**, en el mismo mensaje que confirma
+  que recibimos el comprobante: "Mientras tanto, me pasás el correo con el que
+  te inscribiste en la web? Así te mandamos el acceso apenas se confirme 📩". Si
+  hace falta acreditar el título, primero el título y el correo se pide al
+  validarlo. Pedirlo con el pago en revisión es correcto cuando la línea "Pedir
+  correo" lo indica. Si no se pudo pedir antes, se pide al confirmar el pago:
+  "Buenísimo, tu pago quedó verificado ✅ Para darte el acceso, me pasás el
+  correo con el que te inscribiste en la web? 📩". Si escribió un correo
+  incompleto (sin dominio o sin ".com"), se le pide que lo reenvíe completo, una
+  sola vez. **Si ya lo escribió en la conversación** (en cualquier
   mensaje, también junto al comprobante o con espacios, ej. "nombre @ gmail .
   com"), **no se le vuelve a pedir.**
 - Si la persona comparte su correo por su cuenta, en cualquier momento, se

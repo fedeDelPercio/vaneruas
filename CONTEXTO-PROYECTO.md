@@ -341,8 +341,8 @@ Aprobaciones, detalles que importan:
   breve te enviamos el acceso a tu correo, cualquier cosa quedamos en contacto
   🙌🏻". Si todavía no tenemos su correo, ese mensaje se reemplaza por uno que
   confirma el pago y pide el correo en el mismo texto
-  (`PAYMENT_APPROVED_ASK_EMAIL_MESSAGE`). Es el único momento en que se pide el
-  correo, una vez por pago (`src/lib/payments/email-ask.ts`, D-63).
+  (`PAYMENT_APPROVED_ASK_EMAIL_MESSAGE`), salvo que ya se le haya pedido y
+  entregado al recibir el comprobante (`src/lib/payments/email-ask.ts`).
 - **Varias imágenes del mismo pago son un solo comprobante**
   (`src/lib/payments/grouping.ts`, D-64): los pendientes de la misma
   conversación y evento se muestran como un ítem (canónico + miniaturas) en
@@ -436,16 +436,29 @@ ahí (incluido "Masterizado" y la "falla intermitente" de Tiendup) es correcto.
 - El correo para dar acceso se captura de la conversación y se valida el
   formato antes de guardarlo (`src/lib/contact-email.ts`). Si llega en un
   mensaje y el adjunto en el siguiente, igual se rescata (busca en los últimos
-  15 mensajes cuando la conversación no tiene correo). **El correo se pide
-  recién con todo aprobado** (pago verificado y título si hacía falta), en el
-  mismo mensaje de la aprobación; nunca al recibir comprobante ni título. El
-  agente recibe "Pedir correo: SÍ / NO / NO todavía" ya calculado en código
-  (`run.ts`), también el evaluator. Si la persona lo ofrece antes, se acepta.
+  15 mensajes cuando la conversación no tiene correo). **Regla desde el
+  22/11/2026: si falta el correo se pide una vez al recibir el comprobante, en
+  la misma burbuja** (con título pendiente, en el mensaje de título validado).
+  Reemplaza a la regla del 18/11 (pedir solo al aprobar), porque la aprobación
+  suele llegar con la ventana de 24 h cerrada y ese mensaje no se entrega. Flag
+  `EMAIL_ASK_ON_RECEIPT` ("false", "0", "off" o "no" apaga y vuelve a pedirse
+  solo al aprobar; default prendido). Un pedido no entregado no cuenta: en
+  WhatsApp, entregado = `messages.external_id` o `delivered_at` (los envíos del
+  asistente ahora marcan `delivered_at`). Se reconocen también los pedidos
+  redactados por el agente. El agente recibe la línea "Pedir correo" ya
+  calculada en código (`run.ts`), también el evaluator, e incluye el caso de
+  correo incompleto (se pide reenviarlo completo, una vez). No hay mensajes
+  proactivos: si el pedido falló, se pide cuando la persona vuelve a escribir.
 - **Dos correos (D-72, D-73):** si la persona tiene dos correos o da otro, el
   acceso le llega al que cargó en la web; Valentina no ofrece cambiarlo y solo
   deriva si lo pide explícitamente. En código, un segundo correo pisa al
   primero solo si todavía no hubo pago validado ni intento de alta; si no, queda
-  una nota de sistema con el nuevo para el equipo.
+  una nota de sistema con el nuevo para el equipo. **Excepción, compra nueva:**
+  si el guardado es anterior al primer comprobante del evento actual (o nunca
+  estuvo en el chat) y el nuevo se escribió en este período (con 1 h de margen
+  antes del comprobante), lo pisa y deja la nota "Correo actualizado para esta
+  inscripción". No aplica si este evento ya tiene acceso dado, si el equipo
+  corrigió el correo en este período o si otro evento validado espera acceso.
 - Textos fijos del flujo de comprobante en `src/lib/payments/messages.ts`. Si
   cambiás uno, dejá el viejo en `TEXTOS_DE_PLANTILLA` de `ghl-human.ts` para
   que el importador lo siga reconociendo como nuestro.

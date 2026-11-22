@@ -153,6 +153,51 @@ export function findEmailInMessages(
   return null;
 }
 
+// Correo a medio escribir. La parte local va pegada a la "@" (así "hola
+// @usuario" no cuenta); el dominio puede faltar, no tener TLD o venir con
+// espacios.
+const INCOMPLETE_EMAIL_RE =
+  /(?<![A-Za-z0-9._%+-])([A-Za-z0-9._%+-]+)@([ \t]*)([A-Za-z0-9-]+(?:[ \t]*\.[ \t]*[A-Za-z0-9-]*)*)?/g;
+// Con espacio antes de la "@" solo se acepta un proveedor conocido: "nombre
+// @gmail" es un correo, "seguime @usuario" es un handle.
+// Sin cruzar saltos de línea: "nombre@gmail.\nEntrenadora…" (caso real
+// 5ebc4e67) no es un dominio "gmail.entrenadora", es un correo cortado.
+const INCOMPLETE_SPACED_RE =
+  /(?<![A-Za-z0-9._%+-])([A-Za-z0-9._%+-]+)[ \t]+@[ \t]*((?:gmail|hotmail|outlook|yahoo|live|icloud)(?:[ \t]*\.[ \t]*[A-Za-z0-9-]*)*)/gi;
+const KNOWN_PROVIDER_RE = /^(?:gmail|hotmail|outlook|yahoo|live|icloud)\b/i;
+
+function maskIncomplete(local: string, domain: string): string {
+  return `${local.slice(0, 1)}***@${domain}`;
+}
+
+/**
+ * Forma ENMASCARADA de un correo incompleto en el texto ("n***@gmail."), o
+ * null si no hay ninguno o si el texto ya trae un correo válido. Nunca devuelve
+ * la parte local: esto va al contexto del agente y puede terminar en logs.
+ */
+export function findIncompleteEmail(text: string | null | undefined): string | null {
+  if (!text || !text.includes("@")) return null;
+  if (extractContactEmail(text)) return null;
+  for (const m of text.matchAll(INCOMPLETE_EMAIL_RE)) {
+    const local = m[1]!;
+    if (DICTATION_STOPWORDS.has(local.toLowerCase())) continue;
+    const domain = (m[3] ?? "").replace(/\s+/g, "");
+    // Con TLD no es "incompleto" (es un dominio de relleno u otro descarte).
+    if (/\.[a-z]{2,}$/i.test(domain)) continue;
+    // "hola@ como estas": tras un espacio solo vale un proveedor conocido.
+    if (m[2] && domain && !KNOWN_PROVIDER_RE.test(domain)) continue;
+    return maskIncomplete(local, domain);
+  }
+  for (const m of text.matchAll(INCOMPLETE_SPACED_RE)) {
+    const local = m[1]!;
+    if (DICTATION_STOPWORDS.has(local.toLowerCase())) continue;
+    const domain = m[2]!.replace(/\s+/g, "");
+    if (/\.[a-z]{2,}$/i.test(domain)) continue;
+    return maskIncomplete(local, domain);
+  }
+  return null;
+}
+
 /**
  * Qué hacer cuando llega un correo en el chat:
  * - `ignore`: no trae correo, o es el mismo que ya teníamos.
@@ -162,23 +207,71 @@ export function findEmailInMessages(
  * - `keep_and_note`: teníamos otro y ya hubo pago validado o intento de alta.
  *   NO se pisa (el acceso va al correo de la web, y cambiarlo lo decide el
  *   equipo si la persona lo pide): se deja una nota de sistema con el nuevo.
+ *   Excepción: compra nueva (ver `NewPurchaseContext`), ahí se pisa.
  */
 export type ContactEmailUpdate = "ignore" | "set" | "replace" | "keep_and_note";
+
+/**
+ * Margen antes del primer comprobante en el que un correo ya cuenta como de
+ * esa compra: lo normal es escribir "nombre + mail" y mandar la foto después.
+ */
+export const NEW_PURCHASE_EMAIL_GRACE_MS = 60 * 60 * 1000;
+
+/** Datos de la compra en curso para decidir si un correo nuevo pisa al guardado. */
+export interface NewPurchaseContext {
+  /** Primer comprobante del evento de la compra en curso. */
+  periodStartIso: string;
+  /** Cuándo escribió el correo nuevo. */
+  incomingAtIso: string;
+  /** Primera vez que el correo guardado aparece en el chat. null = nunca. */
+  storedFirstSeenAtIso: string | null;
+  /** Algún pago de este evento ya tiene el acceso dado (con el correo guardado). */
+  periodAccessGranted: boolean;
+  /** Otro evento validado espera su acceso: el alta usaría el correo nuevo. */
+  otherEventAwaitingAccess: boolean;
+  /** El equipo corrigió el correo a mano durante esta compra: manda el equipo. */
+  teamCorrectedInPeriod: boolean;
+}
+
+/**
+ * ¿El correo nuevo es el de una compra nueva? Sí si se escribió dentro del
+ * período y el guardado es anterior a ese período (o nunca estuvo en el chat),
+ * salvo que esta compra ya tenga acceso, que el equipo lo haya corregido, o que
+ * pisarlo desvíe el acceso pendiente de otro evento.
+ */
+export function isNewPurchaseEmail(p: NewPurchaseContext): boolean {
+  if (p.periodAccessGranted || p.otherEventAwaitingAccess || p.teamCorrectedInPeriod) return false;
+  const from = new Date(p.periodStartIso).getTime() - NEW_PURCHASE_EMAIL_GRACE_MS;
+  if (!Number.isFinite(from)) return false;
+  const incomingAt = new Date(p.incomingAtIso).getTime();
+  if (!Number.isFinite(incomingAt) || incomingAt < from) return false;
+  if (p.storedFirstSeenAtIso === null) return true;
+  const storedAt = new Date(p.storedFirstSeenAtIso).getTime();
+  return Number.isFinite(storedAt) && storedAt < from;
+}
 
 export function decideContactEmailUpdate(args: {
   current: string | null;
   incoming: string | null;
   /** Hay un pago validado o un intento de alta en Tiendup (dado o fallido). */
   accessInProgress: boolean;
+  /** Compra en curso, si se pudo leer. Sin esto, la regla de siempre. */
+  purchase?: NewPurchaseContext | null;
 }): ContactEmailUpdate {
   const current = normalizeContactEmail(args.current);
   const incoming = normalizeContactEmail(args.incoming);
   if (!incoming || incoming === current) return "ignore";
   if (!current) return "set";
-  return args.accessInProgress ? "keep_and_note" : "replace";
+  if (!args.accessInProgress) return "replace";
+  return args.purchase && isNewPurchaseEmail(args.purchase) ? "replace" : "keep_and_note";
 }
 
 /** Nota de sistema para el equipo cuando no se pisa el correo (sin punto final). */
 export function secondEmailNote(current: string, incoming: string): string {
   return `Otro correo en el chat: ${incoming} · El acceso sigue con ${current}`;
+}
+
+/** Nota de sistema cuando el correo de una compra nueva pisa al anterior. */
+export function newPurchaseEmailNote(previous: string, next: string): string {
+  return `Correo actualizado para esta inscripción: ${previous} → ${next}`;
 }

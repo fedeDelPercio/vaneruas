@@ -22,6 +22,18 @@ export const COMPROBANTE_RECEIVED_MESSAGE =
 export const COMPROBANTE_RECEIVED_MESSAGE_LEGACY =
   "Genial, gracias por compartir el comprobante 🙌 El equipo lo revisa y te confirma la inscripción a la brevedad";
 
+/**
+ * Confirmación de comprobante cuando todavía NO tenemos su correo: lo pide en
+ * la MISMA burbuja. El pedido va acá porque la aprobación suele llegar con la
+ * ventana de 24 h de WhatsApp ya cerrada y ese mensaje no se entrega. El aviso
+ * final cambia a "Después de eso no hace falta...": con el texto de siempre le
+ * pediríamos el correo y enseguida le diríamos que no hace falta escribir.
+ */
+export const COMPROBANTE_RECEIVED_ASK_EMAIL_MESSAGE =
+  "Genial, gracias por compartir el comprobante 🙌 El equipo lo revisa y te confirma la inscripción a la brevedad.\n\n" +
+  "Mientras tanto, me pasás el correo con el que te inscribiste en la web? Así te mandamos el acceso apenas se confirme 📩\n\n" +
+  "⚠️ IMPORTANTE: Ahora revisamos manualmente tu solicitud. Después de eso no hace falta que vuelvas a escribir, tranquila que no te vas a quedar sin tu lugar, podemos tener muchos mensajes pero no te vamos a dejar sin respuesta ♥️";
+
 /** Acuse neutro cuando la imagen no parece un comprobante. */
 export const ATTACHMENT_RECEIVED_MESSAGE =
   "Gracias, ya lo recibimos 🙌 El equipo lo revisa y te confirma a la brevedad";
@@ -37,10 +49,9 @@ export const PAYMENT_APPROVED_MESSAGE =
 
 /**
  * Confirmación de pago aprobado cuando todavía NO tenemos su correo: reemplaza
- * a PAYMENT_APPROVED_MESSAGE (un solo mensaje, no dos). Es el ÚNICO momento en
- * que se pide el correo: con el pago verificado y el título (si hacía falta)
- * aprobado. También figura en knowledge-base.md (el evaluator no ve el
- * orquestador).
+ * a PAYMENT_APPROVED_MESSAGE (un solo mensaje, no dos). Se usa si no se le
+ * pidió ya al recibir el comprobante (o ese pedido no se entregó). También
+ * figura en knowledge-base.md (el evaluator no ve el orquestador).
  */
 export const PAYMENT_APPROVED_ASK_EMAIL_MESSAGE =
   "Buenísimo, tu pago quedó verificado ✅ Para darte el acceso, me pasás el correo con el que te inscribiste en la web? 📩";
@@ -56,6 +67,14 @@ export const TITLE_VALIDATED_ASK_EMAIL_MESSAGE =
 export const TITLE_VALIDATED_PAYMENT_OK_MESSAGE =
   "Listo, validé tu título ✨ Tu pago ya está verificado, en breve te enviamos el acceso a tu correo 🙌";
 
+/** Título validado con un comprobante en revisión (ya tenemos el correo o ya se pidió). */
+export const TITLE_VALIDATED_COMPROBANTE_MESSAGE =
+  "Listo, validé tu título ✨ Ya tengo tu comprobante, el equipo revisa la inscripción y te confirma a la brevedad 🙌";
+
+/** Título validado con un comprobante en revisión y sin correo: lo pide en el mismo mensaje. */
+export const TITLE_VALIDATED_COMPROBANTE_ASK_EMAIL_MESSAGE =
+  "Listo, validé tu título ✨ Ya tengo tu comprobante, el equipo revisa la inscripción y te confirma a la brevedad 🙌 Mientras tanto, me pasás el correo con el que te inscribiste en la web? 📩";
+
 /**
  * Pedido del correo suelto. Hasta el 18/11/2026 se mandaba en una burbuja
  * aparte al recibir el comprobante, antes de que nada estuviera aprobado (se
@@ -68,6 +87,8 @@ export const EMAIL_REQUEST_MESSAGE =
 
 /** Todos los textos que piden el correo (para no pedirlo dos veces por el mismo pago). */
 export const EMAIL_ASK_MESSAGES: readonly string[] = [
+  COMPROBANTE_RECEIVED_ASK_EMAIL_MESSAGE,
+  TITLE_VALIDATED_COMPROBANTE_ASK_EMAIL_MESSAGE,
   PAYMENT_APPROVED_ASK_EMAIL_MESSAGE,
   TITLE_VALIDATED_ASK_EMAIL_MESSAGE,
   EMAIL_REQUEST_MESSAGE,

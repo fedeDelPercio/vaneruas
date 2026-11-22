@@ -20,7 +20,7 @@ import {
 // `server-only` y no se puede importar desde un script.
 import { NOTIFY_TEAM_TOOL_SCHEMA } from "../src/lib/agent/tools/notify_team";
 import { sanitizeStyle } from "../src/lib/agent/sanitize";
-import { emailContextLine } from "../src/lib/payments/email-ask";
+import { emailContextLine, incompleteEmailContextLine } from "../src/lib/payments/email-ask";
 import type { MessageCreateParamsNonStreaming } from "@anthropic-ai/sdk/resources/messages";
 
 const sb = createClient(
@@ -115,6 +115,35 @@ const CASOS: Caso[] = [
     // regla del prompt tiene que frenar el pedido igual.
     pagos: emailContextLine("pedir"),
     espera: "No vuelve a pedir el correo (ya lo dio con espacios). Le dice que el acceso le llega al correo",
+    check: { deriva: false, noDebe: [PIDE_CORREO] },
+  },
+  {
+    n: "Comprobante en revision sin correo: lo pide una vez",
+    historia: [
+      { role: "user", content: "[Imagen: comprobante de transferencia]" },
+      { role: "assistant", content: "Genial, gracias por compartir el comprobante 🙌 El equipo lo revisa y te confirma la inscripción a la brevedad" },
+    ],
+    m: "cuanto tarda en confirmarse?",
+    pagos: emailContextLine("pedir_en_revision"),
+    espera: "Responde y en el mismo mensaje pide el correo de la web. No dice que el pago esta aprobado",
+    check: { deriva: false, debe: [PIDE_CORREO, AL_DE_LA_WEB], noDebe: [/(pago|comprobante)\s+(ya\s+)?(qued[oó]\s+)?(aprobado|verificado)/i] },
+  },
+  {
+    n: "Correo incompleto: pide reenviarlo completo",
+    m: "abcdef1234@gmail.",
+    pagos: incompleteEmailContextLine("a***@gmail."),
+    espera: "Le pide que lo reenvie completo, no lo da por registrado",
+    check: { deriva: false, debe: [/complet/i], noDebe: [/queda\s+registrado/i] },
+  },
+  {
+    n: "Correo ya escrito con comprobante en revision: no lo pide",
+    historia: [
+      { role: "user", content: "[Imagen: comprobante de transferencia] Ana Prueba ana.prueba@gmail.com" },
+      { role: "assistant", content: "Genial, gracias por compartir el comprobante 🙌 El equipo lo revisa y te confirma la inscripción a la brevedad" },
+    ],
+    m: "necesitan algo mas?",
+    pagos: emailContextLine("ya_tenemos"),
+    espera: "No necesita nada mas, no vuelve a pedir el correo",
     check: { deriva: false, noDebe: [PIDE_CORREO] },
   },
 ];

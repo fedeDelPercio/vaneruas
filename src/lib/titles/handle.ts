@@ -14,7 +14,15 @@ import { assistantSaidRecently } from "@/lib/messages/dedup";
 import { captionLooksLikePayment } from "@/lib/payments/signals";
 import { autoEnrollConversation } from "@/lib/tiendup/auto-enroll";
 import { normalizeContactEmail } from "@/lib/contact-email";
-import { titleValidatedMessage } from "@/lib/payments/email-ask";
+import {
+  emailAskOnReceiptEnabled,
+  titleValidatedMessage,
+  titleWithComprobanteMessage,
+} from "@/lib/payments/email-ask";
+import {
+  TITLE_VALIDATED_COMPROBANTE_ASK_EMAIL_MESSAGE,
+  TITLE_VALIDATED_COMPROBANTE_MESSAGE,
+} from "@/lib/payments/messages";
 import {
   emailAlreadyAsked,
   paymentPeriodStart,
@@ -348,15 +356,59 @@ export async function markConversationTitleValidated(
     console.error("[titles] no se pudo leer el estado del pago:", err);
   }
 
-  await insertAssistant(
-    conversationId,
-    afterPayment ??
-      (hasComprobante
-        ? "Listo, validé tu título ✨ Ya tengo tu comprobante, el equipo revisa la inscripción y te confirma a la brevedad 🙌"
-        : "Listo, validé tu título ✨ Si ya hiciste el pago, con el comprobante confirmamos tu inscripción 🙌"),
-  );
+  if (afterPayment) {
+    await insertAssistant(conversationId, afterPayment);
+  } else if (hasComprobante) {
+    // Las dos variantes cuentan para el dedup (burst de varios adjuntos).
+    await insertAssistant(conversationId, await titleWithComprobanteReply(conversationId), [
+      TITLE_VALIDATED_COMPROBANTE_MESSAGE,
+      TITLE_VALIDATED_COMPROBANTE_ASK_EMAIL_MESSAGE,
+    ]);
+  } else {
+    await insertAssistant(
+      conversationId,
+      "Listo, validé tu título ✨ Si ya hiciste el pago, con el comprobante confirmamos tu inscripción 🙌",
+    );
+  }
   await touchConversation(conversationId);
   return released;
+}
+
+/**
+ * Título validado con comprobante: si hay uno en revisión y falta el correo,
+ * el mismo mensaje lo pide (email-ask.ts). Ante error, el texto sin pedido.
+ */
+async function titleWithComprobanteReply(conversationId: string): Promise<string> {
+  if (!emailAskOnReceiptEnabled()) return TITLE_VALIDATED_COMPROBANTE_MESSAGE;
+  try {
+    const supabase = getSupabaseServerClient();
+    const { data: pending } = await supabase
+      .from("payment_validations")
+      .select("id, event_slug")
+      .eq("conversation_id", conversationId)
+      .eq("status", "pending")
+      .eq("awaiting_title", false)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!pending) return TITLE_VALIDATED_COMPROBANTE_MESSAGE;
+    const email = await resolveConversationEmail(supabase, conversationId);
+    const alreadyAsked = email
+      ? true
+      : await emailAlreadyAsked(
+          supabase,
+          conversationId,
+          await paymentPeriodStart(supabase, {
+            conversationId,
+            eventSlug: pending.event_slug ?? null,
+            paymentId: pending.id,
+          }),
+        );
+    return titleWithComprobanteMessage({ hasEmail: Boolean(email), alreadyAsked, askOnReceipt: true });
+  } catch (err) {
+    console.error("[titles] no se pudo decidir el pedido de correo:", err instanceof Error ? err.message : "error");
+    return TITLE_VALIDATED_COMPROBANTE_MESSAGE;
+  }
 }
 
 /** ¿Esta conversación ya tiene algún comprobante registrado? */
@@ -369,10 +421,15 @@ async function conversationHasPayment(conversationId: string): Promise<boolean> 
   return Boolean(data?.length);
 }
 
-async function insertAssistant(conversationId: string, content: string): Promise<void> {
-  // Dedup: si ya mandamos este mismo texto hace poco (burst de varios adjuntos),
-  // no lo repetimos.
-  if (await assistantSaidRecently(conversationId, content)) return;
+async function insertAssistant(
+  conversationId: string,
+  content: string,
+  dedupVariants: readonly string[] = [content],
+): Promise<void> {
+  // Dedup: si ya mandamos este mismo texto (o una variante) hace poco (burst de
+  // varios adjuntos), no lo repetimos.
+  const said = await Promise.all(dedupVariants.map((v) => assistantSaidRecently(conversationId, v)));
+  if (said.some(Boolean)) return;
   const { data } = await getSupabaseServerClient()
     .from("messages")
     .insert({ conversation_id: conversationId, role: "assistant", content })

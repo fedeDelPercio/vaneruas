@@ -19,8 +19,18 @@ import type {
 } from "./types";
 import type { Json } from "@/lib/supabase/types";
 import { extractContactEmail, normalizeContactEmail } from "@/lib/contact-email";
-import { findContactEmailInHistory } from "@/lib/payments/email-request";
-import { emailAskState, emailContextLine } from "@/lib/payments/email-ask";
+import {
+  emailAlreadyAsked,
+  findContactEmailInHistory,
+  paymentPeriodStart,
+} from "@/lib/payments/email-request";
+import {
+  emailAskOnReceiptEnabled,
+  emailAskState,
+  emailContextLine,
+  incompleteEmailContextLine,
+  pendingIncompleteEmail,
+} from "@/lib/payments/email-ask";
 import { esAgrupado } from "@/lib/payments/dismiss";
 import { AGENT_HANDOFF_FILTER } from "@/lib/team-interventions";
 
@@ -366,10 +376,10 @@ async function loadPaymentContext(conversationId: string, turnMessage: string): 
 }
 
 /**
- * Estado del correo para el acceso, ya resuelto en código (email-ask.ts): solo
- * se pide con el pago verificado (y el título, si hacía falta, aprobado).
- * Antes le decía "pedile el correo" apenas había un comprobante y Valentina lo
- * pedía antes de tiempo. Vacío si no hay comprobantes.
+ * Estado del correo para el acceso, ya resuelto en código (email-ask.ts). Con
+ * un comprobante en revisión y sin correo, se pide una vez en la respuesta
+ * (salvo que falte el título o EMAIL_ASK_ON_RECEIPT esté apagado). Un pedido
+ * que no llegó a WhatsApp no cuenta. Vacío si no hay nada que decir.
  *
  * "Tenemos correo" = guardado en la conversación, o escrito en el mensaje de
  * este turno, o en cualquier mensaje anterior de la persona (extractor
@@ -384,32 +394,76 @@ async function loadEmailContext(conversationId: string, turnMessage: string): Pr
     const [{ data: pays }, { data: conv }] = await Promise.all([
       sb
         .from("payment_validations")
-        .select("status, awaiting_title, validation_note")
+        .select("id, event_slug, status, awaiting_title, validation_note, extraction")
         .eq("conversation_id", conversationId)
         .eq("client_slug", slug)
         .order("created_at", { ascending: false })
         .limit(50),
       sb
         .from("conversations")
-        .select("contact_email")
+        .select("contact_email, source")
         .eq("id", conversationId)
         .eq("client_slug", slug)
         .maybeSingle(),
     ]);
-    const hasPayment = (pays ?? []).some((p) => !esAgrupado(p));
+    const live = (pays ?? []).filter((p) => !esAgrupado(p));
+    const hasPayment = live.length > 0;
     let hasEmail = Boolean(normalizeContactEmail(conv?.contact_email)) || Boolean(extractContactEmail(turnMessage));
     // El historial solo se lee si importa (hay comprobantes y no hay correo).
     if (!hasEmail && hasPayment) {
       hasEmail = Boolean(await findContactEmailInHistory(sb, conversationId, slug));
     }
+
+    if (!hasEmail) {
+      const { data: recent } = await sb
+        .from("messages")
+        .select("role, content, external_id, delivered_at")
+        .eq("conversation_id", conversationId)
+        .eq("client_slug", slug)
+        .in("role", ["user", "assistant"])
+        .order("created_at", { ascending: false })
+        .limit(30);
+      const incomplete = pendingIncompleteEmail({
+        turnMessage,
+        history: recent ?? [],
+        source: conv?.source,
+      });
+      // Sin comprobantes el historial no se leyó: confirmar que no dio uno válido.
+      if (incomplete && (hasPayment || !(await findContactEmailInHistory(sb, conversationId, slug)))) {
+        return incompleteEmailContextLine(incomplete);
+      }
+    }
+
+    const latest = live.find((p) => p.status !== "rejected") ?? live[0];
+    const alreadyAsked =
+      !hasEmail && latest
+        ? await emailAlreadyAsked(
+            sb,
+            conversationId,
+            await paymentPeriodStart(sb, {
+              conversationId,
+              eventSlug: latest.event_slug ?? null,
+              paymentId: latest.id,
+            }),
+          )
+        : false;
     const state = emailAskState({
       hasEmail,
       hasPayment,
-      hasApprovedPayment: (pays ?? []).some((p) => p.status === "validated" && !p.awaiting_title),
+      hasApprovedPayment: live.some((p) => p.status === "validated" && !p.awaiting_title),
+      hasPaymentInReview: live.some(
+        (p) =>
+          p.status === "pending" &&
+          !p.awaiting_title &&
+          (p.extraction as { is_payment_receipt?: boolean } | null)?.is_payment_receipt !== false,
+      ),
+      awaitingTitle: live.some((p) => p.status === "pending" && p.awaiting_title),
+      alreadyAsked,
+      askOnReceipt: emailAskOnReceiptEnabled(),
     });
     return emailContextLine(state);
   } catch (err) {
-    console.error("[run] no se pudo cargar el estado del correo:", err);
+    console.error("[run] no se pudo cargar el estado del correo:", err instanceof Error ? err.message : "error");
     return "";
   }
 }

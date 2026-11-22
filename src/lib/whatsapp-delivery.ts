@@ -26,6 +26,20 @@ export interface DeliveryResult {
   error?: string;
 }
 
+/**
+ * Deja constancia de que el mensaje salió: `delivered_at` y, si GHL lo devolvió,
+ * su id (dedup del webhook). Van en dos updates porque `external_id` es único:
+ * si el webhook ya lo registró, ese choque no debe perder `delivered_at`. Con
+ * esto se distingue un pedido de correo entregado de uno fallido (email-ask.ts).
+ */
+export async function markMessageDelivered(messageId: string, ghlMessageId: string | null): Promise<void> {
+  const supabase = getSupabaseServerClient();
+  await supabase.from("messages").update({ delivered_at: new Date().toISOString() }).eq("id", messageId);
+  if (ghlMessageId) {
+    await supabase.from("messages").update({ external_id: ghlMessageId }).eq("id", messageId);
+  }
+}
+
 export async function deliverAssistantToWhatsApp(opts: {
   conversationId: string;
   /** Id de la fila en `messages`, para guardar el messageId de GHL (dedup). */
@@ -50,12 +64,7 @@ export async function deliverAssistantToWhatsApp(opts: {
 
   try {
     const ghlMessageId = await ghlSendWhatsApp(contactId, content);
-    if (ghlMessageId && opts.messageId) {
-      await supabase
-        .from("messages")
-        .update({ external_id: ghlMessageId })
-        .eq("id", opts.messageId);
-    }
+    if (opts.messageId) await markMessageDelivered(opts.messageId, ghlMessageId);
     return { status: "sent" };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
