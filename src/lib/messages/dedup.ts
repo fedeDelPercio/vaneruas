@@ -1,5 +1,6 @@
 import "server-only";
 
+import { fixedTextVariants } from "@/lib/whatsapp-templates";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 // ===========================================================================
@@ -31,14 +32,15 @@ export async function assistantSaidRecently(
 ): Promise<boolean> {
   try {
     const since = new Date(Date.now() - withinMs).toISOString();
-    const { data } = await getSupabaseServerClient()
+    const variants = fixedTextVariants(content);
+    const query = getSupabaseServerClient()
       .from("messages")
       .select("id")
       .eq("conversation_id", conversationId)
       .eq("role", "assistant")
-      .eq("content", content)
       .gte("created_at", since)
       .limit(1);
+    const { data } = await (variants.length > 1 ? query.in("content", variants) : query.eq("content", content));
     return Boolean(data?.length);
   } catch {
     return false;

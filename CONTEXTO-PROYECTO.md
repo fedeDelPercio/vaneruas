@@ -151,9 +151,42 @@ WhatsApp espera ese silencio antes de contestar. Es una decisión aceptada.
 **Envío restringido:** `GHL_SEND_ALLOWLIST` decide a quién se le manda de
 verdad (`*` = producción). Si un envío no sale, mirá eso primero.
 
-**Ventana de 24 h de Meta:** pasadas 24 h del último mensaje de la clienta, GHL
-rebota los mensajes libres. En Aprobaciones aparece como "No se avisó al
-cliente". No es un bug del agente.
+### WhatsApp / plantillas
+
+`WHATSAPP_TEMPLATES_ENABLED` está apagado por defecto. Con `1`, `true` u `on`,
+los avisos fijos mapeados usan texto libre hasta 23 h 50 min después del último
+mensaje entrante guardado. Si no hay entrante o se alcanzó ese límite, se
+intenta la plantilla aprobada. Si GHL rechaza el texto por ventana, también
+se intenta la plantilla. Si el catálogo no ofrece una plantilla usable, se
+conserva el intento de texto libre y se agrega el motivo al error si falla.
+Se respetan el modo Humano y `GHL_SEND_ALLOWLIST`.
+
+| Clave de texto fijo | Plantilla de GHL |
+|---|---|
+| `PAYMENT_APPROVED_ASK_EMAIL_MESSAGE`, `TITLE_VALIDATED_ASK_EMAIL_MESSAGE` | `pago_verificado_mail` |
+| `PAYMENT_APPROVED_MESSAGE`, `TITLE_VALIDATED_PAYMENT_OK_MESSAGE` | `pago_verificado` |
+| `TIENDUP_ACCESS_MESSAGE` | `altatiendup` |
+
+`WHATSAPP_TEMPLATE_MAP` permite sobreescribir nombres por clave con JSON,
+por ejemplo `{"TIENDUP_ACCESS_MESSAGE":"altatiendup_v2"}`. Las plantillas deben
+tener cuerpo de texto fijo, sin variables. Si una plantilla de reemplazo tiene
+un cuerpo distinto, incorporalo al reconocimiento de textos históricos. En el
+historial se guarda el cuerpo
+devuelto por el catálogo, el ID de GHL y una nota de sistema. Si falla el aviso
+de pago o el de título con pago ya validado, se abre una intervención por pago.
+
+El catálogo usa `GHL_API_KEY` con permiso `locations/templates.readonly` y
+`NEXT_PUBLIC_GHL_LOCATION_ID`. Se guarda en memoria por 10 min (1 min ante
+fallos). Los nombres coinciden completos, sin distinguir mayúsculas. GHL no
+documenta el campo de aprobación: se leen sus variantes conocidas y solo se
+acepta `APPROVED` o un estado que empieza por `ACTIVE`. Cuando GHL refleje la
+aprobación de `altatiendup`, se habilita al refrescar el catálogo sin cambios
+de código. Si la API omite el estado, `WHATSAPP_TEMPLATES_ASSUME_APPROVED` permite
+indicar nombres separados por comas cuya aprobación ya se verificó. Esta
+excepción solo aplica cuando falta el estado.
+
+`npx tsx scripts/ghl-templates-status.ts` consulta GHL en solo lectura y muestra
+nombre, estado, disponibilidad y longitud del cuerpo.
 
 ---
 
@@ -631,8 +664,6 @@ Validá siempre con `npx tsc --noEmit` y `npx next build` antes de commitear.
 - **El 44% de las conversaciones las toma el equipo sin que el agente derive.**
   Falta clasificar cuánto es por respuestas flojas del agente y cuánto por
   costumbre del equipo.
-- **Template de Meta `pago_verificado_mail`:** pendiente de aprobación, para
-  avisar el pago cuando venció la ventana de 24 h.
 - **Limpieza histórica sin correr:**
   `supabase/cleanup/2026-11-17-resolver-notificaciones-pago.sql` resuelve las
   ~685 `validacion_pago` abiertas de conversaciones sin pagos pendientes.

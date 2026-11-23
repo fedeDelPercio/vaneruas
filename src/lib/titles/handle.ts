@@ -8,7 +8,9 @@ import {
   releaseAwaitingComprobantes,
 } from "@/lib/payments/register";
 import { classifyAttachment, type AttachmentClassification } from "./classify";
-import { deliverAssistantToWhatsApp } from "@/lib/whatsapp-delivery";
+import { updateApprovalNoticeNotification } from "@/lib/payments/approval-notice";
+import { whatsappTemplatesEnabled } from "@/lib/whatsapp-templates";
+import { deliverAssistantToWhatsApp, type DeliveryResult } from "@/lib/whatsapp-delivery";
 import { ghlFetchContact, ghlContactIsRegistered } from "@/lib/providers/ghl";
 import { assistantSaidRecently } from "@/lib/messages/dedup";
 import { captionLooksLikePayment } from "@/lib/payments/signals";
@@ -322,7 +324,7 @@ export async function markConversationTitleValidated(
   // ¿El pago ya estaba verificado (aprobación forzada antes del título)? Con
   // todo aprobado es el momento de pedir el correo, si falta y no se lo
   // pedimos ya por este pago (al aprobarlo). Un solo mensaje (email-ask.ts).
-  let afterPayment: string | null = null;
+  let afterPayment: { content: string; paymentId: string } | null = null;
   try {
     const { data: okPay } = await supabase
       .from("payment_validations")
@@ -346,18 +348,26 @@ export async function markConversationTitleValidated(
               paymentId: okPay.id,
             }),
           );
-      afterPayment = titleValidatedMessage({
-        paymentValidated: true,
-        hasEmail: Boolean(email),
-        alreadyAsked,
-      });
+      const content = titleValidatedMessage({ paymentValidated: true, hasEmail: Boolean(email), alreadyAsked });
+      if (content) afterPayment = { paymentId: okPay.id, content };
     }
   } catch (err) {
     console.error("[titles] no se pudo leer el estado del pago:", err);
   }
 
   if (afterPayment) {
-    await insertAssistant(conversationId, afterPayment);
+    const delivery = await insertAssistant(conversationId, afterPayment.content);
+    if (whatsappTemplatesEnabled() && delivery) {
+      if (delivery.status === "failed") {
+        await supabase.from("payment_validations").update({
+          delivery_failed: true,
+          delivery_error: delivery.error ?? null,
+        }).eq("id", afterPayment.paymentId);
+      }
+      await updateApprovalNoticeNotification(supabase, {
+        conversationId, paymentId: afterPayment.paymentId, delivery,
+      });
+    }
   } else if (hasComprobante) {
     // Las dos variantes cuentan para el dedup (burst de varios adjuntos).
     await insertAssistant(conversationId, await titleWithComprobanteReply(conversationId), [
@@ -425,7 +435,7 @@ async function insertAssistant(
   conversationId: string,
   content: string,
   dedupVariants: readonly string[] = [content],
-): Promise<void> {
+): Promise<DeliveryResult | undefined> {
   // Dedup: si ya mandamos este mismo texto (o una variante) hace poco (burst de
   // varios adjuntos), no lo repetimos.
   const said = await Promise.all(dedupVariants.map((v) => assistantSaidRecently(conversationId, v)));
@@ -436,7 +446,7 @@ async function insertAssistant(
     .select("id")
     .single();
   // Entrega real al WhatsApp del contacto (vía GHL) si corresponde.
-  await deliverAssistantToWhatsApp({ conversationId, messageId: data?.id, content });
+  return deliverAssistantToWhatsApp({ conversationId, messageId: data?.id, content });
 }
 
 async function touchConversation(conversationId: string): Promise<void> {

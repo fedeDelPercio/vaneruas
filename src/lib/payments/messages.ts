@@ -1,3 +1,5 @@
+import { WHATSAPP_TEMPLATE_BODIES } from "../whatsapp-template-bodies";
+
 // ===========================================================================
 // Textos fijos que Valentina manda en el flujo de comprobantes.
 //
@@ -92,4 +94,8 @@ export const EMAIL_ASK_MESSAGES: readonly string[] = [
   PAYMENT_APPROVED_ASK_EMAIL_MESSAGE,
   TITLE_VALIDATED_ASK_EMAIL_MESSAGE,
   EMAIL_REQUEST_MESSAGE,
+  WHATSAPP_TEMPLATE_BODIES.pago_verificado_mail,
 ];
+
+// Marca para distinguir el aviso fallido de una derivación del agente.
+export const APPROVAL_NOTICE_FAILED_PREFIX = "pago_aviso_sin_enviar_";

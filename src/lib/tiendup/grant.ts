@@ -4,7 +4,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/types";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { deliverAssistantToWhatsApp } from "@/lib/whatsapp-delivery";
-import { sendTeamNotificationAlert } from "@/lib/email/sender";
+import { openSystemNotification, resolveSystemNotification } from "@/lib/system-notifications";
+import { fixedTextVariants } from "@/lib/whatsapp-templates";
 import { normalizeContactEmail } from "@/lib/contact-email";
 import {
   enrollCourseByEmail,
@@ -374,7 +375,7 @@ async function sendAccessNotice(
     .select("id")
     .eq("conversation_id", args.conversationId)
     .eq("role", "assistant")
-    .eq("content", TIENDUP_ACCESS_MESSAGE)
+    .in("content", fixedTextVariants(TIENDUP_ACCESS_MESSAGE))
     .gte("created_at", since)
     .limit(1);
   // Si no se pudo leer, mejor no mandar: un aviso repetido confunde más que
@@ -424,8 +425,6 @@ async function sendAccessNotice(
 // insert (y el email). La marca va en `reason` (ver messages.ts). Así aparecen
 // en Derivaciones y en "Intervención" de /wa sin tocar el esquema.
 
-const SYSTEM_CATEGORY = "escalado_manual";
-
 /** Abre (o actualiza) la notificación de alta pendiente de un comprobante. */
 export async function openEnrollmentPendingNotification(
   args: { conversationId: string; paymentId: string; motivo: string },
@@ -437,74 +436,4 @@ export async function openEnrollmentPendingNotification(
     summary: enrollmentPendingSummary(args.motivo),
     paymentId: args.paymentId,
   });
-}
-
-/**
- * Una notificación abierta por caso: si ya hay una sin resolver con la misma
- * marca, solo se actualiza el motivo (y no se repite el email).
- */
-async function openSystemNotification(
-  sb: Db,
-  args: { conversationId: string; reason: string; summary: string; paymentId: string },
-): Promise<void> {
-  const { data: open, error: openErr } = await sb
-    .from("agent_notifications")
-    .select("id, summary")
-    .eq("conversation_id", args.conversationId)
-    .eq("reason", args.reason)
-    .is("resolved_at", null)
-    .limit(1);
-  if (openErr) {
-    console.error("[tiendup] no se pudo leer las notificaciones abiertas:", openErr.message);
-    return;
-  }
-  const current = open?.[0];
-  if (current) {
-    if (current.summary !== args.summary) {
-      await sb.from("agent_notifications").update({ summary: args.summary }).eq("id", current.id);
-    }
-    return;
-  }
-
-  const { error } = await sb.from("agent_notifications").insert({
-    conversation_id: args.conversationId,
-    category: SYSTEM_CATEGORY,
-    reason: args.reason,
-    summary: args.summary,
-  });
-  if (error) {
-    console.error("[tiendup] no se pudo registrar la notificación:", error.message);
-    return;
-  }
-
-  try {
-    const { data: conv } = await sb
-      .from("conversations")
-      .select("source")
-      .eq("id", args.conversationId)
-      .maybeSingle();
-    await sendTeamNotificationAlert({
-      category: SYSTEM_CATEGORY,
-      reason: args.reason,
-      summary: args.summary,
-      conversationId: args.conversationId,
-      conversationSource: conv?.source ?? null,
-      paymentId: args.paymentId,
-    });
-  } catch (err) {
-    console.error("[tiendup] no se pudo enviar el email al equipo:", err);
-  }
-}
-
-async function resolveSystemNotification(
-  sb: Db,
-  conversationId: string,
-  reason: string,
-): Promise<void> {
-  await sb
-    .from("agent_notifications")
-    .update({ resolved_at: new Date().toISOString() })
-    .eq("conversation_id", conversationId)
-    .eq("reason", reason)
-    .is("resolved_at", null);
 }

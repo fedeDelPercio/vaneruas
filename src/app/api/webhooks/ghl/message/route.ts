@@ -2,6 +2,8 @@ import { after, NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { clientEnv, serverEnv } from "@/lib/env";
+import { whatsappTemplatesEnabled } from "@/lib/whatsapp-templates";
+import { WHATSAPP_TEMPLATE_BODIES } from "@/lib/whatsapp-template-bodies";
 import { resolveTeamInterventions } from "@/lib/team-interventions";
 
 export const dynamic = "force-dynamic";
@@ -201,8 +203,12 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // El eco puede llegar antes de que se guarde el id devuelto por GHL.
+  if (whatsappTemplatesEnabled() && Object.values<string>(WHATSAPP_TEMPLATE_BODIES).includes(text)) {
+    return NextResponse.json({ skipped: "eco de plantilla de WhatsApp" }, { status: 200 });
+  }
+
   // ----- Mensaje saliente que NO es nuestro -> lo escribió un humano -----
-  // (Si fuera nuestro, habría matcheado el dedup por messageId más arriba.)
   const { data: conv } = await supabase
     .from("conversations")
     .select("id")

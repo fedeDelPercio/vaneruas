@@ -6,6 +6,7 @@ import { autoEnrollPayment } from "@/lib/tiendup/auto-enroll";
 import { resolvePaymentNotificationsIfDone } from "@/lib/interventions";
 import { findGroupOf } from "@/lib/payments/grouping";
 import { mergedNote } from "@/lib/payments/dismiss";
+import { updateApprovalNoticeNotification } from "@/lib/payments/approval-notice";
 import { approvalMessage } from "@/lib/payments/email-ask";
 import {
   emailAlreadyAsked,
@@ -248,17 +249,25 @@ export async function PATCH(
             : { delivery_failed: false, delivery_error: null },
         )
         .eq("id", id);
+      await updateApprovalNoticeNotification(sb, {
+        conversationId: prev.conversation_id, paymentId: id, delivery,
+      });
     } catch (err) {
       console.error("[payments] no se pudo enviar la confirmación al cliente:", err);
       // No pudimos ni siquiera intentar la entrega: marcamos para revisión manual.
       deliveryFailed = true;
+      const deliveryError = err instanceof Error ? err.message : "error desconocido";
       await sb
         .from("payment_validations")
         .update({
           delivery_failed: true,
-          delivery_error: err instanceof Error ? err.message : "error desconocido",
+          delivery_error: deliveryError,
         })
         .eq("id", id);
+      await updateApprovalNoticeNotification(sb, {
+        conversationId: prev.conversation_id, paymentId: id,
+        delivery: { status: "failed", error: deliveryError },
+      });
     }
   }
 

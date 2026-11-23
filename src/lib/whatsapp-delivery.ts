@@ -1,6 +1,8 @@
 import "server-only";
 
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { ghlSendWhatsAppTemplate, listWhatsAppTemplates, resolveTemplate } from "@/lib/providers/ghl-templates";
+import { persistWhatsAppDelivery, sendFixedWhatsApp, templateNameForContent, whatsappTemplatesEnabled, whatsappWindowOpen } from "@/lib/whatsapp-templates";
 import { ghlSendAllowed, ghlSendWhatsApp } from "@/lib/providers/ghl";
 
 // ===========================================================================
@@ -24,6 +26,7 @@ import { ghlSendAllowed, ghlSendWhatsApp } from "@/lib/providers/ghl";
 export interface DeliveryResult {
   status: "sent" | "skipped" | "failed";
   error?: string;
+  template?: string;
 }
 
 /**
@@ -32,11 +35,24 @@ export interface DeliveryResult {
  * si el webhook ya lo registró, ese choque no debe perder `delivered_at`. Con
  * esto se distingue un pedido de correo entregado de uno fallido (email-ask.ts).
  */
-export async function markMessageDelivered(messageId: string, ghlMessageId: string | null): Promise<void> {
+export async function markMessageDelivered(
+  messageId: string,
+  ghlMessageId: string | null,
+  content?: string,
+): Promise<void> {
   const supabase = getSupabaseServerClient();
-  await supabase.from("messages").update({ delivered_at: new Date().toISOString() }).eq("id", messageId);
+  const { error } = await supabase.from("messages").update({
+    delivered_at: new Date().toISOString(),
+    ...(content === undefined ? {} : { content }),
+  }).eq("id", messageId);
+  if (content !== undefined && error) {
+    console.error("[whatsapp-delivery] no se pudo actualizar el texto de la plantilla:", error.message);
+  }
   if (ghlMessageId) {
-    await supabase.from("messages").update({ external_id: ghlMessageId }).eq("id", messageId);
+    const { error } = await supabase.from("messages").update({ external_id: ghlMessageId }).eq("id", messageId);
+    if (content !== undefined && error) {
+      console.error("[whatsapp-delivery] no se pudo guardar el id de plantilla:", error.message);
+    }
   }
 }
 
@@ -63,9 +79,57 @@ export async function deliverAssistantToWhatsApp(opts: {
   if (!contactId || !ghlSendAllowed(contactId)) return { status: "skipped" };
 
   try {
-    const ghlMessageId = await ghlSendWhatsApp(contactId, content);
-    if (opts.messageId) await markMessageDelivered(opts.messageId, ghlMessageId);
-    return { status: "sent" };
+    const templateName = whatsappTemplatesEnabled() ? templateNameForContent(content) : null;
+    if (!templateName) {
+      const ghlMessageId = await ghlSendWhatsApp(contactId, content);
+      if (opts.messageId) await markMessageDelivered(opts.messageId, ghlMessageId);
+      return { status: "sent" };
+    }
+
+    const { data: inbound } = await supabase.from("messages")
+      .select("created_at")
+      .eq("conversation_id", opts.conversationId)
+      .eq("role", "user")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const result = await sendFixedWhatsApp({
+      templateName,
+      windowOpen: whatsappWindowOpen(inbound?.created_at, Date.now()),
+      sendText: () => ghlSendWhatsApp(contactId, content),
+      resolveTemplate: async (name) => {
+        const listed = await listWhatsAppTemplates();
+        return { listed: listed.ok, template: await resolveTemplate(name, listed) };
+      },
+      sendTemplate: (id) => ghlSendWhatsAppTemplate(contactId, id),
+    });
+
+    await persistWhatsAppDelivery(result, {
+      markDelivered: async (ghlMessageId, body) => {
+        if (opts.messageId) {
+          await markMessageDelivered(opts.messageId, ghlMessageId, body);
+        } else if (body !== undefined) {
+          const { error } = await supabase.from("messages").insert({
+            conversation_id: opts.conversationId,
+            role: "assistant",
+            content: body,
+            external_id: ghlMessageId,
+            delivered_at: new Date().toISOString(),
+          });
+          if (error) console.error("[whatsapp-delivery] no se pudo guardar la plantilla enviada:", error.message);
+        }
+      },
+      addSystemNote: async (note) => {
+        const { error } = await supabase.from("messages").insert({
+          conversation_id: opts.conversationId,
+          role: "system",
+          content: note,
+        });
+        if (error) console.error("[whatsapp-delivery] no se pudo guardar la nota de plantilla:", error.message);
+      },
+    });
+    return result.template ? { status: "sent", template: result.template.name } : { status: "sent" };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     console.error("[whatsapp-delivery] no se pudo enviar a WhatsApp:", error);

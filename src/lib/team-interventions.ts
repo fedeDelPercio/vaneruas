@@ -21,6 +21,7 @@
 // ===========================================================================
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { APPROVAL_NOTICE_FAILED_PREFIX } from "./payments/messages";
 import { SYSTEM_NOTIFICATION_REASON_LIKE } from "./tiendup/messages";
 
 // El cliente tipado del panel y el de service role de los scripts no comparten
@@ -46,12 +47,12 @@ const NOT_TIENDUP = `reason.is.null,reason.not.like.${SYSTEM_NOTIFICATION_REASON
 
 /**
  * Filtro PostgREST (para `.or()`) de las notificaciones que son derivaciones
- * DEL AGENTE: excluye las de sistema (Tiendup y "humano_sin_respuesta"). Lo usa
+ * DEL AGENTE: excluye las de sistema (Tiendup, avisos de pago y "humano_sin_respuesta"). Lo usa
  * el agente para saber si ya derivó y para no deduplicar una derivación real
  * contra una notificación de sistema de la misma categoría.
  */
 export const AGENT_HANDOFF_FILTER =
-  `reason.is.null,and(reason.not.like.${SYSTEM_NOTIFICATION_REASON_LIKE},reason.neq.${HUMAN_WAITING_REASON})`;
+  `reason.is.null,and(reason.not.like.${SYSTEM_NOTIFICATION_REASON_LIKE},reason.not.like.${APPROVAL_NOTICE_FAILED_PREFIX}*,reason.neq.${HUMAN_WAITING_REASON})`;
 
 export interface ResolveResult {
   resolved: number;

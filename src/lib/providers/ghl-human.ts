@@ -1,3 +1,4 @@
+import { WHATSAPP_TEMPLATE_BODIES } from "../whatsapp-template-bodies";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   COMPROBANTE_RECEIVED_MESSAGE,
@@ -104,6 +105,7 @@ export const TEXTOS_DE_PLANTILLA: string[] = [
   TITLE_VALIDATED_ASK_EMAIL_MESSAGE,
   TITLE_VALIDATED_PAYMENT_OK_MESSAGE,
   TIENDUP_ACCESS_MESSAGE,
+  ...Object.values(WHATSAPP_TEMPLATE_BODIES),
 ];
 
 /** Huella del texto para comparar: sin emojis ni signos, primeros 70 caracteres. */
