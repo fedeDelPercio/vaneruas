@@ -60,7 +60,16 @@ export interface AssistantDeliveryRow {
   content?: string | null;
   external_id: string | null;
   delivered_at: string | null;
+  /** Cuándo se guardó. Un pedido de hace segundos puede estar saliendo todavía. */
+  created_at?: string | null;
 }
+
+/**
+ * Un pedido recién guardado (menos de 2 min) cuenta como hecho aunque todavía
+ * no tenga id de GHL: el envío puede estar en curso. Evita que otro job del
+ * mismo tirón (texto + foto) lo vuelva a pedir.
+ */
+export const EMAIL_ASK_IN_FLIGHT_MS = 2 * 60_000;
 
 /**
  * ¿El mensaje llegó a la persona? `messages` no guarda el fallo: en WhatsApp
@@ -76,8 +85,14 @@ export function wasDelivered(row: AssistantDeliveryRow, source: string | null | 
 export function hasDeliveredEmailAsk(
   rows: readonly AssistantDeliveryRow[],
   source: string | null | undefined,
+  now: number = Date.now(),
 ): boolean {
-  return rows.some((r) => looksLikeEmailAsk(r.content) && wasDelivered(r, source));
+  return rows.some((r) => {
+    if (!looksLikeEmailAsk(r.content)) return false;
+    if (wasDelivered(r, source)) return true;
+    const at = r.created_at ? Date.parse(r.created_at) : NaN;
+    return Number.isFinite(at) && now - at < EMAIL_ASK_IN_FLIGHT_MS;
+  });
 }
 
 /**

@@ -120,7 +120,7 @@ export async function emailAlreadyAsked(sb: Db, conversationId: string, sinceIso
     sb.from("conversations").select("source").eq("id", conversationId).maybeSingle(),
     sb
       .from("messages")
-      .select("content, external_id, delivered_at")
+      .select("content, external_id, delivered_at, created_at")
       .eq("conversation_id", conversationId)
       .eq("role", "assistant")
       .gte("created_at", sinceIso)

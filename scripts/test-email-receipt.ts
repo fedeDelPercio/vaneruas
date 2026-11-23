@@ -74,6 +74,12 @@ check(
 
 // --- Entrega --------------------------------------------------------------------
 check(wasDelivered({ external_id: "x", delivered_at: null }, "whatsapp"), "entregado por id de GHL");
+{
+  const ask = { content: ASK, external_id: null, delivered_at: null };
+  const t0 = Date.parse("2026-11-22T20:00:00Z");
+  check(hasDeliveredEmailAsk([{ ...ask, created_at: "2026-11-22T19:59:30Z" }], "whatsapp", t0), "pedido saliendo (30 s): cuenta como hecho");
+  check(!hasDeliveredEmailAsk([{ ...ask, created_at: "2026-11-22T19:50:00Z" }], "whatsapp", t0), "pedido viejo sin entregar: no cuenta");
+}
 check(wasDelivered({ external_id: null, delivered_at: "2026-11-22T00:00:00Z" }, "whatsapp"), "entregado por delivered_at");
 check(!wasDelivered({ external_id: null, delivered_at: null }, "whatsapp"), "sin marcas: no entregado");
 check(wasDelivered({ external_id: null, delivered_at: null }, "test"), "panel de prueba: entregado");
