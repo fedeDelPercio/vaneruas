@@ -541,7 +541,7 @@ export async function GET(req: NextRequest) {
       deliveryFailed: r.delivery_failed ?? false,
       deliveryError: r.delivery_error ?? null,
       courseAccessGrantedAt: r.course_access_granted_at ?? null,
-      courseAccessError: displayCourseAccessError(r.course_access_error),
+      courseAccessError: r.course_access_granted_at ? null : displayCourseAccessError(r.course_access_error),
       titles: r.conversation_id ? titlesByConv.get(r.conversation_id) ?? [] : [],
       contactNote: r.conversation_id
         ? contactNoteByConv.get(r.conversation_id) ?? null

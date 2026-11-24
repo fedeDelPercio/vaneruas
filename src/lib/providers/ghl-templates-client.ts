@@ -7,11 +7,13 @@ export interface WhatsAppTemplate {
   body: string;
   status: string | null;
   usable: boolean;
+  statusFieldPresent?: boolean;
+  assumeMatched?: boolean;
 }
 
 type ListResult =
   | { ok: true; templates: WhatsAppTemplate[] }
-  | { ok: false };
+  | { ok: false; failure: string; httpStatus: number | null; versions: string[] };
 
 function record(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null
@@ -29,6 +31,7 @@ export function createWhatsAppTemplatesClient(opts: {
   assumeApproved?: string;
   fetch?: typeof fetch;
   now?: () => number;
+  onCatalogFetch?: (result: ListResult) => void;
 }) {
   const request = opts.fetch ?? fetch;
   const now = opts.now ?? Date.now;
@@ -37,7 +40,10 @@ export function createWhatsAppTemplatesClient(opts: {
   let pending: Promise<ListResult> | undefined;
 
   async function list(): Promise<ListResult> {
-    if (!opts.token || !opts.locationId) return { ok: false };
+    const versions: string[] = [];
+    const failed = (failure: string, httpStatus: number | null = null): ListResult =>
+      ({ ok: false, failure, httpStatus, versions });
+    if (!opts.token || !opts.locationId) return failed("configuración incompleta");
     const templates: { template: WhatsAppTemplate; date: number }[] = [];
     const seen = new Set<string>();
     let version = "v3";
@@ -51,16 +57,20 @@ export function createWhatsAppTemplatesClient(opts: {
         cache: "no-store",
         signal: AbortSignal.timeout(5_000),
       });
-      let res = await get();
+      if (!versions.includes(version)) versions.push(version);
+      let res = await get().catch(() => null);
+      if (!res) return failed("error de transporte");
       if (skip === 0 && [400, 404, 422].includes(res.status)) {
         version = "2021-07-28";
-        res = await get();
+        versions.push(version);
+        res = await get().catch(() => null);
+        if (!res) return failed("error de transporte");
       }
-      if (!res.ok) return { ok: false };
-      const page = record(await res.json());
-      if (!Array.isArray(page.templates)) return { ok: false };
+      if (!res.ok) return failed("respuesta HTTP", res.status);
+      const page = record(await res.json().catch(() => null));
+      if (!Array.isArray(page.templates)) return failed("catálogo inválido", res.status);
       if (!page.templates.length) {
-        if (typeof page.totalCount === "number" && skip < page.totalCount) return { ok: false };
+        if (typeof page.totalCount === "number" && skip < page.totalCount) return failed("catálogo incompleto", res.status);
         break;
       }
       let newIds = 0;
@@ -80,18 +90,21 @@ export function createWhatsAppTemplatesClient(opts: {
           return status === "approved" || status.startsWith("active");
         };
         // Ante estados contradictorios, prevalece el que impide el envío.
-        const status = reported.find((value) => !approved(value)) ?? reported[0] ?? null;
+        const status = reported.find((value) => !approved(value)) ?? reported[0];
+        const rawStatus = status ?? statuses.find((value): value is string => typeof value === "string");
+        const statusFieldPresent = statuses.some((value) => value !== undefined);
+        const assumeMatched = assumed.has(normalized(t.name));
         const body = typeof payload.body === "string" ? payload.body : "";
         const usable = Boolean(body.trim()) && (status
           ? reported.every(approved)
-          : statuses.every((value) => value === undefined) && assumed.has(normalized(t.name)));
+          : !statusFieldPresent && assumeMatched);
         templates.push({
-          template: { id: t.id, name: t.name, body, status, usable },
+          template: { id: t.id, name: t.name, body, status: rawStatus ?? null, usable, statusFieldPresent, assumeMatched },
           date: Date.parse(String(t.dateAdded ?? "")) || 0,
         });
       }
       // Si el servidor ignora skip, evitamos un bucle y descartamos el listado parcial.
-      if (!newIds) return { ok: false };
+      if (!newIds) return failed("catálogo incompleto", res.status);
       skip += page.templates.length;
       if (typeof page.totalCount === "number" ? skip >= page.totalCount : page.templates.length < PAGE_SIZE) break;
     }
@@ -101,7 +114,10 @@ export function createWhatsAppTemplatesClient(opts: {
 
   function listWhatsAppTemplates(): Promise<ListResult> {
     if (cache && now() < cache.expiresAt) return Promise.resolve(cache.result);
-    pending ??= list().catch((): ListResult => ({ ok: false })).then((result) => {
+    pending ??= list().catch((): ListResult => ({
+      ok: false, failure: "error inesperado del catálogo", httpStatus: null, versions: [],
+    })).then((result) => {
+      opts.onCatalogFetch?.(result);
       cache = { result, expiresAt: now() + (result.ok ? 600_000 : 60_000) };
       pending = undefined;
       return result;
@@ -127,8 +143,7 @@ export function createWhatsAppTemplatesClient(opts: {
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`GHL send template ${res.status}: ${body.slice(0, 300)}`);
+      throw new Error(`GHL rechazó el envío de plantilla (HTTP ${res.status})`);
     }
     const { messageId } = record(await res.json());
     if (typeof messageId !== "string" || !messageId.trim()) {

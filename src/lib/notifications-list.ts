@@ -1,3 +1,4 @@
+import { withoutStaleEnrollmentNotifications } from "@/lib/tiendup/pending-notifications";
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -62,7 +63,7 @@ export async function listNotifications(opts: {
   const q = opts.q.trim();
   const ascending = status === "pending";
 
-  const rows = await fetchAllRows((from, to) => {
+  const fetchedRows = await fetchAllRows((from, to) => {
     let query = sb.from("agent_notifications").select("*");
     if (onlyCategory) query = query.eq("category", onlyCategory);
     if (excludeCategories?.length) {
@@ -75,6 +76,8 @@ export async function listNotifications(opts: {
       .order("id", { ascending: true })
       .range(from, to);
   });
+
+  const rows = await withoutStaleEnrollmentNotifications(sb, fetchedRows);
 
   // Conversaciones de origen. Sin búsqueda alcanza con las de la página; con
   // búsqueda hacen falta todas, porque se filtra por nombre y teléfono.

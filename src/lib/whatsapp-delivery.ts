@@ -1,7 +1,7 @@
 import "server-only";
 
 import { getSupabaseServerClient } from "@/lib/supabase/server";
-import { ghlSendWhatsAppTemplate, listWhatsAppTemplates, resolveTemplate } from "@/lib/providers/ghl-templates";
+import { ghlSendWhatsAppTemplate, listWhatsAppTemplates, resolveTemplate, templateLogName, templateLogStatus } from "@/lib/providers/ghl-templates";
 import { persistWhatsAppDelivery, sendFixedWhatsApp, templateNameForContent, whatsappTemplatesEnabled, whatsappWindowOpen } from "@/lib/whatsapp-templates";
 import { ghlSendAllowed, ghlSendWhatsApp } from "@/lib/providers/ghl";
 
@@ -78,8 +78,8 @@ export async function deliverAssistantToWhatsApp(opts: {
   const contactId = conv.external_id;
   if (!contactId || !ghlSendAllowed(contactId)) return { status: "skipped" };
 
+  const templateName = whatsappTemplatesEnabled() ? templateNameForContent(content) : null;
   try {
-    const templateName = whatsappTemplatesEnabled() ? templateNameForContent(content) : null;
     if (!templateName) {
       const ghlMessageId = await ghlSendWhatsApp(contactId, content);
       if (opts.messageId) await markMessageDelivered(opts.messageId, ghlMessageId);
@@ -94,13 +94,31 @@ export async function deliverAssistantToWhatsApp(opts: {
       .limit(1)
       .maybeSingle();
 
+    const log = (evento: string, fields?: Record<string, unknown>) => {
+      console.warn(`[whatsapp-delivery] ${evento} ${JSON.stringify({
+        conversacion: opts.conversationId.slice(0, 8), plantilla: templateLogName(templateName), ...fields,
+      })}`);
+    };
     const result = await sendFixedWhatsApp({
+      log,
       templateName,
       windowOpen: whatsappWindowOpen(inbound?.created_at, Date.now()),
       sendText: () => ghlSendWhatsApp(contactId, content),
       resolveTemplate: async (name) => {
         const listed = await listWhatsAppTemplates();
-        return { listed: listed.ok, template: await resolveTemplate(name, listed) };
+        const template = await resolveTemplate(name, listed);
+        if (!listed.ok) {
+          log("falló la consulta del catálogo", { motivo: listed.failure, http: listed.httpStatus, versiones: listed.versions });
+        } else if (!template) {
+          log("plantilla no encontrada por nombre", { cantidad: listed.templates.length, nombres: listed.templates.map((item) => templateLogName(item.name)) });
+        } else if (!template.usable) {
+          log("plantilla no usable", {
+            estado: templateLogStatus(template.status),
+            tieneCampoEstado: template.statusFieldPresent,
+            coincideAssume: template.assumeMatched,
+          });
+        }
+        return { listed: listed.ok, template };
       },
       sendTemplate: (id) => ghlSendWhatsAppTemplate(contactId, id),
     });
@@ -132,7 +150,13 @@ export async function deliverAssistantToWhatsApp(opts: {
     return result.template ? { status: "sent", template: result.template.name } : { status: "sent" };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
-    console.error("[whatsapp-delivery] no se pudo enviar a WhatsApp:", error);
+    if (templateName) {
+      console.warn(`[whatsapp-delivery] falló el envío del mensaje mapeado ${JSON.stringify({
+        conversacion: opts.conversationId.slice(0, 8), plantilla: templateLogName(templateName),
+      })}`);
+    } else {
+      console.error("[whatsapp-delivery] no se pudo enviar a WhatsApp:", error);
+    }
     return { status: "failed", error };
   }
 }

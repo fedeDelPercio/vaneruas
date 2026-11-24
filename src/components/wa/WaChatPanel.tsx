@@ -1,5 +1,6 @@
 "use client";
 
+import { withoutStaleEnrollmentNotifications } from "@/lib/tiendup/pending-notifications";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
@@ -192,9 +193,10 @@ export function WaChatPanel({
   }, [conversationId]);
 
   const refreshPending = useCallback(async () => {
-    const { data } = await getSupabaseBrowserClient()
+    const sb = getSupabaseBrowserClient();
+    const { data } = await sb
       .from("agent_notifications")
-      .select("id, category, reason, summary, created_at")
+      .select("id, category, reason, summary, created_at, resolved_at")
       .eq("conversation_id", conversationId)
       .is("resolved_at", null)
       // Mismo criterio que la lista y que Derivaciones: comprobantes y reclamos
@@ -203,7 +205,7 @@ export function WaChatPanel({
       // (lo sacaría de la cola de Certificados sin que nadie lo haya resuelto).
       .not("category", "in", "(validacion_pago,reclamo_certificado)")
       .order("created_at", { ascending: true });
-    setPending(data ?? []);
+    setPending(await withoutStaleEnrollmentNotifications(sb, data ?? []).catch(() => data ?? []));
   }, [conversationId]);
 
   const refreshReactions = useCallback(
@@ -382,6 +384,11 @@ export function WaChatPanel({
           table: "agent_notifications",
           filter: `conversation_id=eq.${conversationId}`,
         },
+        () => void refreshPending(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "payment_validations", filter: `conversation_id=eq.${conversationId}` },
         () => void refreshPending(),
       )
       .on("postgres_changes", { event: "*", schema: "public", table: "comments" }, () => {

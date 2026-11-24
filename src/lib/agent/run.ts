@@ -1,3 +1,4 @@
+import { professionalTitleLine, professionalTitleState, titleClaimFeedback } from "./title-state";
 import "server-only";
 
 import { getSupabaseServerClient } from "@/lib/supabase/server";
@@ -161,7 +162,17 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
   // Pagos enviados en esta conversación: le pasamos los montos al orquestador
   // para que pueda deducir a qué evento se refiere una consulta de detalle
   // (matcheando el monto transferido con el precio de un evento vigente).
-  const paymentContext = await loadPaymentContext(input.conversationId, input.userMessage);
+  const [payment, { data: titles }] = await Promise.all([
+    loadPaymentContext(input.conversationId, input.userMessage),
+    supabase.from("professional_titles")
+      .select("file_path, is_valid, reviewed_at")
+      .eq("conversation_id", input.conversationId)
+      .order("created_at", { ascending: false })
+      .limit(1000),
+  ]);
+  const titleState = professionalTitleState(titles ?? [], isExistingCustomer, payment.awaitingTitle);
+  const paymentContext = [professionalTitleLine(titleState, payment.awaitingTitle), payment.text]
+    .filter(Boolean).join("\n");
 
   let totalInput = 0;
   let totalOutput = 0;
@@ -289,7 +300,8 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
       paymentContext,
     });
 
-    if (evaluation.pass) {
+    const titleFeedback = evaluation.pass ? titleClaimFeedback(orch.responseText, titleState) : null;
+    if (evaluation.pass && !titleFeedback) {
       await finalizeTrace(traceId, {
         status: "completed",
         iterations: iterationsRun,
@@ -308,7 +320,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
     }
 
     // No pasó la validación: guardar feedback y reintentar.
-    evaluatorFeedback = evaluation.suggestion;
+    evaluatorFeedback = titleFeedback ?? evaluation.suggestion;
   }
 
   // 3. Se agotaron las iteraciones sin una respuesta validada: la IA no pudo
@@ -367,16 +379,16 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
  * de un evento vigente y deducir a qué evento se refiere una consulta. Devuelve
  * "" si no hay pagos (best-effort: nunca tumba la corrida).
  */
-async function loadPaymentContext(conversationId: string, turnMessage: string): Promise<string> {
+async function loadPaymentContext(conversationId: string, turnMessage: string) {
   const [amounts, email] = await Promise.all([
     loadPaymentAmountsContext(conversationId),
-    loadEmailContext(conversationId, turnMessage),
+    loadPaymentAndEmailContext(conversationId, turnMessage),
   ]);
-  return [amounts, email].filter(Boolean).join("\n");
+  return { text: [amounts, email.text].filter(Boolean).join("\n"), awaitingTitle: email.awaitingTitle };
 }
 
 /**
- * Estado del correo para el acceso, ya resuelto en código (email-ask.ts). Con
+ * Estado del comprobante y del correo para el acceso (email-ask.ts). Con
  * un comprobante en revisión y sin correo, se pide una vez en la respuesta
  * (salvo que falte el título o EMAIL_ASK_ON_RECEIPT esté apagado). Un pedido
  * que no llegó a WhatsApp no cuenta. Vacío si no hay nada que decir.
@@ -387,14 +399,16 @@ async function loadPaymentContext(conversationId: string, turnMessage: string): 
  * desactualizado si el guardado no corrió (otro camino, o el correo no pisó
  * uno anterior) y Valentina no pide un correo que ya le dieron.
  */
-async function loadEmailContext(conversationId: string, turnMessage: string): Promise<string> {
+async function loadPaymentAndEmailContext(conversationId: string, turnMessage: string) {
+  let awaitingTitle = false;
+  let paymentLine = "";
   try {
     const sb = getSupabaseServerClient();
     const slug = clientEnv.NEXT_PUBLIC_CLIENT_SLUG;
     const [{ data: pays }, { data: conv }] = await Promise.all([
       sb
         .from("payment_validations")
-        .select("id, event_slug, status, awaiting_title, validation_note, extraction")
+        .select("id, event_slug, status, awaiting_title, validation_note, extraction, course_access_granted_at")
         .eq("conversation_id", conversationId)
         .eq("client_slug", slug)
         .order("created_at", { ascending: false })
@@ -407,6 +421,15 @@ async function loadEmailContext(conversationId: string, turnMessage: string): Pr
         .maybeSingle(),
     ]);
     const live = (pays ?? []).filter((p) => !esAgrupado(p));
+    awaitingTitle = live.some((p) => p.status === "pending" && p.awaiting_title);
+    const latest = live.find((p) => p.status !== "rejected") ?? live[0];
+    if (latest && !latest.awaiting_title) {
+      const label = latest.status === "validated" ? "APROBADO" : latest.status === "rejected" ? "RECHAZADO" : "EN REVISIÓN";
+      paymentLine = `Último comprobante pertinente (${latest.event_slug ?? "evento sin identificar"}): ${label}`;
+      if (latest.status === "validated") {
+        paymentLine += latest.course_access_granted_at ? ". Acceso registrado como dado" : ". Acceso aún sin registrar";
+      }
+    }
     const hasPayment = live.length > 0;
     let hasEmail = Boolean(normalizeContactEmail(conv?.contact_email)) || Boolean(extractContactEmail(turnMessage));
     // El historial solo se lee si importa (hay comprobantes y no hay correo).
@@ -430,11 +453,10 @@ async function loadEmailContext(conversationId: string, turnMessage: string): Pr
       });
       // Sin comprobantes el historial no se leyó: confirmar que no dio uno válido.
       if (incomplete && (hasPayment || !(await findContactEmailInHistory(sb, conversationId, slug)))) {
-        return incompleteEmailContextLine(incomplete);
+        return { text: [paymentLine, incompleteEmailContextLine(incomplete)].filter(Boolean).join("\n"), awaitingTitle };
       }
     }
 
-    const latest = live.find((p) => p.status !== "rejected") ?? live[0];
     const alreadyAsked =
       !hasEmail && latest
         ? await emailAlreadyAsked(
@@ -457,14 +479,14 @@ async function loadEmailContext(conversationId: string, turnMessage: string): Pr
           !p.awaiting_title &&
           (p.extraction as { is_payment_receipt?: boolean } | null)?.is_payment_receipt !== false,
       ),
-      awaitingTitle: live.some((p) => p.status === "pending" && p.awaiting_title),
+      awaitingTitle,
       alreadyAsked,
       askOnReceipt: emailAskOnReceiptEnabled(),
     });
-    return emailContextLine(state);
+    return { text: [paymentLine, emailContextLine(state)].filter(Boolean).join("\n"), awaitingTitle };
   } catch (err) {
     console.error("[run] no se pudo cargar el estado del correo:", err instanceof Error ? err.message : "error");
-    return "";
+    return { text: paymentLine, awaitingTitle };
   }
 }
 

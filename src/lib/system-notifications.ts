@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/types";
+import { clientEnv } from "@/lib/env";
 import { sendTeamNotificationAlert } from "@/lib/email/sender";
 
 type Db = SupabaseClient<Database>;
@@ -15,7 +16,7 @@ const SYSTEM_CATEGORY = "escalado_manual";
  */
 export async function openSystemNotification(
   sb: Db,
-  args: { conversationId: string; reason: string; summary: string; paymentId: string },
+  args: { conversationId: string; reason: string; summary: string; paymentId: string; stillPending?: () => Promise<boolean> },
 ): Promise<void> {
   const { data: open, error: openErr } = await sb
     .from("agent_notifications")
@@ -28,6 +29,7 @@ export async function openSystemNotification(
     console.error("[system-notifications] no se pudo leer las notificaciones abiertas:", openErr.message);
     return;
   }
+  if (args.stillPending && !(await args.stillPending())) return;
   const current = open?.[0];
   if (current) {
     if (current.summary !== args.summary) {
@@ -53,6 +55,7 @@ export async function openSystemNotification(
       .select("source")
       .eq("id", args.conversationId)
       .maybeSingle();
+    if (args.stillPending && !(await args.stillPending())) return;
     await sendTeamNotificationAlert({
       category: SYSTEM_CATEGORY,
       reason: args.reason,
@@ -68,13 +71,14 @@ export async function openSystemNotification(
 
 export async function resolveSystemNotification(
   sb: Db,
-  conversationId: string,
+  conversationId: string | null,
   reason: string,
 ): Promise<void> {
-  await sb
-    .from("agent_notifications")
+  const query = sb.from("agent_notifications")
     .update({ resolved_at: new Date().toISOString() })
-    .eq("conversation_id", conversationId)
     .eq("reason", reason)
+    .eq("client_slug", clientEnv.NEXT_PUBLIC_CLIENT_SLUG)
     .is("resolved_at", null);
+  const { error } = await (conversationId ? query.eq("conversation_id", conversationId) : query);
+  if (error) throw error;
 }

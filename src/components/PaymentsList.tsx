@@ -808,7 +808,7 @@ export function PaymentsList() {
                   const isPending = p.status === "pending";
                   const busy = busyId === p.id;
                   const accessBusy = busyAccess[p.id];
-                  const accessResult = accessResults[p.id];
+                  const accessResult = p.courseAccessGrantedAt && accessResults[p.id]?.error ? undefined : accessResults[p.id];
                   const esMasterclassValidada = p.status === "validated" && eventKind(p.eventSlug) === "masterclass";
                   const faltaCorreo = esMasterclassValidada && !p.contactEmail;
                   const pendingTitles = p.titles.filter((sub) => sub.hasFile && !sub.isValid && !sub.reviewedAt);

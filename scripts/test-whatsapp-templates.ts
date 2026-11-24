@@ -60,8 +60,10 @@ async function testCatalog() {
       totalCount: 101,
     });
   };
+  const catalogFetches: boolean[] = [];
   const client = createWhatsAppTemplatesClient({
     token: "dummy", locationId: "loc", assumeApproved: " ASSUMED , rejected, unknown, empty, null", fetch: request, now: () => now,
+    onCatalogFetch: (result) => catalogFetches.push(result.ok),
   });
   const [catalog, selected] = await Promise.all([client.listWhatsAppTemplates(), client.resolveTemplate("pago")]);
   assert.ok(catalog.ok);
@@ -76,6 +78,10 @@ async function testCatalog() {
     assert.equal((await client.resolveTemplate(id))?.usable, false, id);
   }
   assert.equal((await client.resolveTemplate("assumed"))?.status, null);
+  assert.equal((await client.resolveTemplate("assumed"))?.statusFieldPresent, false);
+  assert.equal((await client.resolveTemplate("assumed"))?.assumeMatched, true);
+  assert.equal((await client.resolveTemplate("empty"))?.status, "");
+  assert.equal((await client.resolveTemplate("empty"))?.statusFieldPresent, true);
   assert.equal(await client.ghlSendWhatsAppTemplate("contact", template.id), "ghl-id");
 
   assert.equal((await client.resolveTemplate("altatiendup"))?.usable, false);
@@ -85,15 +91,16 @@ async function testCatalog() {
   now = 599_999;
   assert.equal((await client.listWhatsAppTemplates()).ok, true);
   now++;
-  assert.deepEqual(await client.listWhatsAppTemplates(), { ok: false });
+  assert.deepEqual(await client.listWhatsAppTemplates(), { ok: false, failure: "error de transporte", httpStatus: null, versions: ["v3"] });
   assert.equal(requests.length, 4);
   now += 59_999;
-  assert.deepEqual(await client.listWhatsAppTemplates(), { ok: false });
+  assert.deepEqual(await client.listWhatsAppTemplates(), { ok: false, failure: "error de transporte", httpStatus: null, versions: ["v3"] });
   assert.equal(requests.length, 4);
   now++;
   outage = false;
   assert.equal((await client.listWhatsAppTemplates()).ok, true);
   assert.equal(requests.length, 7);
+  assert.deepEqual(catalogFetches, [true, false, true]);
   assert.equal((await client.resolveTemplate("altatiendup"))?.usable, true);
 }
 
@@ -107,8 +114,10 @@ async function testDelivery() {
   assert.equal(whatsappWindowOpen("fecha inválida", now), false);
 
   const trace: string[] = [];
+  const logs: { event: string; fields?: Record<string, unknown> }[] = [];
   const options = {
     templateName: template.name,
+    log: (event: string, fields?: Record<string, unknown>) => logs.push({ event, fields }),
     windowOpen: false,
     sendText: async () => { trace.push("texto"); return "texto-id"; },
     resolveTemplate: async () => { trace.push("listado"); return { template, listed: true }; },
@@ -120,6 +129,10 @@ async function testDelivery() {
   assert.deepEqual(await sendFixedWhatsApp({ ...options, windowOpen: true }), { messageId: "texto-id" });
   assert.deepEqual(trace.splice(0), ["texto"]);
   const sent = await sendFixedWhatsApp(options);
+  assert.deepEqual(logs.splice(0), [
+    { event: "ventana abierta, texto enviado", fields: undefined },
+    { event: "plantilla enviada", fields: { motivo: "ventana de 24 h cerrada", plantillaId: "approved", mensajeId: "ghl-id" } },
+  ]);
   assert.deepEqual(sent, { messageId: "ghl-id", template, trigger: "ventana de 24 h cerrada" });
   assert.deepEqual(trace.splice(0), ["listado", template.id]);
 

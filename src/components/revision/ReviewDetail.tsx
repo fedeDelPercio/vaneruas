@@ -63,6 +63,54 @@ function accessLine(ev: ContactEvent): { text: string; tone: Tone; detail: strin
 const linkCls =
   "flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] font-medium text-neutral-600 transition hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-900 dark:hover:text-neutral-50";
 
+function MarkAccess({ paymentId, onDone }: { paymentId: string; onDone: () => void }) {
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function mark() {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/payments/${paymentId}/grant-access`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ markOnly: true }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error ?? "No se pudo marcar el acceso");
+      }
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo marcar el acceso");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-1 pl-3">
+      {confirm ? (
+        <>
+          <p className="text-[11.5px] text-neutral-500 dark:text-neutral-400">Marcar el acceso como dado sin inscribir en Tiendup?</p>
+          <div className="mt-1 flex gap-2">
+            <button type="button" className={linkCls} disabled={busy} onClick={() => setConfirm(false)}>Cancelar</button>
+            <button type="button" className="btn-gold" disabled={busy} onClick={() => void mark()}>
+              {busy ? "Marcando…" : "Confirmar"}
+            </button>
+          </div>
+        </>
+      ) : (
+        <button type="button" className={linkCls} onClick={() => setConfirm(true)}>
+          Ya le dimos el alta a mano en Tiendup
+        </button>
+      )}
+      {error && <p role="alert" className="text-[11.5px] text-red-600 dark:text-red-400">{error}</p>}
+    </div>
+  );
+}
+
 export function ReviewDetail({
   item,
   refreshKey,
@@ -263,6 +311,17 @@ export function ReviewDetail({
                           >
                             {line.detail}
                           </p>
+                        )}
+                        {ev.access.markablePaymentId && (
+                          <MarkAccess
+                            key={ev.access.markablePaymentId}
+                            paymentId={ev.access.markablePaymentId}
+                            onDone={() => {
+                              refreshTiendup();
+                              void loadFicha();
+                              onDone();
+                            }}
+                          />
                         )}
                       </div>
                     </li>

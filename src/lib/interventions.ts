@@ -1,3 +1,4 @@
+import { withoutStaleEnrollmentNotifications } from "@/lib/tiendup/pending-notifications";
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -47,7 +48,7 @@ export async function loadInterventionConversationIds(
   const openNotifs = await fetchAllRows((from, to) =>
     sb
       .from("agent_notifications")
-      .select("id, conversation_id, category")
+      .select("id, conversation_id, category, reason, resolved_at")
       .eq("client_slug", clientSlug)
       .is("resolved_at", null)
       .neq("category", PAYMENT_NOTIFICATION_CATEGORY)
@@ -58,7 +59,7 @@ export async function loadInterventionConversationIds(
   );
 
   const out = new Map<string, InterventionInfo>();
-  for (const n of openNotifs) {
+  for (const n of await withoutStaleEnrollmentNotifications(sb, openNotifs)) {
     if (!n.conversation_id) continue;
     const info = out.get(n.conversation_id) ?? { derivations: 0 };
     info.derivations += 1;
@@ -113,7 +114,7 @@ export async function loadOpenTeamNotificationCounts(
   const rows = await fetchAllRows((from, to) =>
     sb
       .from("agent_notifications")
-      .select("id, conversation_id")
+      .select("id, conversation_id, reason, resolved_at")
       .eq("client_slug", clientSlug)
       .is("resolved_at", null)
       .neq("category", PAYMENT_NOTIFICATION_CATEGORY)
@@ -123,7 +124,7 @@ export async function loadOpenTeamNotificationCounts(
       .range(from, to),
   );
   const out = new Map<string, number>();
-  for (const n of rows) {
+  for (const n of await withoutStaleEnrollmentNotifications(sb, rows)) {
     if (!n.conversation_id) continue;
     out.set(n.conversation_id, (out.get(n.conversation_id) ?? 0) + 1);
   }

@@ -1,3 +1,4 @@
+import { withoutStaleEnrollmentNotifications } from "@/lib/tiendup/pending-notifications";
 import { NextResponse } from "next/server";
 import { groupPendingPayments } from "@/lib/payments/grouping";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
@@ -45,11 +46,14 @@ export async function GET() {
         .order("id", { ascending: true })
         .range(from, to),
     ).catch(() => []),
-    sb
-      .from("agent_notifications")
-      .select("id", { count: "exact", head: true })
+    fetchAllRows((from, to) => sb.from("agent_notifications")
+      .select("id, reason, resolved_at")
       .is("resolved_at", null)
-      .not("category", "in", "(validacion_pago,reclamo_certificado)"),
+      .not("category", "in", "(validacion_pago,reclamo_certificado)")
+      .order("id")
+      .range(from, to))
+      .then((rows) => withoutStaleEnrollmentNotifications(sb, rows))
+      .catch(() => []),
     sb
       .from("agent_notifications")
       .select("id", { count: "exact", head: true })
@@ -116,7 +120,7 @@ export async function GET() {
 
   const counts: ModuleCounts = {
     payments: groupPendingPayments(payments).length + titleReviewConvs.size,
-    interventions: interventions.count ?? 0,
+    interventions: interventions.length,
     certificados: certificados.count ?? 0,
     agendar,
   };

@@ -1,6 +1,9 @@
 // Tests sin red ni base de la cola de reintentos de Tiendup: clasificador,
 // reintento por página, deadline del alta, marcadores y decisiones de la cola.
 //   npx tsx scripts/test-tiendup-retry-queue.ts
+import { createClient } from "@supabase/supabase-js";
+import type { Database } from "../src/lib/supabase/types";
+import { withoutStaleEnrollmentNotifications } from "../src/lib/tiendup/pending-notifications";
 import { fetchAllCustomers } from "../src/lib/tiendup/customers";
 import { fetchAllEnrolled } from "../src/lib/tiendup/enrolled-list";
 import { ENROLL_RETRY_DELAYS_MS, postEnrollWithRetry } from "../src/lib/tiendup/enroll-request";
@@ -8,6 +11,9 @@ import {
   TIENDUP_QUEUED_MESSAGE,
   TIENDUP_QUEUED_SILENT_MESSAGE,
   displayCourseAccessError,
+  enrollmentPendingSummary,
+  enrollmentPendingReason,
+  accessNoticeFailedReason,
   errorAfterEmailChange,
   gaveUpError,
   isGaveUpError,
@@ -45,6 +51,11 @@ function check(got: unknown, expected: unknown, label: string) {
 }
 
 const SNF = "<div>site not found</div> <p style=\"font-size: 8px; color: #d3d3d3\">cuatrocientos tres</p>";
+check(enrollmentPendingSummary("Tiendup no respondió", true).includes("Dar acceso a mano"), false, "el aviso en cola no pide intervención");
+check(enrollmentPendingSummary("Tiendup no respondió", true).includes("cada 2 minutos durante 24 h"), true, "cadencia del aviso en cola");
+check(enrollmentPendingSummary("falta el correo").includes("Dar acceso a mano"), true, "aviso que requiere intervención");
+check(decideTiendupStatus({ listing: null, email: "", fullName: null, lastError: "RETRY_AUTO: error", granted: true }),
+  { state: "unavailable" }, "el estado en vivo ignora marcas viejas si el acceso está dado");
 const NOW = Date.parse("2026-11-22T15:00:00.000Z");
 const ago = (ms: number) => new Date(NOW - ms).toISOString();
 const MIN = 60_000;
@@ -82,6 +93,29 @@ const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200 });
 const forbidden = () => new Response(SNF, { status: 403 });
 
 async function main() {
+  // La lista oculta los avisos viejos de alta sin resolverlos en la base.
+  const grantedId = "11111111-1111-1111-1111-111111111111";
+  const pendingId = "22222222-2222-2222-2222-222222222222";
+  const reads: string[] = [];
+  const sb = createClient<Database>("https://example.supabase.co", "clave-ficticia", {
+    auth: { persistSession: false },
+    global: {
+      fetch: async (input, init) => {
+        const url = new URL(String(input));
+        reads.push(`${init?.method} ${url.pathname} ${url.searchParams.get("course_access_granted_at")}`);
+        return Response.json([{ id: grantedId }]);
+      },
+    },
+  });
+  const rows = [
+    { reason: enrollmentPendingReason(grantedId), resolved_at: null },
+    { reason: enrollmentPendingReason(pendingId), resolved_at: null },
+    { reason: enrollmentPendingReason(grantedId), resolved_at: ago(MIN) },
+    { reason: accessNoticeFailedReason(grantedId), resolved_at: null },
+  ];
+  check(await withoutStaleEnrollmentNotifications(sb, rows), rows.slice(1), "solo se oculta el alta abierta con acceso dado");
+  check(reads, ["GET /rest/v1/payment_validations not.is.null"], "verificar acceso solo lee");
+
   // --- Clasificador ---
   check(isTransientTiendupResponse(403, SNF), true, "403 site not found es transitorio");
   check(isTransientTiendupResponse(403, '{"message":"forbidden"}'), false, "403 de key no");
@@ -297,7 +331,7 @@ async function main() {
 
     check(errorAfterEmailChange(retryError("manual", "x", at), nowIso), null, "cambio de mail limpia el error común");
     check(errorAfterEmailChange(silent, nowIso), `RETRY_AUTO_SILENT: [${nowIso}] caído`, "cambio de mail no habilita el aviso");
-    check(TIENDUP_QUEUED_SILENT_MESSAGE, "Tiendup no responde ahora. Quedó en cola: se reintenta solo cada minuto.", "mensaje en cola de la ficha");
+    check(TIENDUP_QUEUED_SILENT_MESSAGE, "Tiendup no responde ahora. Quedó en cola: se reintenta cada 2 minutos durante 24 h.", "mensaje en cola de la ficha");
     check(/aviso/i.test(TIENDUP_QUEUED_SILENT_MESSAGE), false, "la ficha no promete aviso");
     check(/aviso/i.test(TIENDUP_QUEUED_MESSAGE), true, "Dar acceso sigue prometiendo aviso");
   }

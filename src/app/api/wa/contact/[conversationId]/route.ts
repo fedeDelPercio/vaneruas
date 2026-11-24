@@ -1,3 +1,4 @@
+import { withoutStaleEnrollmentNotifications } from "@/lib/tiendup/pending-notifications";
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient, getSupabaseServerClient } from "@/lib/supabase/server";
 import { COMPROBANTES_BUCKET } from "@/lib/payments/storage";
@@ -57,6 +58,7 @@ export interface ContactEvent {
   access: {
     stage: AccessStage;
     grantedAt: string | null;
+    markablePaymentId?: string;
     /** Motivo del último intento de alta en Tiendup que no salió (null = ninguno). */
     error: string | null;
   };
@@ -293,6 +295,10 @@ export async function GET(
       }
     }
 
+    if (validated && (access.stage === "missing" || access.stage === "missing_email")) {
+      access.markablePaymentId = validated.id;
+    }
+
     return {
       key,
       title,
@@ -430,7 +436,7 @@ export async function GET(
     })),
   ].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
-  const notifs = notifRes.data ?? [];
+  const notifs = await withoutStaleEnrollmentNotifications(sb, notifRes.data ?? []);
   const toNotification = (n: (typeof notifs)[number]): ContactNotification => ({
     id: n.id,
     category: n.category,

@@ -1,5 +1,6 @@
 "use client";
 
+import { RETRY_DURATION_HOURS, RETRY_INTERVAL_MINUTES } from "@/lib/tiendup/retry-timing";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AtSign,
@@ -395,7 +396,7 @@ function accessLine(c: TiendupAccessStatus): LiveLine {
     case "not_found":
       return { text: `Pendiente de alta para ${ev}`, detail: "El alta automática frenó: el mail no figura en Tiendup", tone: "bad", Icon: MailX };
     case "queued":
-      return { text: "En cola de reintento: Tiendup no respondió", detail: `${ev}. Se reintenta solo cada minuto`, tone: "warn", Icon: Clock };
+      return { text: "En cola de reintento: Tiendup no respondió", detail: `${ev}. Se reintenta cada ${RETRY_INTERVAL_MINUTES} minutos durante ${RETRY_DURATION_HOURS} h`, tone: "warn", Icon: Clock };
     case "error":
       return { text: `Error en el alta para ${ev}`, detail: c.error ?? null, tone: "bad", Icon: CircleAlert };
     case "no_mapping":

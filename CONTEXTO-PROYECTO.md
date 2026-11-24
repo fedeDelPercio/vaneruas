@@ -159,7 +159,9 @@ mensaje entrante guardado. Si no hay entrante o se alcanzó ese límite, se
 intenta la plantilla aprobada. Si GHL rechaza el texto por ventana, también
 se intenta la plantilla. Si el catálogo no ofrece una plantilla usable, se
 conserva el intento de texto libre y se agrega el motivo al error si falla.
-Se respetan el modo Humano y `GHL_SEND_ALLOWLIST`.
+Se respetan el modo Humano y `GHL_SEND_ALLOWLIST`. Los logs de plantillas
+muestran el catálogo por consulta y el motivo de cada decisión de envío,
+con IDs abreviados y sin cuerpos ni credenciales.
 
 | Clave de texto fijo | Plantilla de GHL |
 |---|---|
@@ -436,6 +438,11 @@ Aprobaciones, detalles que importan:
   Un pago SIN marcador `RETRY_*` solo entra si se creó hace menos de 72 h
   (`RETRY_LOOKBACK_MS`): así el primer deploy no recorre el backlog viejo ni
   manda avisos de acceso semanas después.
+  Los fallos al listar clientes o inscriptos también entran en la cola.
+  El acceso registrado prevalece: el alta limpia el error y cierra todos los
+  avisos pendientes del pago. Las vistas omiten los avisos abiertos antiguos
+  de pagos con acceso, sin escribir al leer. En Aprobaciones y en el detalle
+  de Revisión se puede marcar un alta hecha a mano aunque falte el correo.
 - **Cuando el acceso queda dado** (automático o botón) se manda por WhatsApp
   `TIENDUP_ACCESS_MESSAGE` (`src/lib/tiendup/messages.ts`), una vez por curso.
   Si no sale (ventana de 24 h), queda `delivery_failed` en el comprobante y una
@@ -471,7 +478,11 @@ ahí (incluido "Masterizado" y la "falla intermitente" de Tiendup) es correcto.
   del momento** (hoy Peelings).
 - **Gate de título:** una contacta no registrada que manda comprobante tiene
   que acreditar título del rubro (validado por IA) antes de que el pago llegue
-  al equipo. Se saltea si GHL ya la tiene registrada.
+  al equipo. Se saltea si GHL ya la tiene registrada. El orquestador y el
+  evaluator reciben el estado del título calculado en el servidor. Una
+  descripción por texto no acredita estudios. Sin un archivo validado,
+  el control previo al envío vuelve a pedir una respuesta si Valentina
+  afirma que el título se validó.
 - El correo para dar acceso se captura de la conversación y se valida el
   formato antes de guardarlo (`src/lib/contact-email.ts`). Si llega en un
   mensaje y el adjunto en el siguiente, igual se rescata (busca en los últimos

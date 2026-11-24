@@ -5,6 +5,11 @@
 // los tests de scripts/.
 // ===========================================================================
 
+import { RETRY_DURATION_HOURS, RETRY_INTERVAL_MINUTES } from "./retry-timing";
+
+const RETRY_CADENCE = `se reintenta cada ${RETRY_INTERVAL_MINUTES} minutos durante ${RETRY_DURATION_HOURS} h`;
+const ENROLLMENT_PENDING_PREFIX = "tiendup_alta_pendiente_";
+
 /**
  * Aviso por WhatsApp cuando el acceso a Tiendup queda efectivo (alta
  * automática o botón "Dar acceso al curso"). Texto fijo pedido por el cliente:
@@ -20,9 +25,15 @@ export const TIENDUP_ACCESS_MESSAGE =
 // con una derivación suya. Prefijo común "tiendup_" (ver
 // SYSTEM_NOTIFICATION_REASON_LIKE).
 
-/** Alta automática que no se pudo hacer: el equipo tiene que dar el acceso a mano. */
+/** Alta automática que todavía no se pudo completar. */
 export function enrollmentPendingReason(paymentId: string): string {
-  return `tiendup_alta_pendiente_${paymentId}`;
+  return `${ENROLLMENT_PENDING_PREFIX}${paymentId}`;
+}
+
+export function enrollmentPendingPaymentId(reason: string | null): string | null {
+  return reason?.startsWith(ENROLLMENT_PENDING_PREFIX)
+    ? reason.slice(ENROLLMENT_PENDING_PREFIX.length) || null
+    : null;
 }
 
 /** Alta hecha, pero el aviso por WhatsApp no salió. */
@@ -34,7 +45,10 @@ export function accessNoticeFailedReason(paymentId: string): string {
 export const SYSTEM_NOTIFICATION_REASON_LIKE = "tiendup_*";
 
 /** Resumen que ve el equipo en Derivaciones para un alta pendiente. */
-export function enrollmentPendingSummary(motivo: string): string {
+export function enrollmentPendingSummary(motivo: string, queued = false): string {
+  if (queued) {
+    return `Alta en Tiendup en cola: ${motivo}. En automático ${RETRY_CADENCE}; no hace falta hacer nada. Si querés, podés dar el acceso desde Aprobaciones`;
+  }
   return `Alta en Tiendup pendiente: ${motivo}. Dar acceso a mano desde Aprobaciones → Falta acceso`;
 }
 
@@ -168,11 +182,11 @@ export function isNameConflictError(error: string | null | undefined): boolean {
 
 /** Respuesta de "Dar acceso" cuando el caso quedó en la cola. */
 export const TIENDUP_QUEUED_MESSAGE =
-  "Tiendup no responde ahora. Quedó en cola: se reintenta solo cada minuto y le llega el aviso cuando entre.";
+  `Tiendup no responde ahora. Quedó en cola: ${RETRY_CADENCE} y le llega el aviso cuando se dé el acceso.`;
 
 /** Respuesta de "Enviar a Tiendup" en cola: ese botón nunca le escribe a la persona. */
 export const TIENDUP_QUEUED_SILENT_MESSAGE =
-  "Tiendup no responde ahora. Quedó en cola: se reintenta solo cada minuto.";
+  `Tiendup no responde ahora. Quedó en cola: ${RETRY_CADENCE}.`;
 
 /** Error guardado para mostrar en el panel: sin el prefijo técnico ni HTML crudo. */
 export function displayCourseAccessError(error: string | null | undefined): string | null {

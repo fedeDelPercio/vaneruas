@@ -7,6 +7,7 @@ import { normalizeContactEmail } from "@/lib/contact-email";
 import { pendingReason, tiendupAutoEnrollEnabled, waitsForAccess } from "./auto-enroll";
 import { tiendupCourseIdForEvent, tiendupMappedCourses } from "./client";
 import { grantCourseAccess, openEnrollmentPendingNotification } from "./grant";
+import { RETRY_DURATION_HOURS } from "./retry-timing";
 import { gaveUpError, isSilentAccessError } from "./messages";
 import {
   RETRY_DEFAULT_MAX,
@@ -48,7 +49,7 @@ const RUN_BUDGET_MS = 120_000;
 // Tiempo máximo de Tiendup por comprobante dentro del cron.
 const QUEUE_GRANT_DEADLINE_MS = 60_000;
 const GAVE_UP_REASON =
-  "Tiendup no respondió durante 24 h y se dejó de reintentar solo";
+  `Tiendup no respondió durante ${RETRY_DURATION_HOURS} h y se dejó de reintentar solo`;
 
 /** Correos de las conversaciones, en tandas para no pasarse del largo de URL. */
 async function loadEmails(sb: Db, slug: string, ids: string[]): Promise<Map<string, string | null>> {
@@ -82,6 +83,12 @@ async function claim(sb: Db, slug: string, row: RetryRow, nowIso: string): Promi
 }
 
 async function giveUp(sb: Db, slug: string, row: RetryRow, text: string, nowIso: string): Promise<void> {
+  const { data: current } = await sb.from("payment_validations")
+    .select("course_access_granted_at")
+    .eq("id", row.id)
+    .eq("client_slug", slug)
+    .maybeSingle();
+  if (!current || current.course_access_granted_at) return;
   const { data } = await sb
     .from("payment_validations")
     .update({
@@ -161,12 +168,12 @@ export async function retryPendingEnrollments(args: {
           deadlineMs: QUEUE_GRANT_DEADLINE_MS,
         });
         const result = retryResultOf(outcome);
-        if (result === "failed" && row.conversation_id) {
-          // Salió de la cola por algo que necesita a una persona.
+        if ((result === "failed" || result === "transient") && row.conversation_id) {
+          // Actualiza el aviso si sigue en cola o pasó a requerir intervención.
           const motivo = pendingReason(outcome);
           if (motivo) {
             await openEnrollmentPendingNotification(
-              { conversationId: row.conversation_id, paymentId: row.id, motivo },
+              { conversationId: row.conversation_id, paymentId: row.id, motivo, queued: result === "transient" },
               sb,
             );
           }

@@ -9,6 +9,7 @@
 //   SUPABASE_SERVICE_ROLE_KEY=$(grep '^SUPABASE_SERVICE_ROLE_KEY=' .env.local | cut -d= -f2) \
 //   OPENROUTER_API_KEY=$(grep '^OPENROUTER_API_KEY=' .env.local | cut -d= -f2) \
 //     npx tsx scripts/evals-agente.ts
+import { professionalTitleLine } from "../src/lib/agent/title-state";
 import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 import {
@@ -63,6 +64,17 @@ const AL_DE_LA_WEB = /(web|p[aá]gina)/i;
 const PIDE_CORREO = /(pas[aá]s|mand[aá]s|compart\w*|dej[aá]s|envi[aá]s|necesit\w*|indic[aá]s|confirm[aá]s)\s+(\w+\s+){0,4}(correo|mail)/i;
 
 const CASOS: Caso[] = [
+  {
+    n: "Comprobante retenido y estudios descritos por texto",
+    historia: [
+      { role: "user", content: "[Imagen: comprobante de transferencia]" },
+      { role: "assistant", content: "Gracias, recibí tu comprobante. Me mandás una foto o PDF de tu título o certificado?" },
+    ],
+    m: "Soy estudiante recién egresada de la carrera de Cosmiatría",
+    pagos: professionalTitleLine("no_recibido", true),
+    espera: "Agradece y pide otra vez la foto o el PDF del título o certificado",
+    check: { deriva: false, debe: [/foto|pdf/i, /t[ií]tulo|certificado/i], noDebe: [/validado|aprobado|aceptado|valid[eé] tu/i] },
+  },
   { n: "Precio", m: "Hola! Cuanto sale la masterclass de peelings de verano?", espera: "$110.000 transferencia / $150.000 en 3 cuotas / USD 90 PayPal" },
   { n: "Fecha y horario", m: "Que dia y a que hora es la masterclass de peelings?", espera: "Sabado 28/11 de 16 a 21 hs" },
   { n: "Quiere anotarse", m: "Me quiero anotar a peelings de verano, como hago?", espera: "Comparte la landing" },

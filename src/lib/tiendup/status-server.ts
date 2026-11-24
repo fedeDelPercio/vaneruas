@@ -226,6 +226,7 @@ export async function loadTiendupStatus(
       email,
       fullName: conv.display_name,
       lastError: currentError,
+      granted: Boolean(current.course_access_granted_at),
     });
   }
   const access = decideCurrentAccess({

@@ -75,6 +75,14 @@ conocimiento. Solo eso es alucinación. Solo eso justifica rechazo.
 
 **Qué SÍ es alucinación (y debés rechazar):**
 
+- Afirmar que un título se validó, aprobó o aceptó, que el pago está aprobado o
+  verificado, o que la persona ya está inscripta o tiene acceso, si contradice
+  las líneas de estado del sistema. Para afirmar que el título se validó,
+  "Título profesional" tiene que decir VALIDADO. Si falta el archivo y la
+  persona solo describe sus estudios, pedir de nuevo la foto o el PDF es correcto.
+- En `suggestion` señalá el error concreto. Nunca propongas una respuesta modelo
+  que afirme un estado del sistema (validación, aprobación, inscripción o acceso).
+
 - Un dato numérico distinto al de la KB (precio, plazo, cantidad).
 - Una feature / servicio / condición inventada que la KB no menciona.
 - Un compromiso puntual que no está autorizado en la KB ni en las

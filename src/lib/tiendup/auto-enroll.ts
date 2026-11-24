@@ -10,6 +10,7 @@ import {
   openEnrollmentPendingNotification,
   type GrantOutcome,
 } from "./grant";
+import { retryResultOf } from "./retry-policy";
 import type { AutoEnrollResolution } from "./auto-enroll-flag";
 import { getTiendupAutoEnrollSetting } from "./auto-enroll-setting";
 import { isSilentAccessError, parseRetryError } from "./messages";
@@ -115,7 +116,7 @@ async function enrollOne(sb: Db, p: PaymentRow, trigger: string): Promise<void> 
     console.log(`[tiendup] alta automática pendiente (${trigger}): pago ${p.id}, ${outcome.kind}`);
     if (motivo && p.conversation_id) {
       await openEnrollmentPendingNotification(
-        { conversationId: p.conversation_id, paymentId: p.id, motivo },
+        { conversationId: p.conversation_id, paymentId: p.id, motivo, queued: retryResultOf(outcome) === "transient" },
         sb,
       );
     }

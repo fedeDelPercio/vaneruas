@@ -17,10 +17,8 @@ import {
 } from "./messages";
 import { isTransientStoredError } from "./transient";
 
-/** No reintentar el mismo comprobante más seguido que esto. */
-export const RETRY_MIN_INTERVAL_MS = 2 * 60_000;
-/** Desde el primer fallo registrado, después de esto se deja de reintentar. */
-export const RETRY_GIVE_UP_MS = 24 * 60 * 60_000;
+import { RETRY_GIVE_UP_MS, RETRY_MIN_INTERVAL_MS } from "./retry-timing";
+export { RETRY_GIVE_UP_MS, RETRY_MIN_INTERVAL_MS } from "./retry-timing";
 export const RETRY_DEFAULT_MAX = 8;
 /**
  * Comprobantes SIN marcador RETRY_* solo entran si se crearon hace menos de

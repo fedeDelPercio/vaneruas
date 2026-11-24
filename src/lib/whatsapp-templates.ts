@@ -30,6 +30,11 @@ export function templateNameForContent(content: string, json = process.env.WHATS
   return DEFAULT_MAP[key];
 }
 
+export function mappedWhatsAppTemplateNames(): string[] {
+  return [...new Set(messageKeys.map((key) => templateNameForContent(fixedTexts[key]))
+    .filter((name): name is string => name !== null))];
+}
+
 export function fixedTextVariants(content: string): string[] {
   const key = messageKeys.find((key) => fixedTexts[key] === content);
   return key ? [content, WHATSAPP_TEMPLATE_BODIES[DEFAULT_MAP[key]]] : [content];
@@ -55,6 +60,7 @@ export async function sendFixedWhatsApp(opts: {
   sendText: () => Promise<string | null>;
   resolveTemplate: (name: string) => Promise<{ template: WhatsAppTemplate | null; listed: boolean }>;
   sendTemplate: (id: string) => Promise<string>;
+  log?: (event: string, fields?: Record<string, unknown>) => void;
 }): Promise<SendResult> {
   const name = opts.templateName;
   if (!name) return { messageId: await opts.sendText() };
@@ -63,7 +69,9 @@ export async function sendFixedWhatsApp(opts: {
   let textError: string | undefined;
   if (opts.windowOpen) {
     try {
-      return { messageId: await opts.sendText() };
+      const messageId = await opts.sendText();
+      opts.log?.("ventana abierta, texto enviado");
+      return { messageId };
     } catch (err) {
       textError = err instanceof Error ? err.message : String(err);
       if (!isWhatsAppWindowError(textError)) throw err;
@@ -73,13 +81,21 @@ export async function sendFixedWhatsApp(opts: {
 
   const { template, listed } = await opts.resolveTemplate(name);
   if (template?.usable) {
-    return { messageId: await opts.sendTemplate(template.id), template, trigger };
+    const plantillaId = template.id.slice(0, 8);
+    const messageId = await opts.sendTemplate(template.id).catch((err: unknown) => {
+      opts.log?.("falló el envío de la plantilla", { motivo: trigger, plantillaId });
+      throw err;
+    });
+    opts.log?.("plantilla enviada", { motivo: trigger, plantillaId, mensajeId: messageId.slice(0, 8) });
+    return { messageId, template, trigger };
   }
   const reason = !listed ? "no se pudo consultar" : template ? "no aprobada" : "no encontrada";
   if (!opts.windowOpen) {
     // El margen local es conservador. GHL todavía puede aceptar el texto libre.
     try {
-      return { messageId: await opts.sendText() };
+      const messageId = await opts.sendText();
+      opts.log?.("ventana local cerrada, GHL aceptó texto");
+      return { messageId };
     } catch (err) {
       textError = err instanceof Error ? err.message : String(err);
     }

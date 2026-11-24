@@ -152,7 +152,7 @@ export function decideCurrentAccess(args: {
   courseState: { state: TiendupLiveState; otherEmailMasked?: string | null; error?: string | null } | null;
   listingComplete: boolean;
 }): { state: TiendupAccessState; error?: string | null; otherEmailMasked?: string | null } {
-  if (!args.courseId || !args.courseState) return { state: "no_mapping" };
+  if (!args.courseId || !args.courseState) return { state: args.granted ? "granted" : "no_mapping" };
   const cs = args.courseState;
   if (cs.state === "enrolled") return { state: "enrolled" };
   if (args.granted) return { state: args.listingComplete ? "granted_missing" : "granted" };
@@ -193,6 +193,7 @@ export function decideTiendupStatus(args: {
   email: string;
   fullName: string | null;
   lastError: string | null;
+  granted?: boolean;
 }): { state: TiendupLiveState; otherEmailMasked?: string | null; error?: string | null } {
   const listing = args.listing;
   const complete = Boolean(listing?.complete);
@@ -207,7 +208,7 @@ export function decideTiendupStatus(args: {
       return { state: "other_email", otherEmailMasked: maskEmail(match.enrolled.email) };
     }
   }
-  const lastError = args.lastError?.trim() || null;
+  const lastError = args.granted ? null : args.lastError?.trim() || null;
   const notInMarker = isNotInTiendupError(lastError);
   if (parseRetryError(lastError)) return { state: "queued", error: displayCourseAccessError(lastError) };
   if (lastError && !notInMarker) return { state: "error", error: displayCourseAccessError(lastError) };

@@ -1,0 +1,23 @@
+import assert from "node:assert/strict";
+import { professionalTitleLine, professionalTitleState, titleClaimFeedback } from "../src/lib/agent/title-state";
+
+const file = { file_path: "certificado.pdf", is_valid: false, reviewed_at: null };
+assert.equal(professionalTitleState([], false, true), "no_recibido");
+assert.equal(professionalTitleState([{ ...file, file_path: null, is_valid: true }], false, true), "no_recibido");
+assert.equal(professionalTitleState([], true, false), "exento");
+assert.equal(professionalTitleState([file], false, true), "revision");
+assert.equal(professionalTitleState([{ ...file, reviewed_at: "2026-11-23" }], false, true), "rechazado");
+assert.equal(professionalTitleState([{ ...file, is_valid: true }], true, false), "validado");
+assert.match(professionalTitleLine("no_recibido", true), /NO RECIBIDO.*\nPago:.*retenido/);
+assert.ok(titleClaimFeedback("Perfecto, tu título quedó validado ✅", "no_recibido"));
+assert.ok(titleClaimFeedback("Tu título de Cosmiatría ya fue aprobado", "no_recibido"));
+assert.ok(titleClaimFeedback("Ya se validó tu título", "no_recibido"));
+assert.equal(titleClaimFeedback("Todavía no se validó tu título", "revision"), null);
+assert.ok(titleClaimFeedback("Listo, validé tu título ✨", "revision"));
+assert.equal(titleClaimFeedback("Listo, validé tu título ✨", "validado"), null);
+assert.equal(titleClaimFeedback("Tu título no está validado, me mandás una foto o PDF?", "no_recibido"), null);
+assert.equal(titleClaimFeedback("Todavía no validé tu título", "no_recibido"), null);
+assert.equal(titleClaimFeedback("Tu título de Cosmiatría todavía no está validado", "revision"), null);
+assert.equal(titleClaimFeedback("Tu título de Cosmiatría necesita ser validado", "revision"), null);
+assert.equal(titleClaimFeedback("Tu título lo valida el equipo cuando mandes el PDF", "no_recibido"), null);
+console.log("Estado y control de afirmaciones de título: OK");
