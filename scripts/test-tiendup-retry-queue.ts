@@ -213,6 +213,7 @@ async function main() {
   check(decide(row({ course_access_error: nameConflictError() })).action, "skip", "conflicto de nombre necesita a una persona");
   check(decide(row({ course_access_error: 'Tiendup 422: {"m":"x"}' })).action, "skip", "error no transitorio no entra");
   check(decide(row({ course_access_error: gaveUpError("x") })).action, "skip", "agotado no vuelve a entrar");
+  check(decide(row({ course_access_granted_at: ago(0), course_access_error: manual })).action, "skip", "alta registrada: ignora una marca de reintento vieja");
   check(decide(row(), false).action, "skip", "no espera acceso");
   check(decide(row(), true, false).action, "skip", "sin correo válido");
 

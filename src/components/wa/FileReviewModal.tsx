@@ -88,8 +88,10 @@ export function FileReviewPanel({
   onClose,
   onStateChange,
   intent,
+  actionsOnly = false,
 }: {
   file: ContactFile;
+  actionsOnly?: boolean;
   variant: "modal" | "inline";
   /**
    * Abre directo en la confirmación de esa acción (la ficha tiene sus propios
@@ -207,6 +209,7 @@ export function FileReviewPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {!actionsOnly && <>
       <div className={`flex items-start justify-between gap-3 ${inline ? "" : "pr-10"}`}>
         <div className="min-w-0">
           <h2 className="flex items-center gap-2 text-[15px] font-medium tracking-tight-er text-neutral-900 dark:text-neutral-50">
@@ -347,8 +350,10 @@ export function FileReviewPanel({
         </div>
       )}
 
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-        {shownUrl && inline ? (
+      </>}
+
+      <div className={`flex flex-wrap items-center gap-2 ${actionsOnly ? "justify-end" : "mt-4 justify-between"}`}>
+        {!actionsOnly && (shownUrl && inline ? (
           <button
             type="button"
             onClick={() => setViewerOpen(true)}
@@ -369,7 +374,7 @@ export function FileReviewPanel({
           </a>
         ) : (
           <span />
-        )}
+        ))}
 
         {canAct &&
           (confirm === "reject" ? (
@@ -462,7 +467,7 @@ export function FileReviewPanel({
                 ) : (
                   <Check className="h-3.5 w-3.5" strokeWidth={2} />
                 )}
-                {isPayment ? "Aprobar" : "Validar título"}
+                {isPayment ? file.status === "awaiting_title" && actionsOnly ? "Forzar aprobación" : "Aprobar" : "Validar título"}
               </button>
             </div>
           ))}

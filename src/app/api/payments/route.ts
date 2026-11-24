@@ -7,13 +7,14 @@ import { loadOpenTeamNotificationCounts } from "@/lib/interventions";
 import { clientEnv } from "@/lib/env";
 import { groupPendingPayments } from "@/lib/payments/grouping";
 import { canonicoDeAgrupado } from "@/lib/payments/dismiss";
+import { needsCourseAccess, previousMasterclasses } from "@/lib/payments/revision-card";
 import { displayCourseAccessError } from "@/lib/tiendup/messages";
 
 export const dynamic = "force-dynamic";
 
 // ===========================================================================
 // GET /api/payments?status=pending|validated|rejected|all   (o ?q=<búsqueda>)
-//     &with=interventions  (opcional, lo usa /revision)
+//     &with=interventions (Revisión) o &with=access (Aprobaciones)
 //
 // Lista los comprobantes de pago de este cliente, del más antiguo al más nuevo
 // (cola de trabajo). Con ?q= busca por persona en todos los estados.
@@ -29,6 +30,7 @@ export const dynamic = "force-dynamic";
 /** Un título profesional que la contacta mandó para acreditarse. */
 export interface TitleSubmission {
   id: string;
+  hasFile: boolean;
   url: string | null;
   fileType: string | null;
   holderName: string | null;
@@ -58,7 +60,7 @@ export interface TitleReview {
 
 /** Resumen para la cabecera del panel (las gestoras no ven Métricas). */
 export interface PaymentStats {
-  /** Comprobantes en estado pendiente (todos, no solo la pagina actual). */
+  /** Total de pendientes, incluyendo entregas de acceso con with=access. */
   pending: number;
   /** Promedio de tiempo desde que entra el comprobante hasta que se valida (ms). */
   avgValidationMs: number | null;
@@ -82,6 +84,9 @@ export interface PaymentItem {
   extractionConfidence: string | null;
   contactName: string | null;
   contactEmail: string | null;
+  agendada: boolean | null;
+  titleExempt: boolean;
+  previousMasterclasses: string[];
   eventSlug: string | null;
   comprobanteUrl: string | null;
   comprobanteType: string | null;
@@ -149,6 +154,8 @@ interface ConvLite {
   external_id: string | null;
   wa_jid: string | null;
   ghl_conversation_id: string | null;
+  agendada: boolean;
+  is_existing_customer: boolean;
 }
 
 function convSummary(conv: ConvLite | null | undefined): PaymentItem["conversation"] {
@@ -181,7 +188,7 @@ export async function GET(req: NextRequest) {
       chunked(missing, IN_CHUNK).map((chunk) =>
         sb
           .from("conversations")
-          .select("id, display_name, source, contact_email, external_id, wa_jid, ghl_conversation_id")
+          .select("id, display_name, source, contact_email, external_id, wa_jid, ghl_conversation_id, agendada, is_existing_customer")
           .in("id", chunk),
       ),
     );
@@ -267,6 +274,11 @@ export async function GET(req: NextRequest) {
   // Resumen para la cabecera: pendientes (por grupo) y tiempo promedio de
   // validación.
   const pendingCount = pendingGroups.length;
+  // Pendientes de Aprobaciones y Falta acceso comparten el criterio de entrega.
+  // Revisión conserva su cola de archivos. Ambas mantienen el orden de llegada.
+  const includeAccess = req.nextUrl.searchParams.get("with") === "access";
+  const accessRows = new Set(includeAccess ? allRows.filter((r) => !hiddenIds.has(r.id) &&
+    needsCourseAccess(r.event_slug, r.status, r.course_access_granted_at)).map((r) => r.id) : []);
   let sumMs = 0;
   let validatedCount = 0;
   for (const r of allRows) {
@@ -279,7 +291,7 @@ export async function GET(req: NextRequest) {
     }
   }
   const stats: PaymentStats = {
-    pending: pendingCount,
+    pending: pendingCount + accessRows.size,
     avgValidationMs: validatedCount ? Math.round(sumMs / validatedCount) : null,
   };
 
@@ -340,7 +352,7 @@ export async function GET(req: NextRequest) {
       });
     });
   } else if (status === "pending" || status === "validated" || status === "rejected") {
-    rows = allRows.filter((r) => r.status === status);
+    rows = allRows.filter((r) => r.status === status || (status === "pending" && accessRows.has(r.id)));
   }
 
   // Las imágenes extra de un grupo no son ítems propios: van dentro del canónico.
@@ -351,6 +363,16 @@ export async function GET(req: NextRequest) {
   );
   await resolveConversations(convIds);
   const rowConvIds = new Set(convIds);
+  // La lectura paginada de pagos ya contiene el historial local. Se indexa
+  // una sola vez para las conversaciones de esta respuesta.
+  const historyByConv = new Map<string, Row[]>();
+  for (const r of allRows) {
+    if (!r.conversation_id || !rowConvIds.has(r.conversation_id) ||
+        r.status !== "validated" || hiddenIds.has(r.id)) continue;
+    const history = historyByConv.get(r.conversation_id) ?? [];
+    history.push(r);
+    historyByConv.set(r.conversation_id, history);
+  }
 
   // Resolver validadores.
   const validatorIds = Array.from(
@@ -423,6 +445,7 @@ export async function GET(req: NextRequest) {
     if (!t.conversation_id) continue;
     const sub: TitleSubmission = {
       id: t.id,
+      hasFile: Boolean(t.file_path),
       url: t.file_path ? signed.get(t.file_path) ?? null : null,
       fileType: t.file_type,
       holderName: t.holder_name,
@@ -490,7 +513,14 @@ export async function GET(req: NextRequest) {
       concept: r.concept,
       extractionConfidence: r.extraction_confidence,
       contactName: r.contact_name,
-      contactEmail: conv?.contact_email ?? r.contact_email,
+      contactEmail: conv?.contact_email ?? null,
+      agendada: conv?.agendada ?? null,
+      titleExempt: conv?.is_existing_customer === true,
+      previousMasterclasses: previousMasterclasses(
+        r,
+        r.conversation_id ? historyByConv.get(r.conversation_id) ?? [] : [],
+        new Set((membersByCanonical.get(r.id) ?? []).map((member) => member.id)),
+      ),
       eventSlug: r.event_slug,
       comprobanteUrl: r.comprobante_path ? signed.get(r.comprobante_path) ?? null : null,
       comprobanteType: r.comprobante_type,

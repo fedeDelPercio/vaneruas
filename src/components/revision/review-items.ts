@@ -30,6 +30,22 @@ function needsReview(t: TitleSubmission): boolean {
   return !t.isValid && !t.reviewedAt;
 }
 
+export function titleFile(t: TitleSubmission): ContactFile {
+  return {
+    id: t.id,
+    kind: "titulo",
+    url: t.url,
+    fileType: t.fileType,
+    createdAt: t.createdAt,
+    status: "review",
+    eventSlug: null,
+    amount: null,
+    currency: null,
+    titleName: t.titleName,
+    institution: t.institution,
+  };
+}
+
 function titleItem(t: TitleSubmission, conv: Conv, fallbackName: string | null): ReviewItem {
   return {
     id: t.id,
@@ -42,19 +58,7 @@ function titleItem(t: TitleSubmission, conv: Conv, fallbackName: string | null):
     currency: null,
     createdAt: t.createdAt,
     awaitingTitle: false,
-    file: {
-      id: t.id,
-      kind: "titulo",
-      url: t.url,
-      fileType: t.fileType,
-      createdAt: t.createdAt,
-      status: "review",
-      eventSlug: null,
-      amount: null,
-      currency: null,
-      titleName: t.titleName,
-      institution: t.institution,
-    },
+    file: titleFile(t),
     payment: null,
   };
 }

@@ -8,6 +8,7 @@ import { clientEnv } from "@/lib/env";
 import type { PaymentItem, TitleReview } from "@/app/api/payments/route";
 import { CommentsPanel } from "../CommentsPanel";
 import type { CommentTarget } from "../ConversationPanel";
+import { ResizableChatPane } from "../ResizableChatPane";
 import { WaChatPanel } from "../wa/WaChatPanel";
 import { useContactSearch } from "../useContactSearch";
 import { ReviewQueue } from "./ReviewQueue";
@@ -22,16 +23,12 @@ import { buildReviewItems, type ReviewItem } from "./review-items";
 //   recarga la lista y se pasa solo al siguiente pendiente.
 // - Realtime sobre payment_validations, professional_titles y
 //   agent_notifications con filtro client_slug (como /wa).
-// - Desktop (xl+): 3 columnas. Mobile: pestañas Pendientes / Chat / Archivo.
+// - El chat se abre a pedido y la ficha queda visible al lado de la cola.
 
-type MobileTab = "lista" | "chat" | "detalle";
-
-// 3 columnas desde xl: con el menú lateral (lg+) a 1024px el chat quedaba sin
-// ancho útil.
-const LG_QUERY = "(min-width: 1280px)";
+type MobileTab = "lista" | "detalle";
 
 const columnCls =
-  "min-h-0 overflow-hidden border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950 xl:rounded-xl xl:border";
+  "min-h-0 overflow-hidden border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950 lg:rounded-xl lg:border";
 
 export function ReviewWorkspace() {
   const searchParams = useSearchParams();
@@ -49,6 +46,7 @@ export function ReviewWorkspace() {
   const [refreshKey, setRefreshKey] = useState(0);
 
   const [tab, setTab] = useState<MobileTab>(urlId ? "detalle" : "lista");
+  const [chatOpen, setChatOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(true);
   const [commentTarget, setCommentTarget] = useState<CommentTarget | null>(null);
 
@@ -75,7 +73,10 @@ export function ReviewWorkspace() {
       setSelectedId(id);
       setCommentTarget(null);
       writeUrl(id);
-      if (id && opts.openDetail) setTab("detalle");
+      if (id && opts.openDetail) {
+        setTab("detalle");
+        setDetailOpen(true);
+      }
     },
     [writeUrl],
   );
@@ -157,26 +158,39 @@ export function ReviewWorkspace() {
   const selected = items?.find((it) => it.id === selectedId) ?? null;
   const convId = selected?.conversationId ?? null;
 
-  const toggleDetail = useCallback(() => {
-    if (commentTarget) {
-      setCommentTarget(null);
-      setDetailOpen(true);
-      return;
-    }
-    if (window.matchMedia(LG_QUERY).matches) setDetailOpen((v) => !v);
-    else setTab("detalle");
-  }, [commentTarget]);
+  function closeChat() {
+    setChatOpen(false);
+    setCommentTarget(null);
+    setDetailOpen(true);
+  }
 
   const TABS: { key: MobileTab; label: string }[] = [
     { key: "lista", label: items ? `Pendientes · ${items.length}` : "Pendientes" },
-    { key: "chat", label: "Chat" },
     { key: "detalle", label: "Archivo" },
   ];
 
   return (
-    <div className="flex h-full flex-col bg-white xl:bg-neutral-50 dark:bg-neutral-950 xl:dark:bg-neutral-950">
+    <ResizableChatPane onClose={closeChat} chat={chatOpen && convId && (
+      <>
+        <div className={commentTarget ? "hidden" : "h-full"}>
+          <WaChatPanel
+            key={convId}
+            conversationId={convId}
+            onOpenSidebar={closeChat}
+            onOpenComments={setCommentTarget}
+            fichaOpen={detailOpen}
+            onToggleFicha={() => {
+              if (window.matchMedia("(min-width: 1024px)").matches) setDetailOpen((current) => !current);
+              else { setTab("detalle"); closeChat(); }
+            }}
+          />
+        </div>
+        {commentTarget && <CommentsPanel embedded target={commentTarget} onClose={() => setCommentTarget(null)} />}
+      </>
+    )}>
+    <div className="flex h-full flex-col bg-white lg:bg-neutral-50 dark:bg-neutral-950 lg:dark:bg-neutral-950">
       {/* Mobile / tablet: pestañas */}
-      <div className="flex shrink-0 border-b border-neutral-200 px-2 xl:hidden dark:border-neutral-800">
+      <div className="flex shrink-0 border-b border-neutral-200 px-2 lg:hidden dark:border-neutral-800">
         {TABS.map((t) => {
           const active = tab === t.key;
           return (
@@ -201,11 +215,11 @@ export function ReviewWorkspace() {
         })}
       </div>
 
-      <div className="flex min-h-0 flex-1 xl:gap-3 xl:p-3">
+      <div className="flex min-h-0 flex-1 lg:gap-3 lg:p-3">
         {/* 1. Cola */}
         <section
           aria-label="Pendientes"
-          className={`${columnCls} w-full flex-col xl:flex xl:w-[300px] xl:shrink-0 2xl:w-[320px] ${
+          className={`${columnCls} w-full flex-col lg:flex lg:w-[32%] lg:shrink-0 ${detailOpen ? "lg:max-w-[300px]" : "lg:max-w-none lg:flex-1"} ${
             tab === "lista" ? "flex" : "hidden"
           }`}
         >
@@ -223,44 +237,18 @@ export function ReviewWorkspace() {
           />
         </section>
 
-        {/* 2. Chat */}
-        <section
-          aria-label="Conversación"
-          className={`${columnCls} min-w-0 flex-1 flex-col xl:flex ${tab === "chat" ? "flex" : "hidden"}`}
-        >
-          {convId ? (
-            <WaChatPanel
-              key={convId}
-              conversationId={convId}
-              onOpenSidebar={() => setTab("lista")}
-              onOpenComments={(target) => setCommentTarget(target)}
-              fichaOpen={detailOpen && !commentTarget}
-              onToggleFicha={toggleDetail}
-            />
-          ) : (
-            <EmptyColumn
-              icon={MessagesSquare}
-              title={selected ? "Sin conversación asociada" : "Elegí un pendiente"}
-              text={selected ? "Este archivo no está ligado a un chat de WhatsApp" : "La conversación aparece acá"}
-            />
-          )}
-        </section>
-
-        {/* 3. Archivo, intervención y acceso */}
-        {commentTarget ? (
-          <CommentsPanel target={commentTarget} onClose={() => setCommentTarget(null)} />
-        ) : (
           <section
             aria-label="Archivo y ficha"
-            className={`${columnCls} w-full flex-col xl:w-[380px] xl:shrink-0 2xl:w-[420px] ${
+            className={`${columnCls} w-full flex-col lg:min-w-0 lg:flex-1 ${
               tab === "detalle" ? "flex" : "hidden"
-            } ${detailOpen ? "xl:flex" : "xl:hidden"}`}
+            } ${detailOpen ? "lg:flex" : "lg:hidden"}`}
           >
             {selected ? (
               <ReviewDetail
                 item={selected}
                 refreshKey={refreshKey}
                 onDone={() => void load(searchRef.current)}
+                onOpenChat={() => setChatOpen(true)}
               />
             ) : (
               <EmptyColumn
@@ -274,9 +262,9 @@ export function ReviewWorkspace() {
               />
             )}
           </section>
-        )}
       </div>
     </div>
+    </ResizableChatPane>
   );
 }
 

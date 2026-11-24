@@ -2,16 +2,17 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, KeyRound, Loader2, Mail, MessageCircle } from "lucide-react";
-import { FileReviewPanel, type FileReviewAction } from "../wa/FileReviewModal";
+import { ArrowRight, KeyRound, Loader2, Mail, MessageCircle } from "lucide-react";
+import { FileReviewPanel } from "../wa/FileReviewModal";
 import type { ContactEvent, ContactFicha } from "@/app/api/wa/contact/[conversationId]/route";
-import { type ReviewItem } from "./review-items";
+import { PaymentCard } from "../payments/PaymentCard";
+import { TitleLine } from "../payments/TitleLine";
+import { titleFile, type ReviewItem } from "./review-items";
 import {
   InterventionItem,
   Section,
   ShowMoreList,
   TiendupLiveBlock,
-  TitleStatusRow,
   fmtShortDate,
   tiendupHasRed,
   useTiendupStatus,
@@ -66,11 +67,13 @@ export function ReviewDetail({
   item,
   refreshKey,
   onDone,
+  onOpenChat,
 }: {
   item: ReviewItem;
   /** Cambia cuando la lista se recarga: la ficha se vuelve a pedir. */
   refreshKey: number;
-  onDone: (action: FileReviewAction) => void;
+  onDone: () => void;
+  onOpenChat: () => void;
 }) {
   const convId = item.conversationId;
   const [ficha, setFicha] = useState<ContactFicha | null>(null);
@@ -112,12 +115,7 @@ export function ReviewDetail({
   const tiendupRed = tiendupHasRed(tiendup);
 
   const p = item.payment;
-  const warnings = p
-    ? [
-        p.isDuplicate ? "El N° de operación ya está en otro comprobante" : null,
-        p.contactHasValidatedPayment ? "Ya tiene otro pago aprobado" : null,
-      ].filter((w): w is string => Boolean(w))
-    : [];
+  const pendingTitles = p?.titles.filter((t) => t.hasFile && !t.isValid && !t.reviewedAt) ?? [];
 
   const open = ficha
     ? [
@@ -132,16 +130,36 @@ export function ReviewDetail({
   return (
     <div className="scroll-thin flex h-full min-h-0 flex-col overflow-y-auto">
       <div className="flex shrink-0 flex-col p-4">
-        <FileReviewPanel key={item.id} file={item.file} variant="inline" onDone={onDone} />
-        {warnings.length > 0 && (
-          <ul className="mt-3 space-y-1">
-            {warnings.map((w) => (
-              <li key={w} className="flex items-center gap-1.5 text-[11.5px] text-neutral-600 dark:text-neutral-300">
-                <AlertTriangle className="h-3 w-3 shrink-0 text-warn" strokeWidth={2} />
-                {w}
-              </li>
-            ))}
-          </ul>
+        {p ? (
+          <PaymentCard
+            key={p.id}
+            payment={p}
+            onOpenChat={onOpenChat}
+            onSaved={onDone}
+            titleActions={pendingTitles.length > 0 && (
+              <details className="mt-2 text-[12px]">
+                <summary className="cursor-pointer">Revisar archivos del título</summary>
+                <div className="mt-2 space-y-3">
+                  {pendingTitles.map((title) => (
+                    <FileReviewPanel key={title.id} file={titleFile(title)} variant="inline" onDone={onDone} />
+                  ))}
+                </div>
+              </details>
+            )}
+          >
+            <FileReviewPanel key={item.id} file={item.file} variant="inline" actionsOnly onDone={onDone} />
+          </PaymentCard>
+        ) : (
+          <>
+            <TitleLine state={ficha?.title.stage === "valid" ? "valid" : "review"} />
+            {convId && (
+              <button type="button" onClick={onOpenChat} className={`${linkCls} my-2 w-fit`}>
+                <MessageCircle className="h-3.5 w-3.5" strokeWidth={1.75} />
+                Ver conversación
+              </button>
+            )}
+            <FileReviewPanel key={item.id} file={item.file} variant="inline" onDone={onDone} />
+          </>
         )}
       </div>
 
@@ -168,7 +186,7 @@ export function ReviewDetail({
         </Section>
       ) : (
         <div className="flex flex-col">
-          <Section title="Intervención y título" className={tiendupRed ? "order-2" : "order-1"}>
+          <Section title="Intervención" className={tiendupRed ? "order-2" : "order-1"}>
             {open.length === 0 ? (
               <p className="text-[12px] text-neutral-500 dark:text-neutral-400">
                 Sin intervenciones abiertas
@@ -191,12 +209,6 @@ export function ReviewDetail({
                   <ArrowRight className="h-3 w-3" strokeWidth={2} />
                 </Link>
               )}
-            </div>
-            <div className="mt-3 border-t border-neutral-200 pt-3 dark:border-neutral-800">
-              <TitleStatusRow
-                stage={ficha.title.stage}
-                detail={[ficha.title.titleName, ficha.title.institution].filter(Boolean).join(" · ") || null}
-              />
             </div>
           </Section>
 

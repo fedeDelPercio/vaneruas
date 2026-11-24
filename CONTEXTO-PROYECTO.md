@@ -328,8 +328,8 @@ para que el teclado de Safari no tape el composer.
 | Ruta | Qué es |
 |---|---|
 | `/wa` | Bandeja de WhatsApp: lista paginada con buscador y panel "Filtros" (Todas, Derivadas, Falta aprobar, Críticos, en grilla de 2 columnas; `?filter=intervencion|derivadas|aprobar|criticos` en la API; "Con el equipo" se sacó el 18/11 y un `?filter=humano` viejo cae a Todas), línea ámbar en las filas que necesitan intervención, chat con el layout de Hábitat (clienta a la derecha, Valentina y el equipo a la izquierda con avatar, feedback por mensaje en las respuestas de Valentina, toggle IA / Humano, "Agregar nota", pill "Crítico" que se saca a mano), visto desde el equipo (tomar la conversación y escribirle a la clienta) y ficha del contacto (orden D-65: en curso, intervención abierta y título, Tiendup en vivo, historial de a 3 con "Ver más"), donde se ven y se aprueban o rechazan comprobantes y títulos. Pills de fila Aprobación (amarillo), Derivada (naranja) y Crítico (rojo), con el mismo ícono y color que su filtro (`StatusPills.tsx`, D-66). Componentes en `src/components/wa/`, rutas en `src/app/api/wa/` |
-| `/payments` (Aprobaciones) | Validar comprobantes. Pestaña **"Falta acceso"** = worklist de masterclass validadas sin acceso a Tiendup (incluye a quien no dejó correo, con aviso). `?filter=sin-acceso` abre directo en esa pestaña |
-| `/revision` (Revisión) | Vista consolidada para aprobar (3 columnas desde xl; debajo, pestañas): cola de comprobantes pendientes (incluidos los retenidos por título) y títulos para revisar, con indicador de derivación abierta; al medio el chat de WhatsApp (`WaChatPanel`); a la derecha el archivo con Aprobar / Rechazar (`FileReviewPanel`, mismas PATCH que Aprobaciones), derivaciones abiertas y estado del acceso a Tiendup (ficha de /wa). `?id=` = comprobante o título seleccionado. Tras cada acción pasa solo al siguiente. Sin endpoints propios: `GET /api/payments?with=interventions` |
+| `/payments` (Aprobaciones) | Pendientes reúne los comprobantes para revisar y las mismas masterclasses vigentes con acceso pendiente de **Falta acceso**, incluso sin correo. El alta manual registrada cierra el caso. `?filter=sin-acceso` abre esa pestaña |
+| `/revision` (Revisión) | Cola de comprobantes y títulos para revisar junto a la ficha, con intervenciones abiertas y acceso a Tiendup. `?id=` selecciona el archivo y al resolverlo avanza al siguiente. Usa `GET /api/payments?with=interventions` |
 | `/interventions` (Derivaciones) | Lo que Valentina pasó al equipo (excluye comprobantes y certificados) |
 | `/certificados` | Reclamos de certificados (`reclamo_certificado`) |
 | `/agendar` | Contactas que mandaron comprobante y faltan agendar en GHL / grupos |
@@ -351,7 +351,9 @@ Todas las bandejas tienen buscador por nombre o teléfono
 (`src/lib/search.ts`, sin distinguir tildes y aceptando el teléfono como se
 dicta: "011 15 ..."). La búsqueda la resuelve el servidor (`?q=`) sobre todo el
 historial; la lista muestra hasta 300 filas y el contador dice "300 de N".
-"Ver chat" abre la conversación en `/wa?id=`.
+En Aprobaciones y Revisión, "Ver conversación" abre el chat a la derecha
+con ancho recordado y a pantalla completa en pantallas chicas. En las
+demás bandejas, "Ver chat" lleva a `/wa?id=`.
 
 **Tiendup en vivo en la ficha** (`GET /api/wa/tiendup-status/[id]`,
 `src/lib/tiendup/status.ts` + `status-server.ts`, D-67): si hay correo válido y
@@ -369,6 +371,10 @@ evento por `titleKeyword` de `event-match.ts` (la tabla `events` no guarda el
 slug): al sumar una masterclass hay que cargar esa palabra.
 
 Aprobaciones, detalles que importan:
+
+- La tarjeta muestra el mail de Tiendup de la conversación y permite
+  guardarlo con `enroll: false`. El historial de masterclasses sale de pagos
+  validados locales y excluye imágenes del mismo pago.
 
 - **Aprobar** manda por WhatsApp: "Buenísimo, tu pago quedó verificado ✅ En
   breve te enviamos el acceso a tu correo, cualquier cosa quedamos en contacto
@@ -411,8 +417,8 @@ Aprobaciones, detalles que importan:
   20/11/2026): si ya figura en el curso con ese correo solo se marca; si no,
   inscribe aunque figure por nombre con otro correo o el correo no sea cliente
   de la tienda (Tiendup crea el cliente). El chequeo de "otro correo" y de
-  "cliente de la tienda" queda solo para el alta automática. "Ya tiene acceso"
-  solo marca, sin tocar Tiendup ni avisar.
+  "cliente de la tienda" queda solo para el alta automática. "Ya le dimos el alta a mano en Tiendup"
+  registra el acceso y cierra la notificación pendiente del pago.
 - **Cola de reintentos de Tiendup** (`src/lib/tiendup/retry-pending.ts`, reglas
   puras en `retry-policy.ts`). Tiendup puede responder varios minutos `403 site
   not found`. El cron de cada minuto (`GET /api/jobs/process`, que corre solo

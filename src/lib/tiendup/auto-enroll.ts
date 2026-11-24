@@ -3,7 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/types";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
-import { accesoVigenteDeEvento, eventBySlug } from "@/lib/payments/event-match";
+import { needsCourseAccess } from "@/lib/payments/revision-card";
 import {
   grantCourseAccess,
   grantSucceeded,
@@ -69,15 +69,7 @@ const PAYMENT_COLS =
  * validado y acceso sin dar. Además, que no esté retenido por el título.
  */
 export function waitsForAccess(p: PaymentRow): boolean {
-  const ev = eventBySlug(p.event_slug);
-  const isMasterclass = Boolean(ev) && ev!.slug !== "congreso";
-  return (
-    isMasterclass &&
-    accesoVigenteDeEvento(p.event_slug) &&
-    p.status === "validated" &&
-    !p.awaiting_title &&
-    !p.course_access_granted_at
-  );
+  return !p.awaiting_title && needsCourseAccess(p.event_slug, p.status, p.course_access_granted_at);
 }
 
 /** Motivo legible para el equipo, o null si no corresponde avisar. */

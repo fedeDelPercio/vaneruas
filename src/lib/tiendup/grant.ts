@@ -158,7 +158,7 @@ export async function grantCourseAccess(
 
   const { data: pay } = await sb
     .from("payment_validations")
-    .select("id, status, event_slug, conversation_id, course_access_error")
+    .select("id, status, event_slug, conversation_id, course_access_granted_at")
     .eq("id", paymentId)
     .maybeSingle();
   if (!pay) return { outcome: { kind: "not_found" }, conversationId: null };
@@ -176,6 +176,19 @@ export async function grantCourseAccess(
         .maybeSingle()
     : { data: null };
 
+  // Un intento automático o de la cola pudo quedar viejo mientras el equipo daba el alta.
+  if ((auto || fromQueue) && pay.course_access_granted_at) {
+    await sb.from("payment_validations")
+      .update({ course_access_error: null })
+      .eq("id", paymentId)
+      .eq("course_access_granted_at", pay.course_access_granted_at)
+      .not("course_access_error", "is", null);
+    if (conversationId) {
+      await resolveSystemNotification(sb, conversationId, enrollmentPendingReason(paymentId));
+    }
+    return { outcome: { kind: "already_enrolled", email: conv?.contact_email ?? "", emailFixed: false }, conversationId };
+  }
+
   const rawEmail = conv?.contact_email?.trim();
   if (!rawEmail) return { outcome: { kind: "no_email" }, conversationId };
   if (auto && !normalizeContactEmail(rawEmail)) {
@@ -191,14 +204,21 @@ export async function grantCourseAccess(
   // (nextRetryError conserva el primer fallo mientras sea el mismo pedido).
   const saveForRetry = async (text: string, queueOff = false) => {
     // Una caída de Tiendup no devuelve a la cola lo que ya espera a una persona.
-    const stored = pay.course_access_error;
+    const { data: current } = await sb
+      .from("payment_validations")
+      .select("course_access_granted_at, course_access_error")
+      .eq("id", paymentId)
+      .maybeSingle();
+    if (!current || current.course_access_granted_at) return;
+    const stored = current.course_access_error;
     if (auto && (isNotInTiendupError(stored) || isNameConflictError(stored) || isGaveUpError(stored))) return;
     const nowIso = new Date().toISOString();
     const marker = nextRetryError({ stored, mode: opts.mode, notify, text, nowIso, queueOff });
     await sb
       .from("payment_validations")
       .update({ course_access_error: marker, updated_at: nowIso })
-      .eq("id", paymentId);
+      .eq("id", paymentId)
+      .is("course_access_granted_at", null);
   };
 
   let enrolled;
@@ -231,7 +251,8 @@ export async function grantCourseAccess(
     await sb
       .from("payment_validations")
       .update({ course_access_error: nameConflictError(), updated_at: new Date().toISOString() })
-      .eq("id", paymentId);
+      .eq("id", paymentId)
+      .is("course_access_granted_at", null);
     return {
       outcome: {
         kind: "name_conflict",
@@ -248,7 +269,8 @@ export async function grantCourseAccess(
       await sb
         .from("payment_validations")
         .update({ course_access_error: notInTiendupError(), updated_at: new Date().toISOString() })
-        .eq("id", paymentId);
+        .eq("id", paymentId)
+        .is("course_access_granted_at", null);
       return { outcome: { kind: "not_in_tiendup", email }, conversationId };
     }
     await saveForRetry("No se pudo verificar el correo en Tiendup (Tiendup no respondió)");
@@ -275,7 +297,8 @@ export async function grantCourseAccess(
         await sb
           .from("payment_validations")
           .update({ course_access_error: error, updated_at: new Date().toISOString() })
-          .eq("id", paymentId);
+          .eq("id", paymentId)
+          .is("course_access_granted_at", null);
       }
       return { outcome: { kind: "enroll_failed", error, transient, queued }, conversationId };
     }
@@ -317,7 +340,7 @@ export async function markCourseAccessOnly(paymentId: string, sb: Db = getSupaba
 }
 
 async function markGranted(sb: Db, paymentId: string): Promise<void> {
-  await sb
+  const { error } = await sb
     .from("payment_validations")
     .update({
       course_access_granted_at: new Date().toISOString(),
@@ -325,6 +348,7 @@ async function markGranted(sb: Db, paymentId: string): Promise<void> {
       updated_at: new Date().toISOString(),
     })
     .eq("id", paymentId);
+  if (error) throw error;
 }
 
 async function afterAccessGranted(
@@ -430,10 +454,24 @@ export async function openEnrollmentPendingNotification(
   args: { conversationId: string; paymentId: string; motivo: string },
   sb: Db = getSupabaseServerClient(),
 ): Promise<void> {
+  const reason = enrollmentPendingReason(args.paymentId);
+  const readAccess = () => sb
+    .from("payment_validations")
+    .select("course_access_granted_at")
+    .eq("id", args.paymentId)
+    .maybeSingle();
+
+  const { data: before } = await readAccess();
+  if (!before || before.course_access_granted_at) return;
   await openSystemNotification(sb, {
     conversationId: args.conversationId,
-    reason: enrollmentPendingReason(args.paymentId),
+    reason,
     summary: enrollmentPendingSummary(args.motivo),
     paymentId: args.paymentId,
   });
+  // Si el alta y el insert se cruzaron, el aviso no puede quedar abierto.
+  const { data: after } = await readAccess();
+  if (after?.course_access_granted_at) {
+    await resolveSystemNotification(sb, args.conversationId, reason);
+  }
 }

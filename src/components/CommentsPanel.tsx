@@ -29,9 +29,11 @@ type MessageSnippet = { content: string; role: string };
 export function CommentsPanel({
   target,
   onClose,
+  embedded = false,
 }: {
   target: CommentTarget;
   onClose: () => void;
+  embedded?: boolean;
 }) {
   const { profile } = useProfile();
   const [comments, setComments] = useState<Comment[]>([]);
@@ -208,11 +210,8 @@ export function CommentsPanel({
 
   return (
     <>
-      <div
-        className="fixed inset-0 z-30 bg-neutral-900/40 md:hidden"
-        onClick={onClose}
-      />
-      <div className="fixed inset-y-0 right-0 z-40 flex h-full w-full max-w-sm flex-col border-l border-neutral-200 bg-white md:static md:z-auto md:w-80 dark:border-neutral-800 dark:bg-neutral-900">
+      {!embedded && <div className="fixed inset-0 z-30 bg-neutral-900/40 md:hidden" onClick={onClose} />}
+      <div className={`flex h-full w-full flex-col bg-white dark:bg-neutral-900 ${embedded ? "" : "fixed inset-y-0 right-0 z-40 max-w-sm border-l border-neutral-200 md:static md:z-auto md:w-80 dark:border-neutral-800"}`}>
         <div className="flex items-center justify-between border-b border-neutral-200 px-4 py-3 dark:border-neutral-800">
           <div>
             <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">

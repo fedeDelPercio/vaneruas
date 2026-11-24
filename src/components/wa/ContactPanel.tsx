@@ -397,9 +397,11 @@ function EventCard({
 export function ContactPanel({
   conversationId,
   onClose,
+  embedded = false,
 }: {
   conversationId: string;
   onClose: () => void;
+  embedded?: boolean;
 }) {
   const [ficha, setFicha] = useState<ContactFicha | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -523,10 +525,10 @@ export function ContactPanel({
 
   return (
     <>
-      <div className="fixed inset-0 z-[55] bg-neutral-900/40 backdrop-blur-sm xl:hidden" onClick={onClose} />
+      {!embedded && <div className="fixed inset-0 z-[55] bg-neutral-900/40 backdrop-blur-sm xl:hidden" onClick={onClose} />}
       <aside
         aria-label="Ficha del contacto"
-        className="fixed inset-y-0 right-0 z-[60] flex h-full w-[340px] max-w-[92vw] shrink-0 flex-col border-l border-neutral-200 bg-white xl:static xl:z-auto dark:border-neutral-800 dark:bg-neutral-950"
+        className={`flex h-full flex-col bg-white dark:bg-neutral-950 ${embedded ? "w-full" : "fixed inset-y-0 right-0 z-[60] w-[340px] max-w-[92vw] shrink-0 border-l border-neutral-200 xl:static xl:z-auto dark:border-neutral-800"}`}
       >
         <div className="flex items-center justify-between px-4 pb-2 pt-4">
           <h2 className="text-[13px] font-medium tracking-tight-er text-neutral-900 dark:text-neutral-50">

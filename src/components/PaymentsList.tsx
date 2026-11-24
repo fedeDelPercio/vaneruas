@@ -5,17 +5,13 @@ import { useSearchParams } from "next/navigation";
 import {
   Loader2,
   Receipt,
-  FileText,
   Check,
-  CheckCheck,
   X,
   RotateCcw,
   AlertTriangle,
   GraduationCap,
   ShieldAlert,
   MessageSquareQuote,
-  Mail,
-  Ticket,
   Users,
   KeyRound,
   SearchX,
@@ -29,8 +25,15 @@ import { ConversationLinks } from "./ConversationLinks";
 import { SearchField } from "./SearchField";
 import { FilterChip, FilterChips, FilterPanel } from "./ui/FilterChips";
 import { useContactSearch } from "./useContactSearch";
-import { eventBySlug, accesoVigenteDeEvento } from "@/lib/payments/event-match";
-import { recipientMismatches } from "@/lib/payments/recipient";
+import { eventBySlug } from "@/lib/payments/event-match";
+import { needsCourseAccess } from "@/lib/payments/revision-card";
+import { PaymentCard } from "./payments/PaymentCard";
+import { fmtDateTime, Thumb } from "./payments/receipt-fields";
+import { ResizableChatPane } from "./ResizableChatPane";
+import { CommentsPanel } from "./CommentsPanel";
+import type { CommentTarget } from "./ConversationPanel";
+import { ContactPanel } from "./wa/ContactPanel";
+import { WaChatPanel } from "./wa/WaChatPanel";
 import type {
   PaymentItem,
   PaymentStats,
@@ -50,7 +53,7 @@ const FILTERS: { key: StatusFilter; label: string }[] = [
   { key: "validated", label: "Validados" },
   { key: "rejected", label: "Rechazados" },
   { key: "all", label: "Todos" },
-  // Worklist de entrega de acceso: masterclass validadas, con mail, sin acceso dado.
+  // Masterclasses validadas con acceso pendiente, incluso sin correo.
   { key: "sin-acceso", label: "Falta acceso" },
 ];
 
@@ -66,49 +69,6 @@ function eventKind(slug: string | null | undefined): "congreso" | "masterclass" 
   return ev.slug === "congreso" ? "congreso" : "masterclass";
 }
 
-/**
- * Color del badge de evento, para distinguirlos de un vistazo: Congreso dorado
- * (acento de marca), Masterclass esmeralda. Mismo tinte sutil que los demás
- * badges del panel (borde + bg al 6%).
- */
-function eventBadgeClass(slug: string | null | undefined): string {
-  return eventKind(slug) === "congreso"
-    ? "border-gold/30 bg-gold/[0.06] text-gold"
-    : "border-ok/30 bg-ok/[0.06] text-ok";
-}
-
-function fmtDateTime(iso: string): string {
-  return new Date(iso).toLocaleString("es-AR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-/**
- * Fecha y hora del comprobante NORMALIZADA (DD/MM/AAAA, HH:MM), uniforme entre
- * tarjetas. Usa la fecha ya parseada (`transferred_at`), que se guarda como la
- * hora de pared del comprobante en UTC: por eso formateamos en timeZone UTC, así
- * mostramos la hora original sin desfasar por la zona del navegador. Si el OCR no
- * pudo normalizarla, caemos al texto crudo del comprobante.
- */
-function fmtTransferDate(transferredAt: string | null, raw: string | null): string | null {
-  if (transferredAt) {
-    return new Date(transferredAt).toLocaleString("es-AR", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      timeZone: "UTC",
-    });
-  }
-  return raw;
-}
-
-/** Formatea una duración en ms a algo legible y corto (ej. "2 h 15 min"). */
 function fmtDuration(ms: number | null): string {
   if (ms === null) return "—";
   const min = Math.round(ms / 60000);
@@ -120,12 +80,6 @@ function fmtDuration(ms: number | null): string {
   const days = Math.floor(hours / 24);
   const remHours = hours % 24;
   return remHours ? `${days} d ${remHours} h` : `${days} d`;
-}
-
-function fmtAmount(amount: number | null, currency: string | null): string {
-  if (amount === null) return "Monto no leído";
-  const n = new Intl.NumberFormat("es-AR", { minimumFractionDigits: 0 }).format(amount);
-  return `${currency ?? "ARS"} ${n}`;
 }
 
 /**
@@ -155,31 +109,6 @@ function groupByConversation(items: PaymentItem[]): PaymentItem[][] {
   return groups;
 }
 
-function statusBadge(status: PaymentItem["status"]): { label: string; cls: string } {
-  if (status === "validated") {
-    return {
-      label: "Validado",
-      cls: "border-ok/30 bg-ok/[0.06] text-ok",
-    };
-  }
-  if (status === "rejected") {
-    return {
-      label: "Rechazado",
-      cls: "border-red-600/30 bg-red-600/[0.06] text-red-700 dark:border-red-500/30 dark:bg-red-500/[0.06] dark:text-red-300",
-    };
-  }
-  return {
-    label: "Pendiente",
-    cls: "border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400",
-  };
-}
-
-/**
- * Fila de dato: label mono + valor, SIEMPRE en la misma posición de la grilla.
- * Si no hay dato muestra un guión muted en vez de desaparecer: así los campos
- * no se reordenan ni faltan entre una card y otra, y validar es siempre igual
- * (el ojo encuentra cada campo en el mismo lugar).
- */
 /**
  * Cruz para descartar una card que no correspondía (una captura de pantalla que
  * se coló, una imagen que no era comprobante ni título). El filtro automático
@@ -236,75 +165,6 @@ function DismissButton({
     >
       <X className="h-3.5 w-3.5" strokeWidth={1.75} />
     </button>
-  );
-}
-
-function Field({ label, value }: { label: string; value: string | null }) {
-  return (
-    <div>
-      <dt className="font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-        {label}
-      </dt>
-      <dd
-        className={`mt-0.5 text-[13px] ${
-          value
-            ? "text-neutral-800 dark:text-neutral-100"
-            : "text-neutral-300 dark:text-neutral-600"
-        }`}
-      >
-        {value || "—"}
-      </dd>
-    </div>
-  );
-}
-
-/** Miniatura de un adjunto (imagen o PDF) con link a la versión grande. */
-function Thumb({
-  url,
-  type,
-  alt,
-  className = "h-40 w-32",
-}: {
-  url: string | null;
-  type: string | null;
-  alt: string;
-  className?: string;
-}) {
-  if (!url) {
-    return (
-      <div
-        className={`flex items-center justify-center rounded-md border border-dashed border-neutral-200 text-[11px] text-neutral-400 dark:border-neutral-800 ${className}`}
-      >
-        Sin imagen
-      </div>
-    );
-  }
-  if (type === "application/pdf") {
-    return (
-      <a
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className={`flex flex-col items-center justify-center gap-1.5 rounded-md border border-neutral-200 bg-neutral-50 text-[11.5px] text-neutral-600 transition hover:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-300 dark:hover:bg-neutral-800 ${className}`}
-      >
-        <FileText className="h-5 w-5" strokeWidth={1.5} />
-        Ver PDF
-      </a>
-    );
-  }
-  return (
-    <a href={url} target="_blank" rel="noopener noreferrer">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={url}
-        alt={alt}
-        // Carga diferida: "Todos" tiene cientos de tarjetas y bajar todas las
-        // imágenes de una dejaba la pantalla trabada medio minuto.
-        loading="lazy"
-        decoding="async"
-        className={`rounded-md border border-neutral-200 object-cover transition hover:opacity-90 dark:border-neutral-800 ${className}`}
-      />
-    </a>
   );
 }
 
@@ -445,7 +305,17 @@ export function PaymentsList() {
   const [stats, setStats] = useState<PaymentStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [busyAccessId, setBusyAccessId] = useState<string | null>(null);
+  const [busyAccess, setBusyAccess] = useState<Record<string, "grant" | "mark">>({});
+  const [accessResults, setAccessResults] = useState<Record<string, { text: string; error?: boolean }>>({});
+  const [chatId, setChatId] = useState<string | null>(null);
+  const [chatView, setChatView] = useState<"chat" | "ficha">("chat");
+  const [commentTarget, setCommentTarget] = useState<CommentTarget | null>(null);
+  function openChat(id: string | null) {
+    setChatId(id);
+    setChatView("chat");
+    setCommentTarget(null);
+  }
+  const closeChat = () => openChat(null);
   // Confirmación de "Ya tiene acceso" (marcar como resuelto sin inscribir en
   // Tiendup): para casos que el equipo ya dio de alta por afuera.
   const [confirmMarkId, setConfirmMarkId] = useState<string | null>(null);
@@ -474,6 +344,7 @@ export function PaymentsList() {
       // "Falta acceso" es una vista sobre los validados (el resto se filtra acá).
       const apiStatus = status === "sin-acceso" ? "validated" : status;
       const params = new URLSearchParams(q ? { q } : { status: apiStatus });
+      params.set("with", "access");
       const r = await fetch(`/api/payments?${params}`, { cache: "no-store" });
       const j = await r.json();
       if (requestId !== requestRef.current) return;
@@ -562,68 +433,47 @@ export function PaymentsList() {
    * figure como cliente (Tiendup lo crea) o la persona figure con otro correo.
    * Si queda dado, el server le avisa a la persona por WhatsApp.
    */
-  async function grantAccess(id: string) {
-    setBusyAccessId(id);
+  async function updateAccess(id: string, markOnly = false) {
+    setBusyAccess((current) => ({ ...current, [id]: markOnly ? "mark" : "grant" }));
+    setAccessResults((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+    const report = (text: string, error = false) =>
+      setAccessResults((current) => ({ ...current, [id]: { text, error } }));
     try {
       const r = await fetch(`/api/payments/${id}/grant-access`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify(markOnly ? { markOnly: true } : {}),
       });
       const j = await r.json().catch(() => ({}));
       if (r.status === 202 && j.queued) {
-        // Tiendup no respondió: no es un error del equipo, lo retoma la cola.
-        setNotice(j.message);
-        await load(filterRef.current, searchRef.current);
+        report(j.message ?? "El alta quedó en cola de reintento");
+      } else if (!r.ok || !j.ok) {
+        report(j.error ?? "No se pudo registrar el acceso al curso", true);
         return;
+      } else {
+        const message = markOnly
+          ? "Alta manual registrada"
+          : j.alreadyEnrolled
+            ? "Ya estaba inscripta en el curso. El acceso quedó registrado"
+            : "Acceso al curso dado";
+        report(message);
+        // Al resolverse, la tarjeta sale de la cola. El aviso sigue a la vista.
+        if (filterRef.current === "pending" || filterRef.current === "sin-acceso") setNotice(message);
       }
-      if (!r.ok || !j.ok) {
-        setNotice(
-          j.error
-            ? `No se pudo dar el acceso al curso: ${j.error}`
-            : "No se pudo dar el acceso al curso",
-        );
-        return;
-      }
-      setNotice(
-        j.alreadyEnrolled
-          ? `Ya estaba inscripta en el curso (${j.email}), quedó marcado en el panel`
-          : `Acceso al curso dado a ${j.email ?? "el contacto"} ✨`,
-      );
       await load(filterRef.current, searchRef.current);
     } catch {
-      setNotice("Error de red al dar el acceso al curso");
+      report("Error de red al registrar el acceso al curso", true);
     } finally {
-      setBusyAccessId(null);
-    }
-  }
-
-  /**
-   * "Ya tiene acceso": marca el comprobante como acceso dado SIN inscribir en
-   * Tiendup. Para casos que el equipo ya resolvió por afuera (alta manual, o ya
-   * estaba y el cruce no la agarró). Sale del worklist de "Falta acceso".
-   */
-  async function markAccess(id: string) {
-    setBusyAccessId(id);
-    try {
-      const r = await fetch(`/api/payments/${id}/grant-access`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ markOnly: true }),
+      if (markOnly) setConfirmMarkId((current) => current === id ? null : current);
+      setBusyAccess((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
       });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.ok) {
-        setNotice(j.error ? `No se pudo marcar: ${j.error}` : "No se pudo marcar el acceso");
-        setConfirmMarkId(null);
-        return;
-      }
-      setNotice("Marcado como que ya tiene acceso");
-      setConfirmMarkId(null);
-      await load(filterRef.current, searchRef.current);
-    } catch {
-      setNotice("Error de red al marcar el acceso");
-    } finally {
-      setBusyAccessId(null);
     }
   }
 
@@ -722,24 +572,11 @@ export function PaymentsList() {
   // estado actual (pendientes / validados / etc.); el filtro por evento se
   // aplica solo a lo que se muestra. Las revisiones de título sueltas no tienen
   // evento, así que solo aparecen en "Todos".
-  // "Falta acceso": masterclass validada, con mail, a la que todavía no se le
-  // dio el acceso al curso. En esa vista los contadores por evento tienen que
-  // reflejar lo que realmente falta, no el total de masterclass del estado (si
-  // no, el chip muestra 291 cuando en la lista hay 5).
-  // Falta acceso = masterclass abierta, pago validado y acceso sin dar. El
-  // correo NO se exige acá: si no lo tenemos, igual es trabajo pendiente (hay
-  // que pedírselo), y esconderlo hacía que esas inscriptas desaparecieran del
-  // panel sin que nadie se enterara.
-  const needsAccess = (p: PaymentItem) =>
-    eventKind(p.eventSlug) === "masterclass" &&
-    // Masterclass ya dictada y con la grabación vencida: no hay acceso que dar,
-    // así que no es trabajo pendiente y no ensucia la worklist.
-    accesoVigenteDeEvento(p.eventSlug) &&
-    p.status === "validated" &&
-    !p.courseAccessGrantedAt;
-  // Con búsqueda, la lista ya viene filtrada del servidor (todos los estados).
-  const countBase =
-    !searching && filter === "sin-acceso" ? (items ?? []).filter(needsAccess) : (items ?? []);
+  // Pendientes viene del servidor con las mismas altas que Falta acceso.
+  // La búsqueda abarca todos los estados y conserva sus resultados.
+  const countBase = !searching && filter === "sin-acceso"
+    ? (items ?? []).filter((p) => needsCourseAccess(p.eventSlug, p.status, p.courseAccessGrantedAt))
+    : (items ?? []);
   const congresoCount = countBase.filter((p) => eventKind(p.eventSlug) === "congreso").length;
   const masterclassCount = countBase.filter((p) => eventKind(p.eventSlug) === "masterclass").length;
   const hasEvents = congresoCount > 0 || masterclassCount > 0;
@@ -763,6 +600,22 @@ export function PaymentsList() {
   ];
 
   return (
+    <ResizableChatPane onClose={closeChat} chat={chatId && (
+      <>
+        <div className={commentTarget || chatView === "ficha" ? "hidden" : "h-full"}>
+          <WaChatPanel key={chatId} conversationId={chatId} onOpenSidebar={closeChat}
+            onOpenComments={setCommentTarget} fichaOpen={chatView === "ficha"} onToggleFicha={() => setChatView("ficha")} />
+        </div>
+        {commentTarget && <CommentsPanel embedded target={commentTarget} onClose={() => setCommentTarget(null)} />}
+        {chatView === "ficha" && (
+          <ContactPanel key={chatId} embedded conversationId={chatId} onClose={() => {
+            setChatView("chat");
+            void load(filterRef.current, searchRef.current);
+          }} />
+        )}
+      </>
+    )}>
+    <div className="scroll-thin h-full overflow-y-auto">
     <div className="mx-auto max-w-3xl px-4 py-6 sm:px-8">
       <div className="flex items-center justify-between pb-3">
         <h1 className="text-[15px] font-medium tracking-tight-er text-neutral-900 dark:text-neutral-50">
@@ -774,6 +627,8 @@ export function PaymentsList() {
           </span>
         )}
       </div>
+
+      {error && <p role="alert" className="mb-3 text-[13px] text-red-700 dark:text-red-300">{error}</p>}
 
       {/* Aviso inmediato de una acción (entrega fallida, acceso al curso, etc). */}
       {notice && (
@@ -916,7 +771,6 @@ export function PaymentsList() {
         <div className="space-y-3">
           {shownGroups.map((group) => {
             const first = group[0]!;
-            const groupAwaitingTitle = group.some((g) => g.awaitingTitle);
             // Comprobantes a nombre de personas distintas en la misma conversación:
             // alguien compró una entrada para otra persona. Hay que registrar a esa
             // otra persona aparte (no tenemos su mail para darle el acceso).
@@ -929,42 +783,7 @@ export function PaymentsList() {
             );
             const multiplePeople = distinctSenders.length >= 2;
             return (
-              <article
-                key={first.id}
-                className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"
-              >
-                {/* Acreditación del título: UNA vez por contacto, aunque haya
-                    mandado varios comprobantes (todos comparten los mismos
-                    títulos). Va arriba; abajo, cada comprobante con su acción. */}
-                {(first.titles.length > 0 || (groupAwaitingTitle && first.contactNote)) && (
-                  <div className="mb-4 border-b border-neutral-100 pb-4 dark:border-neutral-800">
-                    <p className="mb-2.5 flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-                      <GraduationCap className="h-3 w-3" strokeWidth={1.75} />
-                      Título profesional
-                    </p>
-                    {first.titles.length > 0 && (
-                      <div className="space-y-3">
-                        {first.titles.map((sub) => (
-                          <TitleSubmissionRow
-                            key={sub.id}
-                            sub={sub}
-                            busy={busyTitleId === sub.id}
-                            onApprove={() => void setTitleStatus(sub.id, "approve")}
-                            onReject={() => void setTitleStatus(sub.id, "reject")}
-                          />
-                        ))}
-                      </div>
-                    )}
-                    {groupAwaitingTitle && first.contactNote && (
-                      <ContactNote
-                        text={first.contactNote}
-                        label="Mensaje de la contacta sobre el título"
-                        className={first.titles.length > 0 ? "mt-3" : "mt-0"}
-                      />
-                    )}
-                  </div>
-                )}
-
+              <section key={first.conversation?.id ?? first.id} className="space-y-3">
                 {/* Si mandó más de un comprobante, lo aclaramos: van todos acá. */}
                 {group.length > 1 && (
                   <p className="mb-2 font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
@@ -985,454 +804,247 @@ export function PaymentsList() {
                   </div>
                 )}
 
-                {group.map((p, idx) => {
-                  const badge = statusBadge(p.status);
-                  const ev = eventBySlug(p.eventSlug);
+                {group.map((p) => {
                   const isPending = p.status === "pending";
                   const busy = busyId === p.id;
-                  const accessBusy = busyAccessId === p.id;
-                  // Acceso al curso (Tiendup): masterclass validada. Sin correo
-                  // no se puede inscribir, pero la tarjeta igual se muestra con
-                  // el aviso, porque pedirle el correo ES la tarea pendiente.
-                  const esMasterclassValidada =
-                    p.status === "validated" && eventKind(p.eventSlug) === "masterclass";
+                  const accessBusy = busyAccess[p.id];
+                  const accessResult = accessResults[p.id];
+                  const esMasterclassValidada = p.status === "validated" && eventKind(p.eventSlug) === "masterclass";
                   const faltaCorreo = esMasterclassValidada && !p.contactEmail;
-                  const canGrantAccess = esMasterclassValidada && Boolean(p.contactEmail);
-                  // ¿El destinatario del comprobante no coincide con la cuenta de Vane?
-                  const recipientWarn = recipientMismatches(p.recipientName, p.recipientTaxId);
-                  const recipientWarnLabels = recipientWarn.map((w) => (w === "cuit" ? "CUIT" : "nombre"));
+                  const pendingTitles = p.titles.filter((sub) => sub.hasFile && !sub.isValid && !sub.reviewedAt);
                   return (
-                    <div
-                      key={p.id}
-                      className={idx > 0 ? "mt-4 border-t border-neutral-200 pt-4 dark:border-neutral-800" : ""}
-                    >
-                <div className="flex flex-col gap-4 sm:flex-row">
-                  {/* Comprobante */}
-                  <div className="shrink-0">
-                    <Thumb url={p.comprobanteUrl} type={p.comprobanteType} alt="Comprobante" />
-                    {/* Otras imágenes del mismo pago (grouping.ts): se aprueban
-                        o rechazan junto con esta, en una sola acción. */}
-                    {p.groupImages.length > 1 && (
-                      <>
-                        <div className="mt-1.5 flex w-32 flex-wrap gap-1">
-                          {p.groupImages
-                            .filter((g) => g.id !== p.id)
-                            .map((g) => (
-                              <Thumb key={g.id} url={g.url} type={g.fileType} alt="Otra imagen del mismo pago" className="h-10 w-8" />
+                    <PaymentCard key={p.id} payment={p} onOpenChat={openChat}
+                      onSaved={() => void load(filterRef.current, searchRef.current)}
+                      titleActions={pendingTitles.length > 0 && (
+                        <details className="mt-2 text-[12px]">
+                          <summary className="cursor-pointer">Revisar archivos del título</summary>
+                          <div className="mt-2 space-y-3">
+                            {pendingTitles.map((sub) => (
+                              <TitleSubmissionRow key={sub.id} sub={sub} busy={busyTitleId === sub.id}
+                                onApprove={() => void setTitleStatus(sub.id, "approve")}
+                                onReject={() => void setTitleStatus(sub.id, "reject")} />
                             ))}
-                        </div>
-                        <p className="mt-1 font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-                          {p.groupImages.length} imágenes
-                        </p>
-                      </>
-                    )}
-                  </div>
-
-                  {/* Datos */}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="truncate text-[15px] font-medium tracking-tight-er text-neutral-900 dark:text-neutral-50">
-                          {p.senderName ?? "Emisor no leído"}
-                        </p>
-                        <p className="mt-0.5 font-mono text-[15px] tracking-tight-er text-neutral-900 dark:text-neutral-50">
-                          {fmtAmount(p.amount, p.currency)}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1.5">
-                        {ev && (
-                          <span
-                            className={`flex items-center gap-1 badge-pill ${eventBadgeClass(p.eventSlug)}`}
-                            title={`Identificado por el monto: ${ev.label}`}
-                          >
-                            <Ticket className="h-3 w-3" strokeWidth={1.75} />
-                            {ev.shortLabel}
-                          </span>
-                        )}
-                        {p.awaitingTitle && (
-                          <span
-                            className="flex items-center gap-1 badge-pill border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400"
-                            title="Retenido hasta validar el título profesional de la contacta"
-                          >
-                            <GraduationCap className="h-3 w-3 text-warn" strokeWidth={1.75} />
-                            Esperando título
-                          </span>
-                        )}
-                        {p.groupMaybeDistinct && (
-                          <span
-                            className="flex items-center gap-1 badge-pill border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400"
-                            title="Las imágenes de este comprobante tienen montos leídos distintos. Revisalas antes de aprobar: puede que sean pagos distintos"
-                          >
-                            <AlertTriangle className="h-3 w-3 text-warn" strokeWidth={1.75} />
-                            Parecen pagos distintos
-                          </span>
-                        )}
-                        {p.isDuplicate && (
-                          <span
-                            className="flex items-center gap-1 badge-pill border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400"
-                            title="Otro comprobante anterior tiene el mismo N° de operación"
-                          >
-                            <AlertTriangle className="h-3 w-3 text-warn" strokeWidth={1.75} />
-                            N° repetido
-                          </span>
-                        )}
-                        {p.contactHasValidatedPayment && (
-                          <span
-                            className="flex items-center gap-1 badge-pill border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400"
-                            title="Este contacto ya tiene un comprobante validado en esta conversación. Este envío es adicional."
-                          >
-                            <CheckCheck className="h-3 w-3 text-ok" strokeWidth={1.75} />
-                            Ya envió comprobante
-                          </span>
-                        )}
-                        {p.deliveryFailed && (
-                          <span
-                            className="flex items-center gap-1 badge-pill border-red-600/30 bg-red-600/[0.06] text-red-700 dark:border-red-500/30 dark:bg-red-500/[0.06] dark:text-red-300"
-                            title={p.deliveryError ?? "No se pudo avisar al cliente por WhatsApp"}
-                          >
-                            <AlertTriangle className="h-3 w-3" strokeWidth={1.75} />
-                            No se avisó al cliente
-                          </span>
-                        )}
-                        {recipientWarn.length > 0 && (
-                          <span
-                            className="flex items-center gap-1 badge-pill border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400"
-                            title="El destinatario del comprobante no coincide con la cuenta de Vanesa Rúas"
-                          >
-                            <AlertTriangle className="h-3 w-3 text-warn" strokeWidth={1.75} />
-                            Destinatario no coincide
-                          </span>
-                        )}
-                        <span
-                          className={`badge-pill ${badge.cls}`}
-                        >
-                          {badge.label}
-                        </span>
-                        {/* Descartar: para lo que no era un comprobante y se
-                            filtró igual (una captura, una foto suelta). */}
+                          </div>
+                        </details>
+                      )}
+                    >
+                      {/* Acciones */}
+                      <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
                         {isPending && (
-                          <DismissButton
-                            busy={busy}
-                            confirming={confirmDismiss === p.id}
-                            onAskConfirm={() => setConfirmDismiss(p.id)}
-                            onCancel={() => setConfirmDismiss(null)}
-                            onConfirm={() => void dismissPayment(p.id)}
-                          />
+                          <DismissButton busy={busy} confirming={confirmDismiss === p.id}
+                            onAskConfirm={() => setConfirmDismiss(p.id)} onCancel={() => setConfirmDismiss(null)}
+                            onConfirm={() => void dismissPayment(p.id)} />
                         )}
-                      </div>
-                    </div>
 
-                    {/* Quién escribe (contacto de WhatsApp): puede no coincidir
-                        con el emisor del comprobante. Teléfono tappable a wa.me. */}
-                    {p.conversation && <ContactStrip conversation={p.conversation} />}
-
-                    <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5">
-                      <Field label="Fecha y hora" value={fmtTransferDate(p.transferredAt, p.transferDateRaw)} />
-                      <Field label="Banco / medio" value={p.bankOrMethod} />
-                      <Field label="N° de operación" value={p.operationNumber} />
-                      <Field label="CUIT emisor" value={p.senderTaxId} />
-                      <Field label="Destinatario" value={p.recipientName} />
-                      <Field label="CUIT destinatario" value={p.recipientTaxId} />
-                      <Field label="Concepto" value={p.concept} />
-                    </dl>
-
-                    {/* Meta de la lectura + origen */}
-                    <p className="mt-3 font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-                      Recibido {fmtDateTime(p.createdAt)}
-                      {p.extractionConfidence ? ` · lectura ${p.extractionConfidence}` : ""}
-                    </p>
-
-                    {/* Correo de la contacta (para el acceso / alta en Tiendup) */}
-                    {p.contactEmail && (
-                      <p className="mt-1 flex items-center gap-1.5 text-[12px] text-neutral-600 dark:text-neutral-300">
-                        <Mail className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={1.75} />
-                        {p.contactEmail}
-                      </p>
-                    )}
-
-                    {/* Estado resuelto */}
-                    {!isPending && (
-                      <p className="mt-1 text-[12px] text-neutral-500 dark:text-neutral-400">
-                        {badge.label} por {p.validatedByName ?? "el equipo"}
-                        {p.validatedAt ? ` · ${fmtDateTime(p.validatedAt)}` : ""}
-                        {p.validationNote ? ` · ${p.validationNote}` : ""}
-                      </p>
-                    )}
-
-                    {/* Destinatario distinto a la cuenta de Vane: revisar antes
-                        de aprobar (puede ser otra cuenta o un comprobante falso). */}
-                    {recipientWarn.length > 0 && (
-                      <div className="mt-2 flex items-start gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-900/40">
-                        <AlertTriangle
-                          className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warn"
-                          strokeWidth={1.75}
-                        />
-                        <p className="text-[12px] leading-relaxed text-neutral-700 dark:text-neutral-200">
-                          El {recipientWarnLabels.join(" y el ")} del destinatario{" "}
-                          {recipientWarn.length > 1 ? "no coinciden" : "no coincide"} con la
-                          cuenta de Vanesa Rúas. Verificá el comprobante antes de aprobar.
-                        </p>
-                      </div>
-                    )}
-
-                    {/* No se pudo avisar al cliente (ej. ventana de 24h de
-                        WhatsApp vencida): el equipo lo envía a mano. */}
-                    {p.deliveryFailed && (
-                      <div className="mt-2 flex items-start gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-900/40">
-                        <AlertTriangle
-                          className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-600 dark:text-red-400"
-                          strokeWidth={1.75}
-                        />
-                        <p className="text-[12px] leading-relaxed text-neutral-700 dark:text-neutral-200">
-                          No se pudo avisar al cliente por WhatsApp, probablemente por la
-                          ventana de 24 horas vencida. Enviale la confirmación manualmente
-                          desde GHL.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Acciones */}
-                <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
-                  {p.conversation && (
-                    <ConversationLinks conversation={p.conversation} className="mr-auto" />
-                  )}
-
-                  {isPending && p.awaitingTitle ? (
-                    <>
-                      <span className="mr-auto flex items-center gap-1.5 text-[12px] text-neutral-500 dark:text-neutral-400 sm:mr-0">
-                        <GraduationCap className="h-3.5 w-3.5 text-warn" strokeWidth={1.75} />
-                        Validá el título para habilitar, o forzá la aprobación
-                      </span>
-                      {confirmReject === p.id ? (
-                        <>
-                          <span className="text-[12px] text-neutral-600 dark:text-neutral-300">
-                            Rechazar este comprobante?
+                        {isPending && (p.awaitingTitle ? (
+                          <span className="mr-auto flex items-center gap-1.5 text-[12px] text-neutral-500 dark:text-neutral-400 sm:mr-0">
+                            <GraduationCap className="h-3.5 w-3.5 text-warn" strokeWidth={1.75} />
+                            Validá el título para habilitar, o forzá la aprobación
                           </span>
-                          <button
-                            onClick={() => setConfirmReject(null)}
-                            disabled={busy}
-                            className="rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                          >
-                            Cancelar
-                          </button>
-                          <button
-                            onClick={() => {
-                              setConfirmReject(null);
-                              void setStatus(p.id, "rejected");
-                            }}
-                            disabled={busy}
-                            className="flex items-center gap-1.5 rounded-md bg-red-600 px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            {busy ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
-                            ) : (
-                              <X className="h-3.5 w-3.5" strokeWidth={2} />
-                            )}
-                            Confirmar rechazo
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          onClick={() => setConfirmReject(p.id)}
-                          disabled={busy}
-                          className="flex items-center gap-1.5 rounded-md border border-red-600/40 px-3.5 py-2 text-[13px] font-medium text-red-700 transition hover:bg-red-600/[0.06] disabled:cursor-not-allowed disabled:opacity-40 dark:text-red-300"
-                        >
-                          <X className="h-3.5 w-3.5" strokeWidth={2} />
-                          Rechazar
-                        </button>
-                      )}
-                      {confirmForceId === p.id ? (
-                        <>
-                          <span className="text-[12px] text-neutral-500 dark:text-neutral-400">
-                            Forzar y avisar a la contacta?
-                          </span>
-                          <button
-                            onClick={() => setConfirmForceId(null)}
-                            disabled={busy}
-                            className="rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                          >
-                            Cancelar
-                          </button>
-                          <button
-                            onClick={() => {
-                              setConfirmForceId(null);
-                              void setStatus(p.id, "validated", { force: true });
-                            }}
-                            disabled={busy}
-                            className="flex items-center gap-1.5 btn-gold"
-                          >
-                            {busy ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
-                            ) : (
-                              <Check className="h-3.5 w-3.5" strokeWidth={2} />
-                            )}
-                            Confirmar
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          onClick={() => setConfirmForceId(p.id)}
-                          disabled={busy}
-                          title="Aprobar el comprobante igual, sin validar el título profesional"
-                          className="flex items-center gap-1.5 rounded-md border border-neutral-200 px-3.5 py-2 text-[13px] font-medium text-neutral-700 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
-                        >
-                          <ShieldAlert className="h-3.5 w-3.5 text-warn" strokeWidth={1.75} />
-                          Forzar aprobación
-                        </button>
-                      )}
-                    </>
-                  ) : isPending ? (
-                    <>
-                      {p.contactHasValidatedPayment && (
-                        <span className="mr-auto flex items-center gap-1.5 text-[12px] text-neutral-500 dark:text-neutral-400">
-                          <CheckCheck className="h-3.5 w-3.5 text-ok" strokeWidth={1.75} />
-                          Este contacto ya tiene un comprobante validado
-                        </span>
-                      )}
-                      <input
-                        value={notes[p.id] ?? ""}
-                        onChange={(e) =>
-                          setNotes((n) => ({ ...n, [p.id]: e.target.value }))
-                        }
-                        placeholder="Nota (opcional)"
-                        className="w-40 rounded-md border border-neutral-200 bg-white px-3 py-2 text-[13px] outline-none transition placeholder:text-neutral-400 focus:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder:text-neutral-500 dark:focus:border-neutral-600"
-                      />
-                      {confirmReject === p.id ? (
-                        <>
-                          <span className="text-[12px] text-neutral-600 dark:text-neutral-300">
-                            Rechazar este comprobante?
-                          </span>
-                          <button
-                            onClick={() => setConfirmReject(null)}
-                            disabled={busy}
-                            className="rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                          >
-                            Cancelar
-                          </button>
-                          <button
-                            onClick={() => {
-                              setConfirmReject(null);
-                              void setStatus(p.id, "rejected");
-                            }}
-                            disabled={busy}
-                            className="flex items-center gap-1.5 rounded-md bg-red-600 px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            {busy ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
-                            ) : (
-                              <X className="h-3.5 w-3.5" strokeWidth={2} />
-                            )}
-                            Confirmar rechazo
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          onClick={() => setConfirmReject(p.id)}
-                          disabled={busy}
-                          className="flex items-center gap-1.5 rounded-md border border-red-600/40 px-3.5 py-2 text-[13px] font-medium text-red-700 transition hover:bg-red-600/[0.06] disabled:cursor-not-allowed disabled:opacity-40 dark:text-red-300"
-                        >
-                          <X className="h-3.5 w-3.5" strokeWidth={2} />
-                          Rechazar
-                        </button>
-                      )}
-                      <button
-                        onClick={() => void setStatus(p.id, "validated")}
-                        disabled={busy}
-                        className="flex items-center gap-1.5 btn-gold"
-                      >
-                        {busy ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
                         ) : (
-                          <Check className="h-3.5 w-3.5" strokeWidth={2} />
-                        )}
-                        Aprobar
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      {faltaCorreo && !p.courseAccessGrantedAt && (
-                        <span className="flex items-center gap-1.5 text-[12px] text-warn">
-                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
-                          Falta el correo para darle el acceso, hay que pedírselo
-                        </span>
-                      )}
-                      {canGrantAccess &&
-                        (p.courseAccessGrantedAt ? (
-                          <span className="flex items-center gap-1.5 text-[12px] text-ok">
-                            <KeyRound className="h-3.5 w-3.5" strokeWidth={1.75} />
-                            Acceso al curso dado
-                          </span>
-                        ) : confirmMarkId === p.id ? (
+                          <input
+                            value={notes[p.id] ?? ""}
+                            onChange={(e) =>
+                              setNotes((n) => ({ ...n, [p.id]: e.target.value }))
+                            }
+                            placeholder="Nota (opcional)"
+                            className="w-40 rounded-md border border-neutral-200 bg-white px-3 py-2 text-[13px] outline-none transition placeholder:text-neutral-400 focus:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder:text-neutral-500 dark:focus:border-neutral-600"
+                          />
+                        ))}
+                        {isPending && (
                           <>
-                            <span className="mr-auto flex items-center gap-1.5 text-[12px] text-neutral-600 dark:text-neutral-300">
-                              Marcar como que ya tiene acceso, sin inscribir en Tiendup?
-                            </span>
+                            {confirmReject === p.id ? (
+                              <>
+                                <span className="text-[12px] text-neutral-600 dark:text-neutral-300">
+                                  Rechazar este comprobante?
+                                </span>
+                                <button
+                                  onClick={() => setConfirmReject(null)}
+                                  disabled={busy}
+                                  className="rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                                >
+                                  Cancelar
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setConfirmReject(null);
+                                    void setStatus(p.id, "rejected");
+                                  }}
+                                  disabled={busy}
+                                  className="flex items-center gap-1.5 rounded-md bg-red-600 px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                  {busy ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
+                                  ) : (
+                                    <X className="h-3.5 w-3.5" strokeWidth={2} />
+                                  )}
+                                  Confirmar rechazo
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                onClick={() => setConfirmReject(p.id)}
+                                disabled={busy}
+                                className="flex items-center gap-1.5 rounded-md border border-red-600/40 px-3.5 py-2 text-[13px] font-medium text-red-700 transition hover:bg-red-600/[0.06] disabled:cursor-not-allowed disabled:opacity-40 dark:text-red-300"
+                              >
+                                <X className="h-3.5 w-3.5" strokeWidth={2} />
+                                Rechazar
+                              </button>
+                            )}
+                          </>
+                        )}
+                        {isPending && p.awaitingTitle ? (
+                          <>
+                            {confirmForceId === p.id ? (
+                              <>
+                                <span className="text-[12px] text-neutral-500 dark:text-neutral-400">
+                                  Forzar y avisar a la contacta?
+                                </span>
+                                <button
+                                  onClick={() => setConfirmForceId(null)}
+                                  disabled={busy}
+                                  className="rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                                >
+                                  Cancelar
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setConfirmForceId(null);
+                                    void setStatus(p.id, "validated", { force: true });
+                                  }}
+                                  disabled={busy}
+                                  className="flex items-center gap-1.5 btn-gold"
+                                >
+                                  {busy ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
+                                  ) : (
+                                    <Check className="h-3.5 w-3.5" strokeWidth={2} />
+                                  )}
+                                  Confirmar
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                onClick={() => setConfirmForceId(p.id)}
+                                disabled={busy}
+                                title="Aprobar el comprobante igual, sin validar el título profesional"
+                                className="flex items-center gap-1.5 rounded-md border border-neutral-200 px-3.5 py-2 text-[13px] font-medium text-neutral-700 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                              >
+                                <ShieldAlert className="h-3.5 w-3.5 text-warn" strokeWidth={1.75} />
+                                Forzar aprobación
+                              </button>
+                            )}
+                          </>
+                        ) : isPending ? (
+                          <>
                             <button
-                              onClick={() => setConfirmMarkId(null)}
-                              disabled={accessBusy}
-                              className="rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                            >
-                              Cancelar
-                            </button>
-                            <button
-                              onClick={() => void markAccess(p.id)}
-                              disabled={accessBusy}
+                              onClick={() => void setStatus(p.id, "validated")}
+                              disabled={busy}
                               className="flex items-center gap-1.5 btn-gold"
                             >
-                              {accessBusy ? (
+                              {busy ? (
                                 <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
                               ) : (
                                 <Check className="h-3.5 w-3.5" strokeWidth={2} />
                               )}
-                              Confirmar
+                              Aprobar
                             </button>
                           </>
                         ) : (
                           <>
+                            {p.status === "validated" && (
+                              <span className="mr-auto flex items-center gap-1.5 text-[12px] text-emerald-700 dark:text-ok">
+                                <Check className="h-3.5 w-3.5" strokeWidth={2} /> Pago aprobado
+                              </span>
+                            )}
+                            {faltaCorreo && !p.courseAccessGrantedAt && (
+                              <span className="flex items-center gap-1.5 text-[12px] text-amber-700 dark:text-warn">
+                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+                                Falta el correo para darle el acceso, hay que pedírselo
+                              </span>
+                            )}
+                            {esMasterclassValidada &&
+                              (p.courseAccessGrantedAt ? (
+                                <span className="flex items-center gap-1.5 text-[12px] text-ok">
+                                  <KeyRound className="h-3.5 w-3.5" strokeWidth={1.75} />
+                                  Acceso al curso dado
+                                </span>
+                              ) : confirmMarkId === p.id ? (
+                                <>
+                                  <span className="mr-auto flex items-center gap-1.5 text-[12px] text-neutral-600 dark:text-neutral-300">
+                                    Marcar como que ya tiene acceso, sin inscribir en Tiendup?
+                                  </span>
+                                  <button
+                                    onClick={() => setConfirmMarkId(null)}
+                                    disabled={Boolean(accessBusy)}
+                                    className="rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                                  >
+                                    Cancelar
+                                  </button>
+                                  <button
+                                    onClick={() => void updateAccess(p.id, true)}
+                                    disabled={Boolean(accessBusy)}
+                                    className="flex items-center gap-1.5 btn-gold"
+                                  >
+                                    {accessBusy ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
+                                    ) : (
+                                      <Check className="h-3.5 w-3.5" strokeWidth={2} />
+                                    )}
+                                    Confirmar
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={() => void updateAccess(p.id)}
+                                    disabled={Boolean(accessBusy) || !p.contactEmail}
+                                    title={`Inscribir en el curso de Tiendup con ${p.contactEmail ?? "su correo"}`}
+                                    className="btn-gold flex items-center gap-1.5"
+                                  >
+                                    {accessBusy === "grant" ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} />
+                                    ) : (
+                                      <KeyRound className="h-3.5 w-3.5" strokeWidth={1.75} />
+                                    )}
+                                    {accessBusy === "grant" ? "Dando acceso…" : "Dar acceso al curso"}
+                                  </button>
+                                  <button
+                                    onClick={() => setConfirmMarkId(p.id)}
+                                    disabled={Boolean(accessBusy)}
+                                    title="Marcar como que ya tiene acceso (sin inscribir en Tiendup)"
+                                    className="rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                                  >
+                                    Ya le dimos el alta a mano en Tiendup
+                                  </button>
+                                </>
+                              ))}
                             <button
-                              onClick={() => void grantAccess(p.id)}
-                              disabled={accessBusy}
-                              title={`Inscribir en el curso de Tiendup con ${p.contactEmail ?? "su correo"}`}
-                              className="flex items-center gap-1.5 rounded-md border border-neutral-200 px-3 py-2 text-[13px] font-medium text-neutral-700 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                              onClick={() => void setStatus(p.id, "pending")}
+                              disabled={busy}
+                              className="flex items-center gap-1.5 rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
                             >
-                              {accessBusy ? (
+                              {busy ? (
                                 <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} />
                               ) : (
-                                <KeyRound className="h-3.5 w-3.5" strokeWidth={1.75} />
+                                <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.75} />
                               )}
-                              Dar acceso al curso
-                            </button>
-                            <button
-                              onClick={() => setConfirmMarkId(p.id)}
-                              disabled={accessBusy}
-                              title="Marcar como que ya tiene acceso (sin inscribir en Tiendup)"
-                              className="rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                            >
-                              Ya tiene acceso
+                              Volver a pendiente
                             </button>
                           </>
-                        ))}
-                      <button
-                        onClick={() => void setStatus(p.id, "pending")}
-                        disabled={busy}
-                        className="flex items-center gap-1.5 rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                      >
-                        {busy ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} />
-                        ) : (
-                          <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.75} />
                         )}
-                        Volver a pendiente
-                      </button>
-                    </>
-                  )}
-                </div>
-                    </div>
+                      </div>
+                      {(accessResult || (!p.courseAccessGrantedAt && p.courseAccessError)) && (
+                        <p role="status" className={`text-[12px] ${accessResult && !accessResult.error
+                          ? "text-neutral-700 dark:text-neutral-300"
+                          : "text-red-700 dark:text-red-300"}`}>
+                          {accessResult?.text ?? p.courseAccessError}
+                        </p>
+                      )}
+                    </PaymentCard>
                   );
                 })}
-              </article>
+              </section>
             );
           })}
 
@@ -1509,13 +1121,13 @@ export function PaymentsList() {
                   {tr.contactNote && (
                     <ContactNote
                       text={tr.contactNote}
-                      label="Mensaje de la contacta sobre el título"
+                      label="Último mensaje de la contacta"
                     />
                   )}
 
                   {tr.conversation && (
                     <div className="mt-4 flex items-center border-t border-neutral-100 pt-3 dark:border-neutral-800">
-                      <ConversationLinks conversation={tr.conversation} />
+                      <ConversationLinks conversation={tr.conversation} onOpenChat={() => openChat(tr.conversation?.id ?? null)} />
                     </div>
                   )}
                 </article>
@@ -1525,5 +1137,7 @@ export function PaymentsList() {
         </div>
       )}
     </div>
+    </div>
+    </ResizableChatPane>
   );
 }

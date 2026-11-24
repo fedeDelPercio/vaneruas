@@ -621,9 +621,9 @@ export function WaChatPanel({
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col bg-white dark:bg-neutral-950">
-      {/* Cabecera */}
-      <div className="flex items-center justify-between gap-2 border-b border-neutral-200 px-3 py-3 sm:px-5 dark:border-neutral-800">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
+      {/* Cabecera: en el panel angosto, los controles bajan sin tapar el nombre. */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-200 px-3 py-3 sm:px-5 dark:border-neutral-800">
+        <div className="flex min-w-0 flex-[1_0_10rem] items-center gap-3">
           <button onClick={onOpenSidebar} className={`${headerBtn} -ml-1 md:hidden`} aria-label="Ver conversaciones">
             <Menu className="h-4 w-4" strokeWidth={1.75} />
           </button>
@@ -715,7 +715,7 @@ export function WaChatPanel({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-1">
           {conversation && <ModeToggle mode={mode} onChange={(m) => void changeMode(m)} busy={modeBusy} />}
           {ghlUrl && (
             <a

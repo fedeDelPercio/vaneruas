@@ -58,7 +58,7 @@ export function decideRetry(args: {
   hasValidEmail: boolean;
 }): RetryDecision {
   const { row, now } = args;
-  if (!args.waitsForAccess || !args.hasValidEmail) return { action: "skip" };
+  if (row.course_access_granted_at || !args.waitsForAccess || !args.hasValidEmail) return { action: "skip" };
 
   const error = row.course_access_error?.trim() || null;
   if (isNotInTiendupError(error) || isNameConflictError(error) || isGaveUpError(error)) {
