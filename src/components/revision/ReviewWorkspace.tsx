@@ -39,6 +39,7 @@ export function ReviewWorkspace() {
   const searchQuery = activeQuery.length >= 2 ? activeQuery : "";
 
   const [items, setItems] = useState<ReviewItem[] | null>(null);
+  const [interventionCategories, setInterventionCategories] = useState<Record<string, string>>({});
   const [interventions, setInterventions] = useState<Record<string, number>>({});
   const [critical, setCritical] = useState<Record<string, string | null>>({});
   const [error, setError] = useState<string | null>(null);
@@ -100,6 +101,7 @@ export function ReviewWorkspace() {
         );
         setError(null);
         setItems(next);
+        setInterventionCategories(j.interventionCategories ?? {});
         setInterventions((j.interventions as Record<string, number>) ?? {});
         setCritical((j.critical as Record<string, string | null>) ?? {});
         setRefreshKey((k) => k + 1);
@@ -232,6 +234,7 @@ export function ReviewWorkspace() {
             selectedId={selectedId}
             onSelect={(id) => select(id, { openDetail: true })}
             interventions={interventions}
+            interventionCategories={interventionCategories}
             critical={critical}
             onRetry={() => void load(searchQuery)}
           />

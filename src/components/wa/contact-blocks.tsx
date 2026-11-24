@@ -1,5 +1,7 @@
 "use client";
 
+import { interventionCategoryLabel } from "@/lib/intervention-category";
+
 import { RETRY_DURATION_HOURS, RETRY_INTERVAL_MINUTES } from "@/lib/tiendup/retry-timing";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
@@ -146,15 +148,6 @@ export function fmtDateTime(iso: string): string {
 
 // --- Intervenciones ---------------------------------------------------------
 
-const CATEGORY_LABELS: Record<string, string> = {
-  fuera_de_conocimiento: "Fuera de conocimiento",
-  escalado_manual: "Escalado manual",
-  reclamo_certificado: "Reclamo de certificado",
-  cliente_existente: "Cliente existente",
-  interes_compra: "Interés de compra",
-  falla_tecnica: "Falla técnica",
-};
-
 // Marcas de sistema en `reason` (no las escribe el agente). Mismas que
 // src/lib/tiendup/messages.ts y src/lib/team-interventions.ts.
 function systemReasonLabel(reason: string | null): string | null {
@@ -172,7 +165,7 @@ function humanize(snake: string): string {
 
 /** Título legible de una notificación: la marca de sistema si la tiene, si no la categoría. */
 export function notificationLabel(n: Pick<ContactNotification, "category" | "reason">): string {
-  return systemReasonLabel(n.reason) ?? CATEGORY_LABELS[n.category] ?? humanize(n.category);
+  return systemReasonLabel(n.reason) ?? humanize(interventionCategoryLabel(n.category));
 }
 
 /**

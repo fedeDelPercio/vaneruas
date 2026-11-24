@@ -3,7 +3,7 @@ import { getSupabaseAdminClient, getSupabaseServerClient } from "@/lib/supabase/
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { COMPROBANTES_BUCKET } from "@/lib/payments/storage";
 import { matchesContactQuery } from "@/lib/search";
-import { loadOpenTeamNotificationCounts } from "@/lib/interventions";
+import { loadOpenTeamNotificationSummaries } from "@/lib/interventions";
 import { clientEnv } from "@/lib/env";
 import { groupPendingPayments } from "@/lib/payments/grouping";
 import { canonicoDeAgrupado } from "@/lib/payments/dismiss";
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 
 // ===========================================================================
 // GET /api/payments?status=pending|validated|rejected|all   (o ?q=<búsqueda>)
-//     &with=interventions (Revisión) o &with=access (Aprobaciones)
+//     &with=interventions (Revisión) o &with=access&with=interventions (Aprobaciones)
 //
 // Lista los comprobantes de pago de este cliente, del más antiguo al más nuevo
 // (cola de trabajo). Con ?q= busca por persona en todos los estados.
@@ -276,7 +276,8 @@ export async function GET(req: NextRequest) {
   const pendingCount = pendingGroups.length;
   // Pendientes de Aprobaciones y Falta acceso comparten el criterio de entrega.
   // Revisión conserva su cola de archivos. Ambas mantienen el orden de llegada.
-  const includeAccess = req.nextUrl.searchParams.get("with") === "access";
+  const includes = req.nextUrl.searchParams.getAll("with");
+  const includeAccess = includes.includes("access");
   const accessRows = new Set(includeAccess ? allRows.filter((r) => !hiddenIds.has(r.id) &&
     needsCourseAccess(r.event_slug, r.status, r.course_access_granted_at)).map((r) => r.id) : []);
   let sumMs = 0;
@@ -577,16 +578,20 @@ export async function GET(req: NextRequest) {
   }
   titleReviews.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 
-  // Opcional (/revision): cuántas derivaciones abiertas tiene cada conversación
-  // de la lista, sin contar las de validación de pago. Si falla, la lista sale
-  // igual sin el indicador.
+  // Cantidad y categoría de las derivaciones abiertas por conversación.
+  // Si falla la lectura, el resto de la lista sigue disponible.
   let interventions: Record<string, number> | undefined;
-  if (req.nextUrl.searchParams.get("with") === "interventions") {
+  const interventionCategories: Record<string, string> = {};
+  if (includes.includes("interventions")) {
     try {
-      const counts = await loadOpenTeamNotificationCounts(sb, clientEnv.NEXT_PUBLIC_CLIENT_SLUG);
+      const summaries = await loadOpenTeamNotificationSummaries(sb, clientEnv.NEXT_PUBLIC_CLIENT_SLUG);
       const shown = new Set<string>([...convIds, ...reviewConvIds]);
       interventions = {};
-      for (const [convId, n] of counts) if (shown.has(convId)) interventions[convId] = n;
+      for (const [convId, { count, category }] of summaries) {
+        if (!shown.has(convId)) continue;
+        interventions[convId] = count;
+        interventionCategories[convId] = category;
+      }
     } catch (err) {
       console.error("[payments] no se pudieron leer las intervenciones:", err);
     }
@@ -595,7 +600,7 @@ export async function GET(req: NextRequest) {
   // Mismo pedido (/revision): conversaciones con el tag "Crítico" → motivo.
   // Son pocas filas; si la migración 034 no está aplicada, sale sin el dato.
   let critical: Record<string, string | null> | undefined;
-  if (req.nextUrl.searchParams.get("with") === "interventions") {
+  if (includes.includes("interventions") && !includeAccess) {
     try {
       const rows = await fetchAllRows((from, to) =>
         sb
@@ -618,7 +623,7 @@ export async function GET(req: NextRequest) {
     items,
     titleReviews,
     stats,
-    ...(interventions ? { interventions } : {}),
+    ...(interventions ? { interventions, interventionCategories } : {}),
     ...(critical ? { critical } : {}),
   });
 }

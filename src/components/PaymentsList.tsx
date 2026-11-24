@@ -27,7 +27,9 @@ import { FilterChip, FilterChips, FilterPanel } from "./ui/FilterChips";
 import { useContactSearch } from "./useContactSearch";
 import { eventBySlug } from "@/lib/payments/event-match";
 import { needsCourseAccess } from "@/lib/payments/revision-card";
+import { clientEnv } from "@/lib/env";
 import { PaymentCard } from "./payments/PaymentCard";
+import { InterventionChip } from "./payments/TitleLine";
 import { fmtDateTime, Thumb } from "./payments/receipt-fields";
 import { ResizableChatPane } from "./ResizableChatPane";
 import { CommentsPanel } from "./CommentsPanel";
@@ -209,10 +211,10 @@ function TitleSubmissionRow({
   return (
     <div className="flex gap-3">
       <div className="shrink-0">
-        <Thumb url={sub.url} type={sub.fileType} alt="Título profesional" className="h-28 w-24" />
+        <Thumb url={sub.url} type={sub.fileType} alt="Título profesional" className="h-20 w-14" />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           <p className="truncate text-[13px] font-medium text-neutral-900 dark:text-neutral-100">
             {sub.titleName ?? "Título sin nombre leído"}
           </p>
@@ -228,7 +230,7 @@ function TitleSubmissionRow({
           </p>
         )}
         {pending && (
-          <div className="mt-2 flex items-center gap-2">
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
             <button
               onClick={onReject}
               disabled={busy}
@@ -300,6 +302,8 @@ export function PaymentsList() {
   );
   const [groupLimit, setGroupLimit] = useState(GROUPS_PER_PAGE);
   const [eventFilter, setEventFilter] = useState<EventFilter>("all");
+  const [interventions, setInterventions] = useState<Record<string, number>>({});
+  const [interventionCategories, setInterventionCategories] = useState<Record<string, string>>({});
   const [items, setItems] = useState<PaymentItem[] | null>(null);
   const [titleReviews, setTitleReviews] = useState<TitleReview[]>([]);
   const [stats, setStats] = useState<PaymentStats | null>(null);
@@ -345,6 +349,7 @@ export function PaymentsList() {
       const apiStatus = status === "sin-acceso" ? "validated" : status;
       const params = new URLSearchParams(q ? { q } : { status: apiStatus });
       params.set("with", "access");
+      params.append("with", "interventions");
       const r = await fetch(`/api/payments?${params}`, { cache: "no-store" });
       const j = await r.json();
       if (requestId !== requestRef.current) return;
@@ -355,6 +360,8 @@ export function PaymentsList() {
       setError(null);
       setConfirmReject(null);
       setItems(j.items as PaymentItem[]);
+      setInterventions(j.interventions ?? {});
+      setInterventionCategories(j.interventionCategories ?? {});
       setTitleReviews((j.titleReviews as TitleReview[]) ?? []);
       setStats((j.stats as PaymentStats) ?? null);
     } catch {
@@ -368,7 +375,7 @@ export function PaymentsList() {
     void load(filter, searchQuery);
   }, [filter, searchQuery, load]);
 
-  // Realtime: refrescar cuando entra un comprobante o un título, o cambia un estado.
+  // Realtime: refrescar comprobantes, títulos y derivaciones de la lista.
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
     const channel = supabase
@@ -381,6 +388,11 @@ export function PaymentsList() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "professional_titles" },
+        () => void load(filterRef.current, searchRef.current),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "agent_notifications", filter: `client_slug=eq.${clientEnv.NEXT_PUBLIC_CLIENT_SLUG}` },
         () => void load(filterRef.current, searchRef.current),
       )
       .subscribe();
@@ -676,7 +688,7 @@ export function PaymentsList() {
       <SearchField
         value={query}
         onChange={setQuery}
-        placeholder="Buscar por nombre, teléfono o correo"
+        placeholder="Nombre, teléfono o correo"
         className="mb-3"
       />
       {searching && (
@@ -783,7 +795,7 @@ export function PaymentsList() {
             );
             const multiplePeople = distinctSenders.length >= 2;
             return (
-              <section key={first.conversation?.id ?? first.id} className="space-y-3">
+              <section key={first.conversation?.id ?? first.id} className="w-full max-w-[46rem] space-y-3">
                 {/* Si mandó más de un comprobante, lo aclaramos: van todos acá. */}
                 {group.length > 1 && (
                   <p className="mb-2 font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
@@ -814,34 +826,29 @@ export function PaymentsList() {
                   const pendingTitles = p.titles.filter((sub) => sub.hasFile && !sub.isValid && !sub.reviewedAt);
                   return (
                     <PaymentCard key={p.id} payment={p} onOpenChat={openChat}
+                      interventionCategory={p.conversation && interventions[p.conversation.id]
+                        ? interventionCategories[p.conversation.id] ?? ""
+                        : undefined}
                       onSaved={() => void load(filterRef.current, searchRef.current)}
                       titleActions={pendingTitles.length > 0 && (
-                        <details className="mt-2 text-[12px]">
-                          <summary className="cursor-pointer">Revisar archivos del título</summary>
-                          <div className="mt-2 space-y-3">
-                            {pendingTitles.map((sub) => (
-                              <TitleSubmissionRow key={sub.id} sub={sub} busy={busyTitleId === sub.id}
-                                onApprove={() => void setTitleStatus(sub.id, "approve")}
-                                onReject={() => void setTitleStatus(sub.id, "reject")} />
-                            ))}
-                          </div>
-                        </details>
+                        <div className="mt-2 space-y-3">
+                          {pendingTitles.map((sub) => (
+                            <TitleSubmissionRow key={sub.id} sub={sub} busy={busyTitleId === sub.id}
+                              onApprove={() => void setTitleStatus(sub.id, "approve")}
+                              onReject={() => void setTitleStatus(sub.id, "reject")} />
+                          ))}
+                        </div>
                       )}
                     >
                       {/* Acciones */}
-                      <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
+                      <div className="flex flex-wrap items-center justify-end gap-1.5 border-t border-neutral-100 pt-2 dark:border-neutral-800">
                         {isPending && (
                           <DismissButton busy={busy} confirming={confirmDismiss === p.id}
                             onAskConfirm={() => setConfirmDismiss(p.id)} onCancel={() => setConfirmDismiss(null)}
                             onConfirm={() => void dismissPayment(p.id)} />
                         )}
 
-                        {isPending && (p.awaitingTitle ? (
-                          <span className="mr-auto flex items-center gap-1.5 text-[12px] text-neutral-500 dark:text-neutral-400 sm:mr-0">
-                            <GraduationCap className="h-3.5 w-3.5 text-warn" strokeWidth={1.75} />
-                            Validá el título para habilitar, o forzá la aprobación
-                          </span>
-                        ) : (
+                        {isPending && !p.awaitingTitle && (
                           <input
                             value={notes[p.id] ?? ""}
                             onChange={(e) =>
@@ -850,7 +857,7 @@ export function PaymentsList() {
                             placeholder="Nota (opcional)"
                             className="w-40 rounded-md border border-neutral-200 bg-white px-3 py-2 text-[13px] outline-none transition placeholder:text-neutral-400 focus:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder:text-neutral-500 dark:focus:border-neutral-600"
                           />
-                        ))}
+                        )}
                         {isPending && (
                           <>
                             {confirmReject === p.id ? (
@@ -952,11 +959,6 @@ export function PaymentsList() {
                           </>
                         ) : (
                           <>
-                            {p.status === "validated" && (
-                              <span className="mr-auto flex items-center gap-1.5 text-[12px] text-emerald-700 dark:text-ok">
-                                <Check className="h-3.5 w-3.5" strokeWidth={2} /> Pago aprobado
-                              </span>
-                            )}
                             {faltaCorreo && !p.courseAccessGrantedAt && (
                               <span className="flex items-center gap-1.5 text-[12px] text-amber-700 dark:text-warn">
                                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
@@ -1093,6 +1095,11 @@ export function PaymentsList() {
                       />
                     </div>
                   </div>
+                  {tr.conversation && (interventions[tr.conversation.id] ?? 0) > 0 && (
+                    <div className="mb-2">
+                      <InterventionChip category={interventionCategories[tr.conversation.id] ?? ""} />
+                    </div>
+                  )}
                   {/* Cuándo llegó: sin esto no se distingue lo nuevo de lo viejo. */}
                   {tr.createdAt && (
                     <p className="pb-3 font-mono text-[10.5px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">

@@ -5,6 +5,7 @@ import { SearchField } from "../SearchField";
 import { formatPhone } from "@/lib/search";
 import { eventBySlug } from "@/lib/payments/event-match";
 import { fmtAge, fmtAmount, type ReviewItem } from "./review-items";
+import { InterventionChip } from "../payments/TitleLine";
 import { ConversationStatusPills } from "../StatusPills";
 
 // Columna izquierda de /revision: la cola de pendientes (comprobantes y
@@ -19,6 +20,7 @@ export function ReviewQueue({
   selectedId,
   onSelect,
   interventions,
+  interventionCategories,
   critical = {},
   onRetry,
 }: {
@@ -31,6 +33,7 @@ export function ReviewQueue({
   onSelect: (id: string) => void;
   /** id de conversación → derivaciones abiertas. */
   interventions: Record<string, number>;
+  interventionCategories: Record<string, string>;
   /** id de conversación → motivo del tag "Crítico". */
   critical?: Record<string, string | null>;
   onRetry: () => void;
@@ -80,7 +83,9 @@ export function ReviewQueue({
                 key={it.id}
                 item={it}
                 active={it.id === selectedId}
-                interventions={it.conversationId ? interventions[it.conversationId] ?? 0 : 0}
+                interventionCategory={it.conversationId && interventions[it.conversationId]
+                  ? interventionCategories[it.conversationId] ?? ""
+                  : undefined}
                 critical={it.conversationId && it.conversationId in critical ? { reason: critical[it.conversationId] ?? null } : null}
                 onSelect={() => onSelect(it.id)}
               />
@@ -98,13 +103,13 @@ export function ReviewQueue({
 function QueueRow({
   item,
   active,
-  interventions,
+  interventionCategory,
   critical,
   onSelect,
 }: {
   item: ReviewItem;
   active: boolean;
-  interventions: number;
+  interventionCategory?: string;
   critical: { reason: string | null } | null;
   onSelect: () => void;
 }) {
@@ -151,14 +156,17 @@ function QueueRow({
         {phone && (
           <span className="truncate font-mono text-[11px] text-neutral-500 dark:text-neutral-400">{phone}</span>
         )}
-        {/* Mismos pills que la lista de /wa (Aprobación, Derivada, Crítico). */}
-        <ConversationStatusPills
-          comprobantes={item.kind === "comprobante" ? 1 : 0}
-          titulos={item.kind === "titulo" ? 1 : 0}
-          awaitingTitle={Boolean(item.awaitingTitle)}
-          derivations={interventions}
-          critical={critical}
-        />
+        {/* Combina los estados de WhatsApp con la categoría de la derivación. */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <ConversationStatusPills
+            comprobantes={item.kind === "comprobante" ? 1 : 0}
+            titulos={item.kind === "titulo" ? 1 : 0}
+            awaitingTitle={Boolean(item.awaitingTitle)}
+            derivations={0}
+            critical={critical}
+          />
+          {interventionCategory !== undefined && <InterventionChip category={interventionCategory} />}
+        </div>
         {meta && <span className="truncate text-[11.5px] text-neutral-500 dark:text-neutral-400">{meta}</span>}
       </button>
     </li>

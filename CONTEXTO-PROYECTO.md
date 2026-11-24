@@ -353,6 +353,12 @@ Todas las bandejas tienen buscador por nombre o teléfono
 (`src/lib/search.ts`, sin distinguir tildes y aceptando el teléfono como se
 dicta: "011 15 ..."). La búsqueda la resuelve el servidor (`?q=`) sobre todo el
 historial; la lista muestra hasta 300 filas y el contador dice "300 de N".
+Aprobaciones y la cola de Revisión muestran la categoría de la intervención
+abierta (reclamos y escalados primero, luego la más reciente). La API devuelve
+`interventions` e `interventionCategories` desde la misma lectura por tenant;
+Aprobaciones combina `with=access&with=interventions`. En Revisión, las
+intervenciones abiertas encabezan el detalle y permiten abrir el chat lateral.
+
 En Aprobaciones y Revisión, "Ver conversación" abre el chat a la derecha
 con ancho recordado y a pantalla completa en pantallas chicas. En las
 demás bandejas, "Ver chat" lleva a `/wa?id=`.

@@ -2,31 +2,24 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, KeyRound, Loader2, Mail, MessageCircle } from "lucide-react";
+import { ArrowRight, Flag, KeyRound, Loader2, Mail, MessageCircle } from "lucide-react";
 import { FileReviewPanel } from "../wa/FileReviewModal";
-import type { ContactEvent, ContactFicha } from "@/app/api/wa/contact/[conversationId]/route";
+import type { ContactEvent, ContactFicha, ContactNotification } from "@/app/api/wa/contact/[conversationId]/route";
+import { interventionCategoryLabel, urgentIntervention } from "@/lib/intervention-category";
 import { PaymentCard } from "../payments/PaymentCard";
+import { Thumb, fmtDateTime } from "../payments/receipt-fields";
 import { TitleLine } from "../payments/TitleLine";
 import { titleFile, type ReviewItem } from "./review-items";
 import {
-  InterventionItem,
   Section,
-  ShowMoreList,
   TiendupLiveBlock,
   fmtShortDate,
-  tiendupHasRed,
+  fmtRelative,
+  notificationLabel,
+  reasonText,
   useTiendupStatus,
   type Tone,
 } from "../wa/contact-blocks";
-
-// Columna derecha de /revision:
-//   1. El archivo con Aprobar / Rechazar (FileReviewPanel, mismas rutas PATCH
-//      que Aprobaciones y la ficha de /wa).
-//   2. Intervenciones abiertas con su detalle y el estado del título.
-//   3. Acceso a Tiendup: estado guardado por evento y el bloque en vivo
-//      (GET /api/wa/tiendup-status/[id]); si está en rojo sube arriba de 2.
-// Mismo orden y mismos bloques que la ficha de /wa (contact-blocks.tsx, D-65).
-
 
 function Dot({ tone }: { tone: Tone }) {
   const cls =
@@ -111,6 +104,68 @@ function MarkAccess({ paymentId, onDone }: { paymentId: string; onDone: () => vo
   );
 }
 
+function OpenIntervention({ notification, onOpenChat }: {
+  notification: ContactNotification;
+  onOpenChat: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [clipped, setClipped] = useState(false);
+  const summaryRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    const summary = summaryRef.current;
+    if (!summary || expanded) return;
+    const measure = () => setClipped(summary.scrollHeight > summary.clientHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(summary);
+    return () => observer.disconnect();
+  }, [expanded, notification.summary]);
+
+  const urgent = urgentIntervention(notification.category);
+  const category = interventionCategoryLabel(notification.category) || "Intervención abierta";
+  const reason = reasonText(notification.reason) ?? notificationLabel(notification);
+  return (
+    <section className={`rounded-xl border border-l-2 px-3.5 py-3 ${urgent
+      ? "border-red-600/25 border-l-red-500 bg-red-500/[0.05] dark:bg-red-500/[0.08]"
+      : "border-amber-600/25 border-l-amber-500 bg-amber-500/[0.06] dark:bg-amber-500/[0.08]"}`}>
+      <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${urgent
+        ? "text-red-700 dark:text-red-300" : "text-amber-800 dark:text-warn"}`}>
+        <Flag aria-hidden className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+        <h3 className="text-[13px] font-medium">{category}</h3>
+        <time dateTime={notification.createdAt} title={fmtDateTime(notification.createdAt)}
+          className="font-mono text-[11px] text-neutral-600 dark:text-neutral-400">
+          {fmtRelative(notification.createdAt)}
+        </time>
+      </div>
+      {reason && reason !== category && <p className="mt-1 break-words text-[12px] font-medium">{reason}</p>}
+      {notification.summary && (
+        <p ref={summaryRef} id={`intervention-summary-${notification.id}`}
+          className={`mt-1 whitespace-pre-line break-words text-[12px] leading-relaxed text-neutral-700 dark:text-neutral-300 ${expanded ? "" : "line-clamp-3"}`}>
+          {notification.summary}
+        </p>
+      )}
+      {clipped && (
+        <button type="button" aria-expanded={expanded} aria-controls={`intervention-summary-${notification.id}`}
+          onClick={() => setExpanded(!expanded)}
+          className="mt-1 text-[11.5px] underline underline-offset-2">
+          {expanded ? "Ver menos" : "Ver más"}
+        </button>
+      )}
+      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+        <button type="button" onClick={onOpenChat}
+          className={`${linkCls} border border-neutral-300 bg-white dark:border-neutral-700 dark:bg-neutral-900`}>
+          <MessageCircle className="h-3.5 w-3.5" strokeWidth={1.75} />
+          Abrir en WhatsApp
+        </button>
+        <Link href="/interventions" className={linkCls}>
+          Ir a Derivaciones
+          <ArrowRight className="h-3 w-3" strokeWidth={1.75} />
+        </Link>
+      </div>
+    </section>
+  );
+}
+
 export function ReviewDetail({
   item,
   refreshKey,
@@ -160,7 +215,6 @@ export function ReviewDetail({
     ficha && ficha.conversation.id === convId ? convId : null,
     Boolean(ficha?.tiendupCheck),
   );
-  const tiendupRed = tiendupHasRed(tiendup);
 
   const p = item.payment;
   const pendingTitles = p?.titles.filter((t) => t.hasFile && !t.isValid && !t.reviewedAt) ?? [];
@@ -176,166 +230,151 @@ export function ReviewDetail({
     : [];
 
   return (
-    <div className="scroll-thin flex h-full min-h-0 flex-col overflow-y-auto">
-      <div className="flex shrink-0 flex-col p-4">
-        {p ? (
-          <PaymentCard
-            key={p.id}
-            payment={p}
-            onOpenChat={onOpenChat}
-            onSaved={onDone}
-            titleActions={pendingTitles.length > 0 && (
-              <details className="mt-2 text-[12px]">
-                <summary className="cursor-pointer">Revisar archivos del título</summary>
+    <div className="scroll-thin h-full min-h-0 overflow-y-auto">
+      <div className="w-full max-w-[48rem]">
+        <div className="flex flex-col gap-3 p-3 sm:p-4">
+          {open.map((notification) => (
+            <OpenIntervention key={notification.id} notification={notification} onOpenChat={onOpenChat} />
+          ))}
+          {p ? (
+            <PaymentCard
+              key={p.id}
+              payment={p}
+              onOpenChat={onOpenChat}
+              onSaved={onDone}
+              titleActions={pendingTitles.length > 0 && (
                 <div className="mt-2 space-y-3">
                   {pendingTitles.map((title) => (
-                    <FileReviewPanel key={title.id} file={titleFile(title)} variant="inline" onDone={onDone} />
+                    <div key={title.id} className="flex items-start gap-3">
+                      <Thumb url={title.url} type={title.fileType} alt="Título profesional" className="h-20 w-14 shrink-0" />
+                      <div className="min-w-0 flex-1 space-y-1.5">
+                        <p className="break-words text-[12px] font-medium">{title.titleName ?? "Título sin nombre leído"}</p>
+                        <p className="break-words text-[11px] text-neutral-500 dark:text-neutral-400">
+                          {[title.institution, `Recibido ${fmtDateTime(title.createdAt)}`].filter(Boolean).join(" · ")}
+                        </p>
+                        <FileReviewPanel file={titleFile(title)} variant="inline" actionsOnly onDone={onDone} />
+                      </div>
+                    </div>
                   ))}
                 </div>
-              </details>
+              )}
+            >
+              <FileReviewPanel key={item.id} file={item.file} variant="inline" actionsOnly onDone={onDone} />
+            </PaymentCard>
+          ) : (
+            <>
+              <TitleLine state={ficha?.title.stage ?? "review"} />
+              {convId && (
+                <button type="button" onClick={onOpenChat} className={`${linkCls} my-2 w-fit`}>
+                  <MessageCircle className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  Ver conversación
+                </button>
+              )}
+              <FileReviewPanel key={item.id} file={item.file} variant="inline" onDone={onDone} />
+            </>
+          )}
+        </div>
+
+        {!convId ? (
+          <Section title="Contacto">
+            <p className="text-[12px] text-neutral-500 dark:text-neutral-400">
+              Este archivo no tiene una conversación asociada
+            </p>
+          </Section>
+        ) : !ficha ? (
+          <Section title="Contacto">
+            {fichaError ? (
+              <p className="text-[12px] text-neutral-500">
+                {fichaError}{" "}
+                <button onClick={() => void loadFicha()} className="underline underline-offset-2">
+                  Reintentar
+                </button>
+              </p>
+            ) : (
+              <p className="flex items-center gap-2 text-[12px] text-neutral-500">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} /> Cargando ficha…
+              </p>
             )}
-          >
-            <FileReviewPanel key={item.id} file={item.file} variant="inline" actionsOnly onDone={onDone} />
-          </PaymentCard>
+          </Section>
         ) : (
-          <>
-            <TitleLine state={ficha?.title.stage === "valid" ? "valid" : "review"} />
-            {convId && (
-              <button type="button" onClick={onOpenChat} className={`${linkCls} my-2 w-fit`}>
-                <MessageCircle className="h-3.5 w-3.5" strokeWidth={1.75} />
-                Ver conversación
-              </button>
-            )}
-            <FileReviewPanel key={item.id} file={item.file} variant="inline" onDone={onDone} />
-          </>
+          <div className="flex flex-col">
+            <Section title="Acceso a Tiendup">
+              <TiendupLiveBlock
+                fetchState={tiendup}
+                email={null}
+                editor={
+                  convId
+                    ? {
+                        conversationId: convId,
+                        email: ficha.conversation.email,
+                        onChanged: () => {
+                          refreshTiendup();
+                          void loadFicha();
+                        },
+                      }
+                    : undefined
+                }
+              />
+              <div className={`${tiendup.phase === "idle" || (tiendup.phase === "done" && !tiendup.data.show) ? "" : "mt-3 "}flex items-center gap-2 text-[12px] text-neutral-700 dark:text-neutral-200`}>
+                <Mail className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={1.75} />
+                {ficha.conversation.email ? (
+                  <span className="min-w-0 truncate">{ficha.conversation.email}</span>
+                ) : (
+                  <span className="text-neutral-400 dark:text-neutral-500">Todavía no dejó su correo</span>
+                )}
+              </div>
+              {accessEvents.length === 0 ? (
+                <p className="mt-2.5 text-[12px] text-neutral-500 dark:text-neutral-400">
+                  Sin pagos de masterclass
+                </p>
+              ) : (
+                <ul className="mt-3 space-y-2.5">
+                  {accessEvents.map((ev) => {
+                    const line = accessLine(ev);
+                    return (
+                      <li key={ev.key} className="flex items-start gap-2.5">
+                        <KeyRound className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={1.75} />
+                        <div className="min-w-0">
+                          <p className="text-[12px] font-medium leading-snug text-neutral-800 dark:text-neutral-100">
+                            {ev.title}
+                          </p>
+                          <span className="mt-0.5 flex items-start gap-1.5 text-[11.5px] text-neutral-500 dark:text-neutral-400">
+                            <Dot tone={line.tone} />
+                            {line.text}
+                          </span>
+                          {line.detail && (
+                            <p
+                              title={line.detail}
+                              className="mt-0.5 line-clamp-2 pl-3 text-[11px] text-neutral-500 dark:text-neutral-500"
+                            >
+                              {line.detail}
+                            </p>
+                          )}
+                          {ev.access.markablePaymentId && (
+                            <MarkAccess
+                              key={ev.access.markablePaymentId}
+                              paymentId={ev.access.markablePaymentId}
+                              onDone={() => {
+                                refreshTiendup();
+                                void loadFicha();
+                                onDone();
+                              }}
+                            />
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              <Link href="/payments?filter=sin-acceso" className={`${linkCls} mt-2.5 w-fit`}>
+                Aprobaciones · Falta acceso
+                <ArrowRight className="h-3 w-3" strokeWidth={2} />
+              </Link>
+            </Section>
+          </div>
         )}
       </div>
-
-      {!convId ? (
-        <Section title="Contacto">
-          <p className="text-[12px] text-neutral-500 dark:text-neutral-400">
-            Este archivo no tiene una conversación asociada
-          </p>
-        </Section>
-      ) : !ficha ? (
-        <Section title="Contacto">
-          {fichaError ? (
-            <p className="text-[12px] text-neutral-500">
-              {fichaError}{" "}
-              <button onClick={() => void loadFicha()} className="underline underline-offset-2">
-                Reintentar
-              </button>
-            </p>
-          ) : (
-            <p className="flex items-center gap-2 text-[12px] text-neutral-500">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} /> Cargando ficha…
-            </p>
-          )}
-        </Section>
-      ) : (
-        <div className="flex flex-col">
-          <Section title="Intervención" className={tiendupRed ? "order-2" : "order-1"}>
-            {open.length === 0 ? (
-              <p className="text-[12px] text-neutral-500 dark:text-neutral-400">
-                Sin intervenciones abiertas
-              </p>
-            ) : (
-              <ShowMoreList
-                items={open}
-                render={(n) => <InterventionItem key={n.id} n={n} open />}
-                className="space-y-3"
-              />
-            )}
-            <div className="mt-2.5 flex flex-wrap gap-1">
-              <Link href={`/wa?id=${convId}`} className={linkCls}>
-                <MessageCircle className="h-3.5 w-3.5" strokeWidth={1.75} />
-                Abrir en WhatsApp
-              </Link>
-              {open.length > 0 && (
-                <Link href="/interventions" className={linkCls}>
-                  Ir a Derivaciones
-                  <ArrowRight className="h-3 w-3" strokeWidth={2} />
-                </Link>
-              )}
-            </div>
-          </Section>
-
-          <Section title="Acceso a Tiendup" className={tiendupRed ? "order-1" : "order-2"}>
-            <TiendupLiveBlock
-              fetchState={tiendup}
-              email={null}
-              editor={
-                convId
-                  ? {
-                      conversationId: convId,
-                      email: ficha.conversation.email,
-                      onChanged: () => {
-                        refreshTiendup();
-                        void loadFicha();
-                      },
-                    }
-                  : undefined
-              }
-            />
-            <div className={`${tiendup.phase === "idle" || (tiendup.phase === "done" && !tiendup.data.show) ? "" : "mt-3 "}flex items-center gap-2 text-[12px] text-neutral-700 dark:text-neutral-200`}>
-              <Mail className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={1.75} />
-              {ficha.conversation.email ? (
-                <span className="min-w-0 truncate">{ficha.conversation.email}</span>
-              ) : (
-                <span className="text-neutral-400 dark:text-neutral-500">Todavía no dejó su correo</span>
-              )}
-            </div>
-            {accessEvents.length === 0 ? (
-              <p className="mt-2.5 text-[12px] text-neutral-500 dark:text-neutral-400">
-                Sin pagos de masterclass
-              </p>
-            ) : (
-              <ul className="mt-3 space-y-2.5">
-                {accessEvents.map((ev) => {
-                  const line = accessLine(ev);
-                  return (
-                    <li key={ev.key} className="flex items-start gap-2.5">
-                      <KeyRound className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={1.75} />
-                      <div className="min-w-0">
-                        <p className="text-[12px] font-medium leading-snug text-neutral-800 dark:text-neutral-100">
-                          {ev.title}
-                        </p>
-                        <span className="mt-0.5 flex items-start gap-1.5 text-[11.5px] text-neutral-500 dark:text-neutral-400">
-                          <Dot tone={line.tone} />
-                          {line.text}
-                        </span>
-                        {line.detail && (
-                          <p
-                            title={line.detail}
-                            className="mt-0.5 line-clamp-2 pl-3 text-[11px] text-neutral-500 dark:text-neutral-500"
-                          >
-                            {line.detail}
-                          </p>
-                        )}
-                        {ev.access.markablePaymentId && (
-                          <MarkAccess
-                            key={ev.access.markablePaymentId}
-                            paymentId={ev.access.markablePaymentId}
-                            onDone={() => {
-                              refreshTiendup();
-                              void loadFicha();
-                              onDone();
-                            }}
-                          />
-                        )}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            <Link href="/payments?filter=sin-acceso" className={`${linkCls} mt-2.5 w-fit`}>
-              Aprobaciones · Falta acceso
-              <ArrowRight className="h-3 w-3" strokeWidth={2} />
-            </Link>
-          </Section>
-        </div>
-      )}
     </div>
   );
 }

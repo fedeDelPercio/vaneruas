@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/types";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { PAYMENT_NOTIFICATION_CATEGORY } from "@/lib/payments/register";
+import { urgentIntervention } from "@/lib/intervention-category";
 import { groupPendingPayments } from "@/lib/payments/grouping";
 
 // ===========================================================================
@@ -104,17 +105,17 @@ export async function resolvePaymentNotificationsIfDone(
  * criterio de `loadInterventionConversationIds`, todo comprobante pendiente
  * contaría como intervención y el indicador no diría nada.
  *
- * Devuelve id de conversación → cantidad de notificaciones abiertas. Filtra
+ * Devuelve id de conversación → cantidad de notificaciones abiertas y categoría destacada. Filtra
  * por `client_slug` explícito además de RLS.
  */
-export async function loadOpenTeamNotificationCounts(
+export async function loadOpenTeamNotificationSummaries(
   sb: Db,
   clientSlug: string,
-): Promise<Map<string, number>> {
+): Promise<Map<string, { count: number; category: string }>> {
   const rows = await fetchAllRows((from, to) =>
     sb
       .from("agent_notifications")
-      .select("id, conversation_id, reason, resolved_at")
+      .select("id, conversation_id, category, reason, resolved_at")
       .eq("client_slug", clientSlug)
       .is("resolved_at", null)
       .neq("category", PAYMENT_NOTIFICATION_CATEGORY)
@@ -123,10 +124,15 @@ export async function loadOpenTeamNotificationCounts(
       .order("id", { ascending: true })
       .range(from, to),
   );
-  const out = new Map<string, number>();
+  const out = new Map<string, { count: number; category: string }>();
   for (const n of await withoutStaleEnrollmentNotifications(sb, rows)) {
     if (!n.conversation_id) continue;
-    out.set(n.conversation_id, (out.get(n.conversation_id) ?? 0) + 1);
+    const previous = out.get(n.conversation_id);
+    // Prioriza reclamos y escalados. Entre categorías de igual prioridad, la más reciente.
+    const category = previous && urgentIntervention(previous.category) && !urgentIntervention(n.category)
+      ? previous.category
+      : n.category;
+    out.set(n.conversation_id, { count: (previous?.count ?? 0) + 1, category });
   }
   return out;
 }
