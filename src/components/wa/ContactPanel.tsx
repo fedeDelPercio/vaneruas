@@ -498,7 +498,7 @@ export function ContactPanel({
       ? ficha.events.some((e) => e.payment.stage === "awaiting_title")
         ? "Tiene un pago retenido hasta validarlo"
         : c?.isCustomer
-          ? "Ya estaba registrada, no hizo falta pedirlo"
+          ? "Alumna registrada"
           : null
       : [ficha.title.titleName, ficha.title.institution].filter(Boolean).join(" · ") || null;
 

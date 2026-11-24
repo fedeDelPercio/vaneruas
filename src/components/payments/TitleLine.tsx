@@ -20,10 +20,13 @@ export function TitleLine({ state, children }: { state: keyof typeof titleChips;
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-[13px] font-medium">Título profesional</span>
         <CardChip tone={chip.tone}>
-          {state === "valid" && <Check className="h-3 w-3" strokeWidth={2} />}
+          {(state === "valid" || state === "exempt") && <Check className="h-3 w-3" strokeWidth={2} />}
           {chip.label}
         </CardChip>
       </div>
+      {"detail" in chip && (
+        <p className="mt-1 text-right text-[11px] text-neutral-500 dark:text-neutral-400">{chip.detail}</p>
+      )}
       {children}
     </div>
   );

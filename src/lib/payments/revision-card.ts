@@ -17,7 +17,8 @@ export const titleChips = {
   valid: { label: "Ya entregado", tone: "ok" },
   review: { label: "Pendiente de revisión", tone: "warn" },
   rejected: { label: "Rechazado", tone: "bad" },
-  exempt: { label: "No hacía falta · Ya registrada", tone: "ok" },
+  // Registrada sin archivo: el equipo lo quiere ver igual que un título entregado.
+  exempt: { label: "Ya entregado", tone: "ok", detail: "alumna registrada" },
   none: { label: "No enviado", tone: "neutral" },
 } as const;
 
