@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState, type ReactNode } from "react";
+import { Children, useId, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, ExternalLink, MessageCircle, Quote } from "lucide-react";
 import type { PaymentItem } from "@/app/api/payments/route";
 import { normalizeContactEmail } from "@/lib/contact-email";
@@ -120,6 +120,12 @@ function ContactFields({ conversationId, phone, email, onSaved, inputRef }: {
   );
 }
 
+function ActionRow({ children }: { children: ReactNode }) {
+  const items = Children.toArray(children);
+  if (items.length === 0) return null;
+  return <div className="mt-2 flex flex-wrap items-center gap-1.5">{items}</div>;
+}
+
 export function PaymentCard({ payment: p, children, titleActions, forceAction, paymentActions, eventAt, interventionCategory, onOpenChat, onSaved, onAccessSaved }: {
   payment: PaymentItem;
   children?: ReactNode;
@@ -136,7 +142,7 @@ export function PaymentCard({ payment: p, children, titleActions, forceAction, p
   const eventDate = cardDate(eventAt ?? event?.eventDate);
   const emailInput = useRef<HTMLInputElement>(null);
   const steps = cardSteps(p, Date.now());
-  const title = steps[0];
+  const retained = p.status === "pending" && p.awaitingTitle && Boolean(steps[0]?.actions?.includes("force"));
   const access = steps.find((step) => step.key === "access");
   const conv = p.conversation;
   const ghl = ghlConversationUrl(conv);
@@ -170,8 +176,10 @@ export function PaymentCard({ payment: p, children, titleActions, forceAction, p
 
       <div className="grid gap-3 border-t border-neutral-200 pt-2.5 [@container(min-width:37rem)]:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)] dark:border-neutral-800">
         <PaymentStepper steps={steps} slots={{
-          title: <>{titleActions}{title?.actions?.includes("force") && forceAction}</>,
-          payment: paymentActions,
+          // Las decisiones del pago viven en el paso actual: con el pago retenido
+          // por el título, junto a "Forzar aprobación"; si no, en el paso Pago.
+          title: <>{titleActions}{retained && <ActionRow>{forceAction}{paymentActions}</ActionRow>}</>,
+          payment: !retained && <ActionRow>{paymentActions}</ActionRow>,
           access: access && <AccessActions step={access} paymentId={p.id} savedError={p.courseAccessQueued ? null : p.courseAccessError}
             onFocusEmail={conv ? () => emailInput.current?.focus() : undefined} onSaved={onAccessSaved ?? onSaved} />,
         }} />

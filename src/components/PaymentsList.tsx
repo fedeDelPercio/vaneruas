@@ -14,6 +14,7 @@ import {
   MessageSquareQuote,
   Users,
   SearchX,
+  Plus,
 } from "lucide-react";
 import { TiendupAutoEnrollToggle } from "@/components/TiendupAutoEnrollToggle";
 import { useProfile } from "./ProfileProvider";
@@ -160,11 +161,10 @@ function DismissButton({
     <button
       onClick={onAskConfirm}
       disabled={busy}
-      title="Descartar: esta imagen no correspondía"
-      aria-label="Descartar"
-      className="rounded-md p-1 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600 disabled:opacity-40 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
+      title="Sacarlo de la cola: esta imagen no era un comprobante ni un título"
+      className="rounded-lg px-2 py-1.5 text-[12px] font-medium text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700 disabled:opacity-40 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
     >
-      <X className="h-3.5 w-3.5" strokeWidth={1.75} />
+      Descartar
     </button>
   );
 }
@@ -333,6 +333,7 @@ export function PaymentsList() {
   // 20/10 con dos pagos de $110.000, con 2 segundos de diferencia.
   const [confirmReject, setConfirmReject] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [noteOpen, setNoteOpen] = useState<Record<string, boolean>>({});
   const filterRef = useRef(filter);
   filterRef.current = filter;
   const searchRef = useRef(searchQuery);
@@ -788,7 +789,7 @@ export function PaymentsList() {
                         void load(filterRef.current, searchRef.current);
                       }}
                       forceAction={isPending && p.awaitingTitle && (
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <div className="contents">
                           {confirmForceId === p.id ? (
                             <>
                               <span className="text-[12px] text-neutral-500 dark:text-neutral-400">
@@ -830,19 +831,8 @@ export function PaymentsList() {
                           )}
                         </div>
                       )}
-                      paymentActions={isPending && (
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                          {!p.awaitingTitle && (
-                            <input
-                              value={notes[p.id] ?? ""}
-                              onChange={(e) =>
-                                setNotes((n) => ({ ...n, [p.id]: e.target.value }))
-                              }
-                              aria-label="Nota (opcional)"
-                              placeholder="Nota (opcional)"
-                              className="w-full max-w-[15rem] rounded-lg border border-neutral-200 bg-white px-3 py-2 text-[13px] outline-none transition placeholder:text-neutral-400 focus:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder:text-neutral-500 dark:focus:border-neutral-600"
-                            />
-                          )}
+                      paymentActions={isPending ? (
+                        <>
                           {!p.awaitingTitle && confirmReject !== p.id && (
                             <button
                               onClick={() => void setStatus(p.id, "validated")}
@@ -889,36 +879,54 @@ export function PaymentsList() {
                             <button
                               onClick={() => setConfirmReject(p.id)}
                               disabled={busy}
-                              className="flex items-center gap-1.5 rounded-md border border-red-600/40 px-3.5 py-2 text-[13px] font-medium text-red-700 transition hover:bg-red-600/[0.06] disabled:cursor-not-allowed disabled:opacity-40 dark:text-red-300"
+                              className="rounded-lg px-2.5 py-1.5 text-[12px] font-medium text-red-700 transition hover:bg-red-600/[0.08] disabled:opacity-40 dark:text-red-300"
                             >
-                              <X className="h-3.5 w-3.5" strokeWidth={2} />
-                              Rechazar
+                              {p.awaitingTitle ? "Rechazar pago" : "Rechazar"}
                             </button>
                           )}
-                        </div>
-                      )}
-                    >
-                      <div className="flex flex-wrap justify-end">
-                        {isPending && (
+                          {!noteOpen[p.id] && !notes[p.id] && (
+                            <button
+                              onClick={() => setNoteOpen((open) => ({ ...open, [p.id]: true }))}
+                              disabled={busy}
+                              className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[12px] font-medium text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-40 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                            >
+                              <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />
+                              Agregar nota
+                            </button>
+                          )}
                           <DismissButton busy={busy} confirming={confirmDismiss === p.id}
                             onAskConfirm={() => setConfirmDismiss(p.id)} onCancel={() => setConfirmDismiss(null)}
                             onConfirm={() => void dismissPayment(p.id)} />
-                        )}
-                        {!isPending && (
-                          <button
-                            onClick={() => void setStatus(p.id, "pending")}
-                            disabled={busy}
-                            className="flex items-center gap-1.5 rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                          >
-                            {busy ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} />
-                            ) : (
-                              <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.75} />
-                            )}
-                            Volver a pendiente
-                          </button>
-                        )}
-                      </div>
+                          {(noteOpen[p.id] || notes[p.id]) && (
+                            <input
+                              autoFocus={!notes[p.id]}
+                              value={notes[p.id] ?? ""}
+                              onChange={(e) =>
+                                setNotes((n) => ({ ...n, [p.id]: e.target.value }))
+                              }
+                              aria-label="Nota (opcional)"
+                              placeholder="Nota para el registro (opcional)"
+                              className="basis-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-[13px] outline-none transition placeholder:text-neutral-400 focus:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder:text-neutral-500 dark:focus:border-neutral-600"
+                            />
+                          )}
+                        </>
+                      ) : null}
+                    >
+                      {!isPending && (
+                        <button
+                          onClick={() => void setStatus(p.id, "pending")}
+                          disabled={busy}
+                          title="Deshacer la decisión del pago"
+                          className="-ml-2 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] font-medium text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                        >
+                          {busy ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} />
+                          ) : (
+                            <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.75} />
+                          )}
+                          Volver a pendiente
+                        </button>
+                      )}
                     </PaymentCard>
                   );
                 })}

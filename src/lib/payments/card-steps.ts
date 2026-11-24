@@ -81,14 +81,14 @@ export function cardSteps(payment: CardPayment, now: number): CardStep[] {
     .sort().at(-1);
   const title = titleStep(state, { now, reviewedAt, waiting: retained });
   if (retained) title.actions = [...(title.actions ?? []), "force"];
-  // Cuando la revisión del título no retiene el pago, ambos siguen operables.
-  const reviewing = title.status === "current";
+  // Cuando la revisión del título no retiene el pago, ambos siguen operables:
+  // los dos pasos quedan "current" para que cada acción viva en su paso.
   const steps: CardStep[] = [
     title,
     { key: "receipt", label: "Comprobante", status: "done", detail: datedStatus("Recibido", payment.createdAt) },
     {
       key: "payment", label: "Pago",
-      status: approved ? "done" : !pending ? "error" : retained || reviewing ? "future" : "current",
+      status: approved ? "done" : !pending ? "error" : retained ? "future" : "current",
       detail: approved ? datedStatus("Aprobado", payment.validatedAt)
         : !pending ? "Rechazado" : retained ? "Después de validar el título" : "Esperando aprobación del equipo",
       actions: pending ? retained ? ["reject"] : ["approve", "reject"] : undefined,
@@ -100,7 +100,7 @@ export function cardSteps(payment: CardPayment, now: number): CardStep[] {
     const missingEmail = !payment.contactEmail?.trim();
     steps.push({
       key: "access", label: "Acceso al curso",
-      status: !approved ? "future" : granted ? "done" : reviewing ? "future" : "current",
+      status: !approved ? "future" : granted ? "done" : "current",
       detail: !approved ? pending ? "Después de aprobar el pago" : "Sin acceso"
         : granted ? datedStatus("Dado", granted)
         : missingEmail ? "Falta el mail"
