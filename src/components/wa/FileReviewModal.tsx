@@ -89,9 +89,11 @@ export function FileReviewPanel({
   onStateChange,
   intent,
   actionsOnly = false,
+  secondaryApproval = false,
 }: {
   file: ContactFile;
   actionsOnly?: boolean;
+  secondaryApproval?: boolean;
   variant: "modal" | "inline";
   /**
    * Abre directo en la confirmación de esa acción (la ficha tiene sus propios
@@ -352,7 +354,7 @@ export function FileReviewPanel({
 
       </>}
 
-      <div className={`flex flex-wrap items-center gap-2 ${actionsOnly ? "justify-end" : "mt-4 justify-between"}`}>
+      <div className={`flex flex-wrap items-center gap-2 ${actionsOnly ? "mt-2" : "mt-4 justify-between"}`}>
         {!actionsOnly && (shownUrl && inline ? (
           <button
             type="button"
@@ -447,20 +449,15 @@ export function FileReviewPanel({
               </button>
             </div>
           ) : (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setConfirm("reject")}
-                disabled={Boolean(busy)}
-                className="rounded-lg px-3 py-2 text-[13px] font-medium text-red-700 transition hover:bg-red-600/[0.08] disabled:opacity-40 dark:text-red-300"
-              >
-                Rechazar
-              </button>
+            <div className="flex flex-wrap items-center gap-1.5">
               <button
                 onClick={() =>
                   file.status === "awaiting_title" ? setConfirm("force") : void act("approve")
                 }
                 disabled={Boolean(busy)}
-                className="btn-gold flex items-center gap-1.5"
+                className={`flex items-center gap-1.5 ${secondaryApproval
+                  ? "rounded-lg px-2 py-1.5 text-[12px] font-medium transition hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                  : "btn-gold"}`}
               >
                 {busy === "approve" ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
@@ -468,6 +465,13 @@ export function FileReviewPanel({
                   <Check className="h-3.5 w-3.5" strokeWidth={2} />
                 )}
                 {isPayment ? file.status === "awaiting_title" && actionsOnly ? "Forzar aprobación" : "Aprobar" : "Validar título"}
+              </button>
+              <button
+                onClick={() => setConfirm("reject")}
+                disabled={Boolean(busy)}
+                className="rounded-lg px-3 py-2 text-[13px] font-medium text-red-700 transition hover:bg-red-600/[0.08] disabled:opacity-40 dark:text-red-300"
+              >
+                {isPayment && file.status === "awaiting_title" && actionsOnly ? "Rechazar pago" : "Rechazar"}
               </button>
             </div>
           ))}

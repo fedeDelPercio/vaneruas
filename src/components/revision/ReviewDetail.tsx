@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowRight, Flag, KeyRound, Loader2, Mail, MessageCircle } from "lucide-react";
 import { FileReviewPanel } from "../wa/FileReviewModal";
 import type { ContactEvent, ContactFicha, ContactNotification } from "@/app/api/wa/contact/[conversationId]/route";
+import { eventBySlug } from "@/lib/payments/event-match";
 import { interventionCategoryLabel, urgentIntervention } from "@/lib/intervention-category";
 import { PaymentCard } from "../payments/PaymentCard";
 import { Thumb, fmtDateTime } from "../payments/receipt-fields";
@@ -225,8 +226,11 @@ export function ReviewDetail({
         ...ficha.certificados.filter((c) => !c.resolvedAt),
       ].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     : [];
+  const cardEvent = eventBySlug(p?.eventSlug);
+  const cardHasCourse = cardEvent && cardEvent.slug !== "congreso";
   const accessEvents = ficha
-    ? ficha.events.filter((e) => e.kind === "masterclass" && e.payment.stage !== "none")
+    ? ficha.events.filter((e) => e.kind === "masterclass" && e.payment.stage !== "none" &&
+        (e.key !== p?.eventSlug || (e.access.markablePaymentId && e.access.markablePaymentId !== p.id)))
     : [];
 
   return (
@@ -242,6 +246,16 @@ export function ReviewDetail({
               payment={p}
               onOpenChat={onOpenChat}
               onSaved={onDone}
+              eventAt={ficha?.events.find((event) => event.key === p.eventSlug)?.eventAt}
+              interventionCategory={open[0]?.category}
+              forceAction={p.awaitingTitle && (
+                <FileReviewPanel key={item.id} file={item.file} variant="inline" actionsOnly
+                  secondaryApproval={pendingTitles.length > 0} onDone={onDone} />
+              )}
+              paymentActions={!p.awaitingTitle && (
+                <FileReviewPanel key={item.id} file={item.file} variant="inline" actionsOnly
+                  secondaryApproval={pendingTitles.length > 0} onDone={onDone} />
+              )}
               titleActions={pendingTitles.length > 0 && (
                 <div className="mt-2 space-y-3">
                   {pendingTitles.map((title) => (
@@ -258,9 +272,7 @@ export function ReviewDetail({
                   ))}
                 </div>
               )}
-            >
-              <FileReviewPanel key={item.id} file={item.file} variant="inline" actionsOnly onDone={onDone} />
-            </PaymentCard>
+            />
           ) : (
             <>
               <TitleLine state={ficha?.title.stage ?? "review"} />
@@ -315,16 +327,16 @@ export function ReviewDetail({
                     : undefined
                 }
               />
-              <div className={`${tiendup.phase === "idle" || (tiendup.phase === "done" && !tiendup.data.show) ? "" : "mt-3 "}flex items-center gap-2 text-[12px] text-neutral-700 dark:text-neutral-200`}>
+              {!p && <div className={`${tiendup.phase === "idle" || (tiendup.phase === "done" && !tiendup.data.show) ? "" : "mt-3 "}flex items-center gap-2 text-[12px] text-neutral-700 dark:text-neutral-200`}>
                 <Mail className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={1.75} />
                 {ficha.conversation.email ? (
                   <span className="min-w-0 truncate">{ficha.conversation.email}</span>
                 ) : (
                   <span className="text-neutral-400 dark:text-neutral-500">Todavía no dejó su correo</span>
                 )}
-              </div>
+              </div>}
               {accessEvents.length === 0 ? (
-                <p className="mt-2.5 text-[12px] text-neutral-500 dark:text-neutral-400">
+                !cardHasCourse && <p className="mt-2.5 text-[12px] text-neutral-500 dark:text-neutral-400">
                   Sin pagos de masterclass
                 </p>
               ) : (

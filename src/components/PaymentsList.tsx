@@ -13,7 +13,6 @@ import {
   ShieldAlert,
   MessageSquareQuote,
   Users,
-  KeyRound,
   SearchX,
 } from "lucide-react";
 import { TiendupAutoEnrollToggle } from "@/components/TiendupAutoEnrollToggle";
@@ -199,10 +198,12 @@ function VerdictPill({ sub }: { sub: TitleSubmission }) {
 function TitleSubmissionRow({
   sub,
   busy,
+  inStepper = false,
   onApprove,
   onReject,
 }: {
   sub: TitleSubmission;
+  inStepper?: boolean;
   busy: boolean;
   onApprove: () => void;
   onReject: () => void;
@@ -218,7 +219,7 @@ function TitleSubmissionRow({
           <p className="truncate text-[13px] font-medium text-neutral-900 dark:text-neutral-100">
             {sub.titleName ?? "Título sin nombre leído"}
           </p>
-          <VerdictPill sub={sub} />
+          {!inStepper && <VerdictPill sub={sub} />}
         </div>
         <p className="mt-0.5 text-[12px] text-neutral-500 dark:text-neutral-400">
           {sub.holderName ?? "Titular no leída"}
@@ -241,7 +242,7 @@ function TitleSubmissionRow({
             <button
               onClick={onApprove}
               disabled={busy}
-              className="flex items-center gap-1.5 rounded-lg bg-gradient-to-br from-gold to-gold-start px-3 py-1.5 text-[12px] font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+              className="btn-gold inline-flex items-center gap-1.5"
             >
               {busy ? (
                 <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2} />
@@ -309,8 +310,6 @@ export function PaymentsList() {
   const [stats, setStats] = useState<PaymentStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [busyAccess, setBusyAccess] = useState<Record<string, "grant" | "mark">>({});
-  const [accessResults, setAccessResults] = useState<Record<string, { text: string; error?: boolean }>>({});
   const [chatId, setChatId] = useState<string | null>(null);
   const [chatView, setChatView] = useState<"chat" | "ficha">("chat");
   const [commentTarget, setCommentTarget] = useState<CommentTarget | null>(null);
@@ -322,7 +321,6 @@ export function PaymentsList() {
   const closeChat = () => openChat(null);
   // Confirmación de "Ya tiene acceso" (marcar como resuelto sin inscribir en
   // Tiendup): para casos que el equipo ya dio de alta por afuera.
-  const [confirmMarkId, setConfirmMarkId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [busyTitleId, setBusyTitleId] = useState<string | null>(null);
   const [confirmForceId, setConfirmForceId] = useState<string | null>(null);
@@ -436,56 +434,6 @@ export function PaymentsList() {
       setError("Error de red al actualizar");
     } finally {
       setBusyId(null);
-    }
-  }
-
-  /**
-   * Da acceso al curso (Tiendup) para un pago de masterclass validado. Manual y
-   * directo, sin confirmación previa: el server inscribe aunque el correo no
-   * figure como cliente (Tiendup lo crea) o la persona figure con otro correo.
-   * Si queda dado, el server le avisa a la persona por WhatsApp.
-   */
-  async function updateAccess(id: string, markOnly = false) {
-    setBusyAccess((current) => ({ ...current, [id]: markOnly ? "mark" : "grant" }));
-    setAccessResults((current) => {
-      const next = { ...current };
-      delete next[id];
-      return next;
-    });
-    const report = (text: string, error = false) =>
-      setAccessResults((current) => ({ ...current, [id]: { text, error } }));
-    try {
-      const r = await fetch(`/api/payments/${id}/grant-access`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(markOnly ? { markOnly: true } : {}),
-      });
-      const j = await r.json().catch(() => ({}));
-      if (r.status === 202 && j.queued) {
-        report(j.message ?? "El alta quedó en cola de reintento");
-      } else if (!r.ok || !j.ok) {
-        report(j.error ?? "No se pudo registrar el acceso al curso", true);
-        return;
-      } else {
-        const message = markOnly
-          ? "Alta manual registrada"
-          : j.alreadyEnrolled
-            ? "Ya estaba inscripta en el curso. El acceso quedó registrado"
-            : "Acceso al curso dado";
-        report(message);
-        // Al resolverse, la tarjeta sale de la cola. El aviso sigue a la vista.
-        if (filterRef.current === "pending" || filterRef.current === "sin-acceso") setNotice(message);
-      }
-      await load(filterRef.current, searchRef.current);
-    } catch {
-      report("Error de red al registrar el acceso al curso", true);
-    } finally {
-      if (markOnly) setConfirmMarkId((current) => current === id ? null : current);
-      setBusyAccess((current) => {
-        const next = { ...current };
-        delete next[id];
-        return next;
-      });
     }
   }
 
@@ -819,10 +767,6 @@ export function PaymentsList() {
                 {group.map((p) => {
                   const isPending = p.status === "pending";
                   const busy = busyId === p.id;
-                  const accessBusy = busyAccess[p.id];
-                  const accessResult = p.courseAccessGrantedAt && accessResults[p.id]?.error ? undefined : accessResults[p.id];
-                  const esMasterclassValidada = p.status === "validated" && eventKind(p.eventSlug) === "masterclass";
-                  const faltaCorreo = esMasterclassValidada && !p.contactEmail;
                   const pendingTitles = p.titles.filter((sub) => sub.hasFile && !sub.isValid && !sub.reviewedAt);
                   return (
                     <PaymentCard key={p.id} payment={p} onOpenChat={openChat}
@@ -833,121 +777,77 @@ export function PaymentsList() {
                       titleActions={pendingTitles.length > 0 && (
                         <div className="mt-2 space-y-3">
                           {pendingTitles.map((sub) => (
-                            <TitleSubmissionRow key={sub.id} sub={sub} busy={busyTitleId === sub.id}
+                            <TitleSubmissionRow key={sub.id} inStepper sub={sub} busy={busyTitleId === sub.id}
                               onApprove={() => void setTitleStatus(sub.id, "approve")}
                               onReject={() => void setTitleStatus(sub.id, "reject")} />
                           ))}
                         </div>
                       )}
-                    >
-                      {/* Acciones */}
-                      <div className="flex flex-wrap items-center justify-end gap-1.5 border-t border-neutral-100 pt-2 dark:border-neutral-800">
-                        {isPending && (
-                          <DismissButton busy={busy} confirming={confirmDismiss === p.id}
-                            onAskConfirm={() => setConfirmDismiss(p.id)} onCancel={() => setConfirmDismiss(null)}
-                            onConfirm={() => void dismissPayment(p.id)} />
-                        )}
-
-                        {isPending && !p.awaitingTitle && (
-                          <input
-                            value={notes[p.id] ?? ""}
-                            onChange={(e) =>
-                              setNotes((n) => ({ ...n, [p.id]: e.target.value }))
-                            }
-                            placeholder="Nota (opcional)"
-                            className="w-40 rounded-md border border-neutral-200 bg-white px-3 py-2 text-[13px] outline-none transition placeholder:text-neutral-400 focus:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder:text-neutral-500 dark:focus:border-neutral-600"
-                          />
-                        )}
-                        {isPending && (
-                          <>
-                            {confirmReject === p.id ? (
-                              <>
-                                <span className="text-[12px] text-neutral-600 dark:text-neutral-300">
-                                  Rechazar este comprobante?
-                                </span>
-                                <button
-                                  onClick={() => setConfirmReject(null)}
-                                  disabled={busy}
-                                  className="rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                                >
-                                  Cancelar
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setConfirmReject(null);
-                                    void setStatus(p.id, "rejected");
-                                  }}
-                                  disabled={busy}
-                                  className="flex items-center gap-1.5 rounded-md bg-red-600 px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
-                                >
-                                  {busy ? (
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
-                                  ) : (
-                                    <X className="h-3.5 w-3.5" strokeWidth={2} />
-                                  )}
-                                  Confirmar rechazo
-                                </button>
-                              </>
-                            ) : (
+                      onAccessSaved={(message) => {
+                        if (message && (filterRef.current === "pending" || filterRef.current === "sin-acceso")) setNotice(message);
+                        void load(filterRef.current, searchRef.current);
+                      }}
+                      forceAction={isPending && p.awaitingTitle && (
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          {confirmForceId === p.id ? (
+                            <>
+                              <span className="text-[12px] text-neutral-500 dark:text-neutral-400">
+                                Forzar y avisar a la contacta?
+                              </span>
                               <button
-                                onClick={() => setConfirmReject(p.id)}
+                                onClick={() => setConfirmForceId(null)}
                                 disabled={busy}
-                                className="flex items-center gap-1.5 rounded-md border border-red-600/40 px-3.5 py-2 text-[13px] font-medium text-red-700 transition hover:bg-red-600/[0.06] disabled:cursor-not-allowed disabled:opacity-40 dark:text-red-300"
+                                className="rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
                               >
-                                <X className="h-3.5 w-3.5" strokeWidth={2} />
-                                Rechazar
+                                Cancelar
                               </button>
-                            )}
-                          </>
-                        )}
-                        {isPending && p.awaitingTitle ? (
-                          <>
-                            {confirmForceId === p.id ? (
-                              <>
-                                <span className="text-[12px] text-neutral-500 dark:text-neutral-400">
-                                  Forzar y avisar a la contacta?
-                                </span>
-                                <button
-                                  onClick={() => setConfirmForceId(null)}
-                                  disabled={busy}
-                                  className="rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                                >
-                                  Cancelar
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setConfirmForceId(null);
-                                    void setStatus(p.id, "validated", { force: true });
-                                  }}
-                                  disabled={busy}
-                                  className="flex items-center gap-1.5 btn-gold"
-                                >
-                                  {busy ? (
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
-                                  ) : (
-                                    <Check className="h-3.5 w-3.5" strokeWidth={2} />
-                                  )}
-                                  Confirmar
-                                </button>
-                              </>
-                            ) : (
                               <button
-                                onClick={() => setConfirmForceId(p.id)}
+                                onClick={() => {
+                                  setConfirmForceId(null);
+                                  void setStatus(p.id, "validated", { force: true });
+                                }}
                                 disabled={busy}
-                                title="Aprobar el comprobante igual, sin validar el título profesional"
-                                className="flex items-center gap-1.5 rounded-md border border-neutral-200 px-3.5 py-2 text-[13px] font-medium text-neutral-700 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                                className="flex items-center gap-1.5 btn-gold"
                               >
-                                <ShieldAlert className="h-3.5 w-3.5 text-warn" strokeWidth={1.75} />
-                                Forzar aprobación
+                                {busy ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
+                                ) : (
+                                  <Check className="h-3.5 w-3.5" strokeWidth={2} />
+                                )}
+                                Confirmar
                               </button>
-                            )}
-                          </>
-                        ) : isPending ? (
-                          <>
+                            </>
+                          ) : (
+                            <button
+                              onClick={() => setConfirmForceId(p.id)}
+                              disabled={busy}
+                              title="Aprobar el comprobante igual, sin validar el título profesional"
+                              className={pendingTitles.length === 0 ? "btn-gold inline-flex items-center gap-1.5" : "inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] font-medium text-neutral-700 transition hover:bg-neutral-100 disabled:opacity-50 dark:text-neutral-300 dark:hover:bg-neutral-800"}
+                            >
+                              <ShieldAlert className="h-3.5 w-3.5" strokeWidth={1.75} />
+                              Forzar aprobación
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      paymentActions={isPending && (
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          {!p.awaitingTitle && (
+                            <input
+                              value={notes[p.id] ?? ""}
+                              onChange={(e) =>
+                                setNotes((n) => ({ ...n, [p.id]: e.target.value }))
+                              }
+                              aria-label="Nota (opcional)"
+                              placeholder="Nota (opcional)"
+                              className="w-full max-w-[15rem] rounded-lg border border-neutral-200 bg-white px-3 py-2 text-[13px] outline-none transition placeholder:text-neutral-400 focus:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder:text-neutral-500 dark:focus:border-neutral-600"
+                            />
+                          )}
+                          {!p.awaitingTitle && confirmReject !== p.id && (
                             <button
                               onClick={() => void setStatus(p.id, "validated")}
                               disabled={busy}
-                              className="flex items-center gap-1.5 btn-gold"
+                              className={pendingTitles.length === 0 ? "btn-gold inline-flex items-center gap-1.5" : "inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] font-medium transition hover:bg-neutral-100 dark:hover:bg-neutral-800"}
                             >
                               {busy ? (
                                 <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
@@ -956,93 +856,69 @@ export function PaymentsList() {
                               )}
                               Aprobar
                             </button>
-                          </>
-                        ) : (
-                          <>
-                            {faltaCorreo && !p.courseAccessGrantedAt && (
-                              <span className="flex items-center gap-1.5 text-[12px] text-amber-700 dark:text-warn">
-                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
-                                Falta el correo para darle el acceso, hay que pedírselo
+                          )}
+                          {confirmReject === p.id ? (
+                            <>
+                              <span className="text-[12px] text-neutral-600 dark:text-neutral-300">
+                                Rechazar este comprobante?
                               </span>
-                            )}
-                            {esMasterclassValidada &&
-                              (p.courseAccessGrantedAt ? (
-                                <span className="flex items-center gap-1.5 text-[12px] text-ok">
-                                  <KeyRound className="h-3.5 w-3.5" strokeWidth={1.75} />
-                                  Acceso al curso dado
-                                </span>
-                              ) : confirmMarkId === p.id ? (
-                                <>
-                                  <span className="mr-auto flex items-center gap-1.5 text-[12px] text-neutral-600 dark:text-neutral-300">
-                                    Marcar como que ya tiene acceso, sin inscribir en Tiendup?
-                                  </span>
-                                  <button
-                                    onClick={() => setConfirmMarkId(null)}
-                                    disabled={Boolean(accessBusy)}
-                                    className="rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                                  >
-                                    Cancelar
-                                  </button>
-                                  <button
-                                    onClick={() => void updateAccess(p.id, true)}
-                                    disabled={Boolean(accessBusy)}
-                                    className="flex items-center gap-1.5 btn-gold"
-                                  >
-                                    {accessBusy ? (
-                                      <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
-                                    ) : (
-                                      <Check className="h-3.5 w-3.5" strokeWidth={2} />
-                                    )}
-                                    Confirmar
-                                  </button>
-                                </>
-                              ) : (
-                                <>
-                                  <button
-                                    onClick={() => void updateAccess(p.id)}
-                                    disabled={Boolean(accessBusy) || !p.contactEmail}
-                                    title={`Inscribir en el curso de Tiendup con ${p.contactEmail ?? "su correo"}`}
-                                    className="btn-gold flex items-center gap-1.5"
-                                  >
-                                    {accessBusy === "grant" ? (
-                                      <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} />
-                                    ) : (
-                                      <KeyRound className="h-3.5 w-3.5" strokeWidth={1.75} />
-                                    )}
-                                    {accessBusy === "grant" ? "Dando acceso…" : "Dar acceso al curso"}
-                                  </button>
-                                  <button
-                                    onClick={() => setConfirmMarkId(p.id)}
-                                    disabled={Boolean(accessBusy)}
-                                    title="Marcar como que ya tiene acceso (sin inscribir en Tiendup)"
-                                    className="rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                                  >
-                                    Ya le dimos el alta a mano en Tiendup
-                                  </button>
-                                </>
-                              ))}
+                              <button
+                                onClick={() => setConfirmReject(null)}
+                                disabled={busy}
+                                className="rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                              >
+                                Cancelar
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setConfirmReject(null);
+                                  void setStatus(p.id, "rejected");
+                                }}
+                                disabled={busy}
+                                className="flex items-center gap-1.5 rounded-md bg-red-600 px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                {busy ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
+                                ) : (
+                                  <X className="h-3.5 w-3.5" strokeWidth={2} />
+                                )}
+                                Confirmar rechazo
+                              </button>
+                            </>
+                          ) : (
                             <button
-                              onClick={() => void setStatus(p.id, "pending")}
+                              onClick={() => setConfirmReject(p.id)}
                               disabled={busy}
-                              className="flex items-center gap-1.5 rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                              className="flex items-center gap-1.5 rounded-md border border-red-600/40 px-3.5 py-2 text-[13px] font-medium text-red-700 transition hover:bg-red-600/[0.06] disabled:cursor-not-allowed disabled:opacity-40 dark:text-red-300"
                             >
-                              {busy ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} />
-                              ) : (
-                                <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.75} />
-                              )}
-                              Volver a pendiente
+                              <X className="h-3.5 w-3.5" strokeWidth={2} />
+                              Rechazar
                             </button>
-                          </>
+                          )}
+                        </div>
+                      )}
+                    >
+                      <div className="flex flex-wrap justify-end">
+                        {isPending && (
+                          <DismissButton busy={busy} confirming={confirmDismiss === p.id}
+                            onAskConfirm={() => setConfirmDismiss(p.id)} onCancel={() => setConfirmDismiss(null)}
+                            onConfirm={() => void dismissPayment(p.id)} />
+                        )}
+                        {!isPending && (
+                          <button
+                            onClick={() => void setStatus(p.id, "pending")}
+                            disabled={busy}
+                            className="flex items-center gap-1.5 rounded-md px-3 py-2 text-[13px] text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                          >
+                            {busy ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} />
+                            ) : (
+                              <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.75} />
+                            )}
+                            Volver a pendiente
+                          </button>
                         )}
                       </div>
-                      {(accessResult || (!p.courseAccessGrantedAt && p.courseAccessError)) && (
-                        <p role="status" className={`text-[12px] ${accessResult && !accessResult.error
-                          ? "text-neutral-700 dark:text-neutral-300"
-                          : "text-red-700 dark:text-red-300"}`}>
-                          {accessResult?.text ?? p.courseAccessError}
-                        </p>
-                      )}
                     </PaymentCard>
                   );
                 })}

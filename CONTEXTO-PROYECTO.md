@@ -706,3 +706,11 @@ Validá siempre con `npx tsc --noEmit` y `npx next build` antes de commitear.
 - `docs/EVALS-post-masterclass.md`: evals de la etapa post-masterclass.
 - `.claude/informe-conversaciones.md`: configuración del informe de
   conversaciones (qué es error y qué no para este cliente).
+
+### Progreso del pago en el panel (M5)
+
+Aprobaciones y el detalle de Revisión comparten la tarjeta con los pasos
+Título, Comprobante, Pago y Acceso al curso. El Congreso omite el acceso.
+Las acciones usan las confirmaciones vigentes. La cola de Tiendup se muestra
+solo con un marcador de reintento activo. La ficha de WhatsApp agrega Título
+entre Comprobante y Pago, con estado neutro en el historial sin acreditación.

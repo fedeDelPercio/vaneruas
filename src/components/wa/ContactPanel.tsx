@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { datedStatus, titleStep } from "@/lib/payments/card-steps";
 import { formatPhone } from "@/lib/search";
 import { Avatar } from "../Avatar";
 import type { Tone } from "./contact-blocks";
@@ -65,11 +66,6 @@ interface Step {
   tone: Tone;
 }
 
-function fmtDate(iso: string | null): string {
-  if (!iso) return "";
-  return new Date(iso).toLocaleDateString("es-AR", { day: "numeric", month: "short" });
-}
-
 function fmtEventDate(iso: string | null): string | null {
   if (!iso) return null;
   const label = new Date(iso).toLocaleDateString("es-AR", {
@@ -87,7 +83,7 @@ function fmtAmount(amount: number | null, currency: string | null): string | nul
   return `${cur}${Math.round(amount).toLocaleString("es-AR")}`;
 }
 
-function stepsFor(ev: ContactEvent): Step[] {
+function stepsFor(ev: ContactEvent, title: ContactFicha["title"], isCustomer: boolean, historical: boolean): Step[] {
   const p = ev.payment;
   const amount = fmtAmount(p.amount, p.currency);
   const steps: Step[] = [];
@@ -98,7 +94,7 @@ function stepsFor(ev: ContactEvent): Step[] {
       : {
           label: "Comprobante",
           detail: [
-            `Recibido el ${fmtDate(p.receivedAt)}`,
+            datedStatus("Recibido", p.receivedAt),
             // Con el pago aprobado, el monto va en ese paso (puede ser la suma
             // de varios comprobantes).
             p.stage === "validated" ? null : amount,
@@ -109,12 +105,21 @@ function stepsFor(ev: ContactEvent): Step[] {
         },
   );
 
+  const titleStatus = titleStep(title.stage === "none" && isCustomer ? "exempt" : title.stage, {
+    now: Date.now(),
+    reviewedAt: historical ? null : title.reviewedAt,
+    waiting: p.stage === "awaiting_title",
+    historical: historical && p.stage === "validated",
+  });
+  const tones: Record<typeof titleStatus.status, Tone> = { done: "ok", current: "warn", future: "idle", error: "bad" };
+  steps.push({ label: titleStatus.label, detail: titleStatus.detail, tone: tones[titleStatus.status] });
+
   const payment: Step =
     p.stage === "validated"
       ? {
-          label: "Pago aprobado",
+          label: "Pago",
           detail: [
-            fmtDate(p.validatedAt) || null,
+            datedStatus("Aprobado", p.validatedAt),
             amount,
             p.validatedCount > 1 ? `en ${p.validatedCount} pagos` : null,
             p.deliveryFailed ? "no se le pudo avisar por WhatsApp" : null,
@@ -131,9 +136,9 @@ function stepsFor(ev: ContactEvent): Step[] {
       : p.stage === "pending"
         ? { label: "Pago", detail: "Esperando aprobación del equipo", tone: "warn" }
         : p.stage === "awaiting_title"
-          ? { label: "Pago", detail: "Retenido hasta validar el título profesional", tone: "warn" }
+          ? { label: "Pago", detail: "Después de validar el título", tone: "idle" }
           : p.stage === "rejected"
-            ? { label: "Pago rechazado", detail: "El comprobante no se aprobó", tone: "bad" }
+            ? { label: "Pago", detail: "Rechazado", tone: "bad" }
             : { label: "Pago", detail: "Pendiente", tone: "idle" };
   steps.push(payment);
 
@@ -141,11 +146,11 @@ function stepsFor(ev: ContactEvent): Step[] {
   if (a.stage !== "not_applicable") {
     steps.push(
       a.stage === "granted"
-        ? { label: "Acceso al curso", detail: `Dado el ${fmtDate(a.grantedAt)}`, tone: "ok" }
+        ? { label: "Acceso al curso", detail: datedStatus("Dado", a.grantedAt), tone: "ok" }
         : a.stage === "missing"
           ? { label: "Acceso al curso", detail: "Falta darlo", tone: "warn" }
           : a.stage === "missing_email"
-            ? { label: "Acceso al curso", detail: "Falta su correo para darlo", tone: "warn" }
+            ? { label: "Acceso al curso", detail: "Falta el mail", tone: "warn" }
             : a.stage === "closed"
               ? { label: "Acceso al curso", detail: "El curso ya cerró", tone: "idle" }
               : { label: "Acceso al curso", detail: "Después de aprobar el pago", tone: "idle" },
@@ -310,16 +315,22 @@ function eventNeedsAction(ev: ContactEvent): boolean {
 
 function EventCard({
   ev,
+  title,
+  isCustomer,
+  historical = false,
   paymentsHref,
   files,
   onOpenFile,
 }: {
   ev: ContactEvent;
+  title: ContactFicha["title"];
+  isCustomer: boolean;
+  historical?: boolean;
   paymentsHref: string;
   files: ContactFile[];
   onOpenFile: OpenFile;
 }) {
-  const steps = stepsFor(ev);
+  const steps = stepsFor(ev, title, isCustomer, historical);
   const date = fmtEventDate(ev.eventAt);
   const needsAction = eventNeedsAction(ev);
   return (
@@ -636,6 +647,8 @@ export function ContactPanel({
                     <EventCard
                       key={ev.key}
                       ev={ev}
+                      title={ficha.title}
+                      isCustomer={Boolean(c?.isCustomer)}
                       paymentsHref={paymentsHref}
                       files={filesOf(ev)}
                       onOpenFile={openReview}
@@ -686,6 +699,9 @@ export function ContactPanel({
                           <EventCard
                             key={ev.key}
                             ev={ev}
+                            title={ficha.title}
+                            isCustomer={Boolean(c?.isCustomer)}
+                            historical
                             paymentsHref={paymentsHref}
                             files={filesOf(ev)}
                             onOpenFile={openReview}

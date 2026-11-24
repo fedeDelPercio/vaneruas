@@ -124,6 +124,7 @@ export interface ContactFicha {
     titleName: string | null;
     institution: string | null;
     at: string | null;
+    reviewedAt?: string | null;
   };
   certificados: ContactNotification[];
   derivaciones: ContactNotification[];
@@ -368,7 +369,7 @@ export async function GET(
   const validTitle = titles.find((t) => t.is_valid);
   const lastTitle = titles[0] ?? null;
   const title: ContactFicha["title"] = validTitle
-    ? { stage: "valid", titleName: validTitle.title_name, institution: validTitle.institution, at: validTitle.created_at }
+    ? { stage: "valid", titleName: validTitle.title_name, institution: validTitle.institution, at: validTitle.created_at, reviewedAt: validTitle.reviewed_at }
     : lastTitle
       ? {
           stage: lastTitle.reviewed_at ? "rejected" : "review",

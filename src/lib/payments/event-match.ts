@@ -19,6 +19,8 @@ export interface KnownComprobanteEvent {
   shortLabel: string;
   /** Monto exacto del comprobante esperado, en ARS. */
   amount: number;
+  /** Fecha local del evento, si está confirmada. */
+  eventDate?: string;
   /**
    * ¿Todavía tiene sentido dar el acceso al curso de este evento?
    *
@@ -52,6 +54,7 @@ export const KNOWN_COMPROBANTE_EVENTS: KnownComprobanteEvent[] = [
     shortLabel: "Higiene facial",
     amount: 105000,
     titleKeyword: "higiene",
+    eventDate: "2026-08-01",
     // Se dictó el 1/8/2026 y la grabación venció el 21/8. En Tiendup el curso
     // quedó en borrador: no hay acceso que dar.
     accesoVigente: false,
@@ -65,6 +68,7 @@ export const KNOWN_COMPROBANTE_EVENTS: KnownComprobanteEvent[] = [
     amount: 110000,
     accesoVigente: true,
     titleKeyword: "peelings",
+    eventDate: "2026-11-28",
   },
 ];
 

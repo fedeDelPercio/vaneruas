@@ -8,7 +8,7 @@ import { clientEnv } from "@/lib/env";
 import { groupPendingPayments } from "@/lib/payments/grouping";
 import { canonicoDeAgrupado } from "@/lib/payments/dismiss";
 import { needsCourseAccess, previousMasterclasses } from "@/lib/payments/revision-card";
-import { displayCourseAccessError } from "@/lib/tiendup/messages";
+import { displayCourseAccessError, parseRetryError } from "@/lib/tiendup/messages";
 
 export const dynamic = "force-dynamic";
 
@@ -104,6 +104,7 @@ export interface PaymentItem {
   courseAccessGrantedAt: string | null;
   /** Detalle del último error al intentar dar acceso al curso. */
   courseAccessError: string | null;
+  courseAccessQueued: boolean;
   /** Títulos que mandó la contacta en la misma conversación (cert primero). */
   titles: TitleSubmission[];
   /** Último mensaje de texto de la contacta (útil cuando hay un comprobante retenido). */
@@ -542,6 +543,7 @@ export async function GET(req: NextRequest) {
       deliveryFailed: r.delivery_failed ?? false,
       deliveryError: r.delivery_error ?? null,
       courseAccessGrantedAt: r.course_access_granted_at ?? null,
+      courseAccessQueued: !r.course_access_granted_at && Boolean(parseRetryError(r.course_access_error)),
       courseAccessError: r.course_access_granted_at ? null : displayCourseAccessError(r.course_access_error),
       titles: r.conversation_id ? titlesByConv.get(r.conversation_id) ?? [] : [],
       contactNote: r.conversation_id
