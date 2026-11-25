@@ -37,7 +37,24 @@ export interface KnownComprobanteEvent {
    * los comprobantes con su evento buscando esta palabra en el título.
    */
   titleKeyword: string;
+  /**
+   * Evento sin alta en Tiendup (cupos adicionales fuera de la tienda): el pago
+   * se aprueba en el panel y nada intenta inscribir a la persona. Implica
+   * `accesoVigente: false`; el stepper y la ficha lo muestran como "Sin alta
+   * Tiendup" en vez de "Falta el mail" o "Pendiente de alta".
+   */
+  sinTiendup?: boolean;
 }
+
+/** Slug del evento hermano de Peelings: cupos adicionales sin alta en Tiendup. */
+export const EXTENSION_EVENT_SLUG = "masterclass-peelings-cupos-adicionales";
+
+/**
+ * Desde este instante (23:00 ART del 25/11/2026) la venta de Peelings pasó a
+ * cupos adicionales excepcionales. Los comprobantes que llegan desde acá se
+ * guardan con EXTENSION_EVENT_SLUG. Mismo corte que `plazos.ts`.
+ */
+export const EXTENSION_CUTOFF_ISO = "2026-11-25T23:00:00-03:00";
 
 export const KNOWN_COMPROBANTE_EVENTS: KnownComprobanteEvent[] = [
   {
@@ -70,6 +87,20 @@ export const KNOWN_COMPROBANTE_EVENTS: KnownComprobanteEvent[] = [
     titleKeyword: "peelings",
     eventDate: "2026-11-28",
   },
+  {
+    // Evento hermano de Peelings: cupos adicionales excepcionales desde el cierre
+    // de la venta. No matchea por monto (el mismo comprobante de $110.000 puede
+    // ser de la venta normal o de la extensión): lo decide la fecha de llegada
+    // del comprobante, ver resolveStoredEventSlug.
+    slug: EXTENSION_EVENT_SLUG,
+    label: "Masterclass Peelings de Verano Masterizado (cupo adicional)",
+    shortLabel: "Peelings · cupo adicional",
+    amount: 0,
+    accesoVigente: false,
+    sinTiendup: true,
+    titleKeyword: "peelings",
+    eventDate: "2026-11-28",
+  },
 ];
 
 /**
@@ -79,7 +110,7 @@ export const KNOWN_COMPROBANTE_EVENTS: KnownComprobanteEvent[] = [
 export function accesoVigenteDeEvento(slug: string | null | undefined): boolean {
   if (!slug) return false;
   const ev = KNOWN_COMPROBANTE_EVENTS.find((e) => e.slug === slug);
-  return ev ? ev.accesoVigente !== false : false;
+  return ev ? ev.accesoVigente !== false && !ev.sinTiendup : false;
 }
 
 /** Identifica el evento de un comprobante por su monto exacto, o null. */
@@ -88,7 +119,8 @@ export function matchEventByAmount(
 ): KnownComprobanteEvent | null {
   if (amount === null || amount === undefined) return null;
   const rounded = Math.round(amount);
-  return KNOWN_COMPROBANTE_EVENTS.find((e) => e.amount === rounded) ?? null;
+  // El evento hermano no matchea por monto (amount 0): lo decide la fecha.
+  return KNOWN_COMPROBANTE_EVENTS.find((e) => e.amount > 0 && e.amount === rounded) ?? null;
 }
 
 // Evento por default cuando el monto NO matchea (típicamente porque el OCR de
@@ -114,8 +146,20 @@ export const DEFAULT_COMPROBANTE_EVENT_SLUG = "masterclass-peelings-verano";
  */
 export function resolveStoredEventSlug(
   amount: number | null | undefined,
+  now: Date | number = Date.now(),
 ): string {
-  return matchEventByAmount(amount)?.slug ?? DEFAULT_COMPROBANTE_EVENT_SLUG;
+  const slug = matchEventByAmount(amount)?.slug ?? DEFAULT_COMPROBANTE_EVENT_SLUG;
+  // Desde el corte, lo que habría sido de Peelings es un cupo adicional (sin
+  // alta en Tiendup). Los otros eventos (Congreso, Higiene) no cambian.
+  if (slug === DEFAULT_COMPROBANTE_EVENT_SLUG && new Date(now).getTime() >= Date.parse(EXTENSION_CUTOFF_ISO)) {
+    return EXTENSION_EVENT_SLUG;
+  }
+  return slug;
+}
+
+/** ¿Es un evento sin alta en Tiendup (cupos adicionales)? */
+export function esEventoSinTiendup(slug: string | null | undefined): boolean {
+  return eventBySlug(slug)?.sinTiendup === true;
 }
 
 /** Devuelve el evento conocido por su slug (para mapear de vuelta a etiquetas). */

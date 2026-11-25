@@ -8,6 +8,7 @@ import { findGroupOf } from "@/lib/payments/grouping";
 import { mergedNote } from "@/lib/payments/dismiss";
 import { updateApprovalNoticeNotification } from "@/lib/payments/approval-notice";
 import { approvalMessage } from "@/lib/payments/email-ask";
+import { esEventoSinTiendup } from "@/lib/payments/event-match";
 import {
   emailAlreadyAsked,
   paymentPeriodStart,
@@ -212,6 +213,7 @@ export async function PATCH(
       const { content: message, asksEmail } = approvalMessage({
         hasEmail: Boolean(email),
         alreadyAsked,
+        extension: esEventoSinTiendup(prev.event_slug),
       });
       askedEmail = asksEmail;
 

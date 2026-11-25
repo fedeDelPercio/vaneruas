@@ -7,7 +7,7 @@ import { deliverAssistantToWhatsApp } from "@/lib/whatsapp-delivery";
 import type { Json } from "@/lib/supabase/types";
 import { downloadComprobante } from "./storage";
 import { extractPaymentData, type PaymentExtraction } from "./extract";
-import { resolveStoredEventSlug } from "./event-match";
+import { esEventoSinTiendup, resolveStoredEventSlug } from "./event-match";
 import { assistantSaidRecently } from "@/lib/messages/dedup";
 import {
   ATTACHMENT_RECEIVED_MESSAGE,
@@ -242,7 +242,7 @@ async function comprobanteReply(
           conversationId,
           await paymentPeriodStart(supabase, { conversationId, eventSlug, paymentId }),
         );
-    return receiptMessage({ hasEmail: Boolean(email), alreadyAsked, askOnReceipt: true }).content;
+    return receiptMessage({ hasEmail: Boolean(email), alreadyAsked, askOnReceipt: true, extension: esEventoSinTiendup(eventSlug) }).content;
   } catch (err) {
     console.error("[payments] no se pudo decidir el pedido de correo:", err instanceof Error ? err.message : "error");
     return COMPROBANTE_RECEIVED_MESSAGE;

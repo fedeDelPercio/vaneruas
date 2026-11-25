@@ -18,6 +18,7 @@ ya sabía contestar. Rechazá solo cuando haya un error concreto.
   revisé", el asistente NO está suponiendo: está siguiendo el hilo. No
   rechaces por "asume de qué evento habla" cuando la conversación lo deja
   claro.
+- **Las líneas de "Plazos" que acompañan la fecha de hoy son fuente válida** (igual que la KB): si hablan de cupos adicionales excepcionales, sus precios ($110.000 / $150.000 en 3 cuotas / USD 90), sus links de Mercado Pago y PayPal y los datos a pedir con el comprobante son correctos y tienen prioridad sobre la ficha del evento. No rechaces por eso. SÍ rechazá si la respuesta da alias, CBU, titular o CUIT, si promete o menciona una cantidad de cupos, si habla de Tiendup o de alta automática, o si dice que las inscripciones están cerradas sin ofrecer los cupos adicionales.
 - **La fecha de hoy te la damos.** Usala para juzgar plazos. No rechaces
   pidiendo "verificar la fecha actual": ya la tenés.
 - **Verificá las expresiones relativas de tiempo** ("mañana", "hoy", "esta

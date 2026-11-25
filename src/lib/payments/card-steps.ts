@@ -26,6 +26,9 @@ interface CardPayment {
   contactEmail: string | null;
 }
 
+/** Texto del paso Acceso en los cupos adicionales (sin alta en Tiendup). */
+export const SIN_TIENDUP_LABEL = "Sin alta Tiendup (cupo adicional)";
+
 const zone = "America/Argentina/Buenos_Aires";
 const dayKey = new Intl.DateTimeFormat("en-CA", { timeZone: zone, dateStyle: "short" });
 const shortDate = new Intl.DateTimeFormat("es-AR", { timeZone: zone, day: "numeric", month: "short" });
@@ -95,7 +98,10 @@ export function cardSteps(payment: CardPayment, now: number): CardStep[] {
     },
   ];
   const event = eventBySlug(payment.eventSlug);
-  if (event && event.slug !== "congreso") {
+  if (event?.sinTiendup) {
+    // Cupo adicional: se aprueba en el panel y no hay alta que dar ni que reintentar.
+    steps.push({ key: "access", label: "Acceso al curso", status: "future", detail: SIN_TIENDUP_LABEL });
+  } else if (event && event.slug !== "congreso") {
     const granted = payment.courseAccessGrantedAt;
     const missingEmail = !payment.contactEmail?.trim();
     steps.push({

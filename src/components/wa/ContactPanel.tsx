@@ -17,7 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { datedStatus, titleStep } from "@/lib/payments/card-steps";
+import { SIN_TIENDUP_LABEL, datedStatus, titleStep } from "@/lib/payments/card-steps";
 import { formatPhone } from "@/lib/search";
 import { Avatar } from "../Avatar";
 import type { Tone } from "./contact-blocks";
@@ -151,6 +151,8 @@ function stepsFor(ev: ContactEvent, title: ContactFicha["title"], isCustomer: bo
           ? { label: "Acceso al curso", detail: "Falta darlo", tone: "warn" }
           : a.stage === "missing_email"
             ? { label: "Acceso al curso", detail: "Falta el mail", tone: "warn" }
+            : a.stage === "no_tiendup"
+              ? { label: "Acceso al curso", detail: SIN_TIENDUP_LABEL, tone: "idle" }
             : a.stage === "closed"
               ? { label: "Acceso al curso", detail: "El curso ya cerró", tone: "idle" }
               : { label: "Acceso al curso", detail: "Después de aprobar el pago", tone: "idle" },

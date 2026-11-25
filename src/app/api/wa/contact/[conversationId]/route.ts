@@ -5,6 +5,7 @@ import { COMPROBANTES_BUCKET } from "@/lib/payments/storage";
 import {
   KNOWN_COMPROBANTE_EVENTS,
   accesoVigenteDeEvento,
+  esEventoSinTiendup,
   type KnownComprobanteEvent,
 } from "@/lib/payments/event-match";
 import { canonicoDeAgrupado, esAgrupado, esDescartado } from "@/lib/payments/dismiss";
@@ -29,7 +30,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // ===========================================================================
 
 export type PaymentStage = "none" | "pending" | "awaiting_title" | "validated" | "rejected";
-export type AccessStage = "not_applicable" | "waiting_payment" | "missing" | "missing_email" | "granted" | "closed";
+export type AccessStage = "not_applicable" | "waiting_payment" | "missing" | "missing_email" | "granted" | "closed" | "no_tiendup";
 
 export interface ContactEvent {
   key: string;
@@ -280,10 +281,13 @@ export async function GET(
     let access: ContactEvent["access"] = { stage: "not_applicable", grantedAt: null, error: null };
     if (kind === "masterclass") {
       const granted = own.find((p) => p.course_access_granted_at);
+      const sinTiendup = esEventoSinTiendup(slug);
       // Motivo del alta que no salió (otro correo en Tiendup, falla, etc.).
       const error =
         validatedAll.map((p) => displayCourseAccessError(p.course_access_error)).find(Boolean) ?? null;
-      if (granted) {
+      if (sinTiendup) {
+        access = { stage: "no_tiendup", grantedAt: null, error: null };
+      } else if (granted) {
         access = { stage: "granted", grantedAt: granted.course_access_granted_at, error: null };
       } else if (!validated) {
         access = { stage: "waiting_payment", grantedAt: null, error: null };
@@ -329,10 +333,13 @@ export async function GET(
     const active = row?.status === "activo";
     const hasData = payments.some((p) => p.event_slug === known.slug);
     if (!active && !hasData) continue;
+    // El evento hermano (cupos adicionales) solo aparece si la contacta tiene
+    // un comprobante de ahí: comparte fila de /events con Peelings.
+    if (known.sinTiendup && !hasData) continue;
     events.push(
       buildEvent(
         known.slug,
-        row?.title ?? known.label,
+        known.sinTiendup ? known.label : row?.title ?? known.label,
         known.slug === "congreso" ? "congreso" : "masterclass",
         row?.event_at ?? null,
         active,

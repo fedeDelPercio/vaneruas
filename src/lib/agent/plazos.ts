@@ -2,7 +2,7 @@
 // Plazos con fecha fija, resueltos en código.
 //
 // El modelo compara mal fechas. Con "hoy es jueves 26/11" en el contexto y
-// "las inscripciones cierran el miércoles 25 a las 21 hs" en la base, igual
+// "las inscripciones cierran el miércoles 25 a las 23 hs" en la base, igual
 // respondía "todavía estás a tiempo, cierran este miércoles" y compartía el
 // link de compra. Lo mismo con "la primera tarea del calendario es el lunes
 // 9": lo seguía diciendo días después.
@@ -15,6 +15,8 @@
 // Para sumar un plazo nuevo: agregalo a PLAZOS. `mostrarHasta` evita que
 // queden líneas viejas para siempre en el prompt.
 // ===========================================================================
+
+import { EXTENSION_ANTES, EXTENSION_CORTE_ISO, EXTENSION_DESPUES } from "./extension-cupos";
 
 interface Plazo {
   /** Instante del corte, con zona horaria explícita. */
@@ -29,11 +31,10 @@ interface Plazo {
 
 const PLAZOS: Plazo[] = [
   {
-    corte: "2026-11-25T21:00:00-03:00",
-    antes:
-      "Inscripciones a la Masterclass Peelings de Verano: ABIERTAS. Cierran el miércoles 25/11 a las 21 hs.",
-    despues:
-      "Inscripciones a la Masterclass Peelings de Verano: CERRADAS desde el miércoles 25/11 a las 21 hs. No ofrezcas inscribirse, no compartas el link de compra y no digas que todavía está a tiempo. Quien ya pagó se sigue atendiendo normal.",
+    // Venta normal hasta las 23:00; desde ahí, cupos adicionales (extension-cupos.ts).
+    corte: EXTENSION_CORTE_ISO,
+    antes: EXTENSION_ANTES,
+    despues: EXTENSION_DESPUES,
     mostrarHasta: "2027-01-01T00:00:00-03:00",
   },
   {

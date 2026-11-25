@@ -50,6 +50,20 @@ export const PAYMENT_APPROVED_MESSAGE =
   "Buenísimo, tu pago quedó verificado ✅ En breve te enviamos el acceso a tu correo, cualquier cosa quedamos en contacto 🙌🏻";
 
 /**
+ * Pago aprobado de un CUPO ADICIONAL (evento hermano, sin alta en Tiendup).
+ * UNA sola constante, fácil de cambiar: no menciona Tiendup, la web ni "el
+ * acceso por correo". PLACEHOLDER hasta que Federico confirme cómo se da el
+ * acceso: cuando lo sepa, se edita acá (y nada más). Se usa también al validar
+ * el título cuando el pago del cupo adicional ya estaba aprobado.
+ *
+ * No tiene plantilla de Meta: si la ventana de 24 h está cerrada, la entrega
+ * falla, el comprobante queda con "No se avisó al cliente" y el equipo avisa a
+ * mano (mismo camino que cualquier aviso sin plantilla).
+ */
+export const EXTENSION_PAYMENT_APPROVED_MESSAGE =
+  "Tu pago fue verificado y tu lugar quedó confirmado ✨ En los próximos días te contamos cómo vas a acceder a la masterclass.";
+
+/**
  * Confirmación de pago aprobado cuando todavía NO tenemos su correo: reemplaza
  * a PAYMENT_APPROVED_MESSAGE (un solo mensaje, no dos). Se usa si no se le
  * pidió ya al recibir el comprobante (o ese pedido no se entregó). También

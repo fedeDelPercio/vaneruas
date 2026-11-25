@@ -21,6 +21,7 @@ import {
   titleValidatedMessage,
   titleWithComprobanteMessage,
 } from "@/lib/payments/email-ask";
+import { esEventoSinTiendup } from "@/lib/payments/event-match";
 import {
   TITLE_VALIDATED_COMPROBANTE_ASK_EMAIL_MESSAGE,
   TITLE_VALIDATED_COMPROBANTE_MESSAGE,
@@ -348,7 +349,7 @@ export async function markConversationTitleValidated(
               paymentId: okPay.id,
             }),
           );
-      const content = titleValidatedMessage({ paymentValidated: true, hasEmail: Boolean(email), alreadyAsked });
+      const content = titleValidatedMessage({ paymentValidated: true, hasEmail: Boolean(email), alreadyAsked, extension: esEventoSinTiendup(okPay.event_slug) });
       if (content) afterPayment = { paymentId: okPay.id, content };
     }
   } catch (err) {
@@ -414,7 +415,7 @@ async function titleWithComprobanteReply(conversationId: string): Promise<string
             paymentId: pending.id,
           }),
         );
-    return titleWithComprobanteMessage({ hasEmail: Boolean(email), alreadyAsked, askOnReceipt: true });
+    return titleWithComprobanteMessage({ hasEmail: Boolean(email), alreadyAsked, askOnReceipt: true, extension: esEventoSinTiendup(pending.event_slug) });
   } catch (err) {
     console.error("[titles] no se pudo decidir el pedido de correo:", err instanceof Error ? err.message : "error");
     return TITLE_VALIDATED_COMPROBANTE_MESSAGE;

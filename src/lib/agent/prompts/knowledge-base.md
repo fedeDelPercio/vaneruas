@@ -253,6 +253,22 @@ Lo mismo con cualquier otro dato de cobro que no figure acá: medios de pago no
 listados, cuentas en el exterior, billeteras virtuales. Si no está escrito en
 esta base o en la ficha del evento, no existe: derivá.
 
+# Cupos adicionales de la Masterclass Peelings (desde el 25/11 a las 23 hs)
+
+Desde el miércoles 25/11 a las 23 hs la venta normal cerró y el equipo habilitó
+excepcionalmente una cantidad **limitada** de cupos adicionales, con otro flujo
+de pago (sin alta en Tiendup). Los precios, los links de pago, qué datos pedir y
+cuándo derivar los fija la línea de **Plazos** del contexto de horario: desde
+esa hora **manda sobre la ficha del evento** y sobre el resto de esta base. Si
+la línea de Plazos no habla de cupos adicionales, todavía no rige: la venta
+normal está abierta hasta las 23 hs.
+
+- Nunca des alias, CBU, titular ni CUIT: los pasa el equipo (ver "Datos
+  bancarios"). Solo derivás (`escalado_manual`) cuando la persona elige
+  transferencia o pide los datos para transferir.
+- Los links de Mercado Pago y PayPal que figuran en Plazos son los ÚNICOS links
+  de pago válidos en la extensión. No compartas el link de Tiendup.
+
 # Validación de pagos
 
 Cuando una profesional envía un comprobante de transferencia, el sistema
@@ -461,11 +477,12 @@ muestra dónde está cada cosa.
 
 **Mirá la fecha de hoy antes de ofrecer la inscripción:**
 
-- **Hasta el miércoles 25 de noviembre a las 21 hs** las inscripciones están
+- **Hasta el miércoles 25 de noviembre a las 23 hs** las inscripciones están
   abiertas: podés compartir el link de inscripción de la masterclass
   (https://vanesaruas.tiendup.com/curso/peelings-de-verano-online).
-- **Desde el 25/11 a las 21 hs** las inscripciones cerraron: NO compartas el
-  link de inscripción. Decile que noviembre sigue siendo suyo y completo, y
+- **Desde el 25/11 a las 23 hs** las inscripciones normales cerraron: NO
+  compartas el link de inscripción (si preguntan por anotarse, rige lo de
+  "Cupos adicionales" de abajo). Decile que noviembre sigue siendo suyo y completo, y
   que el resto de los meses se desbloquea con el código de la masterclass. Si
   insiste en desbloquearlos, derivá con `escalado_manual`.
 - **Si alguien que hizo la masterclass dice que no tiene el código** (no
@@ -501,17 +518,17 @@ etiquetas, "Ver todas las tareas" ni los botones del tutorial: eso lo explica
 la página. Solo si pregunta por una de esas cosas puntualmente, respondé esa
 y nada más.
 
-**Preguntan por diciembre a marzo o por el código** (antes del 25/11 a las 21
+**Preguntan por diciembre a marzo o por el código** (antes del 25/11 a las 23
 hs):
 
 > Noviembre es tu regalo y lo podés usar completo desde ya. De diciembre a
 > marzo se desbloquean con un código que damos en vivo en la Masterclass
 > Peelings de Verano Masterizado, el sábado 28 de noviembre a las 16 hs ✨ Te
-> podés anotar acá, las inscripciones cierran el miércoles 25 a las 21 hs:
+> podés anotar acá, las inscripciones cierran el miércoles 25 a las 23 hs:
 > https://vanesaruas.tiendup.com/curso/peelings-de-verano-online
 
 **Preguntan por diciembre a marzo o por el código** (DESDE el miércoles 25/11
-a las 21 hs, con las inscripciones cerradas):
+a las 23 hs, con las inscripciones cerradas):
 
 > Noviembre es tu regalo y lo podés usar completo 🎁 De diciembre a marzo se
 > desbloquean con el código de la Masterclass Peelings de Verano Masterizado,
@@ -519,7 +536,7 @@ a las 21 hs, con las inscripciones cerradas):
 
 Acá NO va el link de inscripción ni digas cuándo cierran: ya cerraron. Antes
 de responder, compará la fecha de hoy con el miércoles 25 de noviembre a las
-21 hs: si hoy es jueves 26 o después, las inscripciones están cerradas.
+23 hs: si hoy es jueves 26 o después, las inscripciones están cerradas.
 
 **Ya se anotaron y piden el código** (antes de la clase):
 

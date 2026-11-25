@@ -23,6 +23,7 @@ import {
   COMPROBANTE_RECEIVED_ASK_EMAIL_MESSAGE,
   COMPROBANTE_RECEIVED_MESSAGE,
   EMAIL_ASK_MESSAGES,
+  EXTENSION_PAYMENT_APPROVED_MESSAGE,
   PAYMENT_APPROVED_ASK_EMAIL_MESSAGE,
   PAYMENT_APPROVED_MESSAGE,
   TITLE_VALIDATED_ASK_EMAIL_MESSAGE,
@@ -103,7 +104,10 @@ export function receiptMessage(args: {
   hasEmail: boolean;
   alreadyAsked: boolean;
   askOnReceipt: boolean;
+  /** Cupo adicional: el correo llega junto al comprobante, no se pide acá. */
+  extension?: boolean;
 }): { content: string; asksEmail: boolean } {
+  if (args.extension) return { content: COMPROBANTE_RECEIVED_MESSAGE, asksEmail: false };
   if (args.askOnReceipt && !args.hasEmail && !args.alreadyAsked) {
     return { content: COMPROBANTE_RECEIVED_ASK_EMAIL_MESSAGE, asksEmail: true };
   }
@@ -115,7 +119,9 @@ export function titleWithComprobanteMessage(args: {
   hasEmail: boolean;
   alreadyAsked: boolean;
   askOnReceipt: boolean;
+  extension?: boolean;
 }): string {
+  if (args.extension) return TITLE_VALIDATED_COMPROBANTE_MESSAGE;
   return args.askOnReceipt && !args.hasEmail && !args.alreadyAsked
     ? TITLE_VALIDATED_COMPROBANTE_ASK_EMAIL_MESSAGE
     : TITLE_VALIDATED_COMPROBANTE_MESSAGE;
@@ -126,10 +132,11 @@ export function titleWithComprobanteMessage(args: {
  * (idempotencia: nunca dos pedidos por el mismo pago), la confirmación de
  * siempre; sin correo, la confirmación que pide el correo en el mismo mensaje.
  */
-export function approvalMessage(args: { hasEmail: boolean; alreadyAsked: boolean }): {
+export function approvalMessage(args: { hasEmail: boolean; alreadyAsked: boolean; extension?: boolean }): {
   content: string;
   asksEmail: boolean;
 } {
+  if (args.extension) return { content: EXTENSION_PAYMENT_APPROVED_MESSAGE, asksEmail: false };
   if (!args.hasEmail && !args.alreadyAsked) {
     return { content: PAYMENT_APPROVED_ASK_EMAIL_MESSAGE, asksEmail: true };
   }
@@ -145,8 +152,10 @@ export function titleValidatedMessage(args: {
   paymentValidated: boolean;
   hasEmail: boolean;
   alreadyAsked: boolean;
+  extension?: boolean;
 }): string | null {
   if (!args.paymentValidated) return null;
+  if (args.extension) return EXTENSION_PAYMENT_APPROVED_MESSAGE;
   if (!args.hasEmail && !args.alreadyAsked) return TITLE_VALIDATED_ASK_EMAIL_MESSAGE;
   return TITLE_VALIDATED_PAYMENT_OK_MESSAGE;
 }

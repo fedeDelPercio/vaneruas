@@ -1,5 +1,6 @@
 "use client";
 
+import { SIN_TIENDUP_LABEL } from "@/lib/payments/card-steps";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Flag, KeyRound, Loader2, Mail, MessageCircle } from "lucide-react";
@@ -41,6 +42,8 @@ function accessLine(ev: ContactEvent): { text: string; tone: Tone; detail: strin
         : { text: "Falta dar el acceso", tone: "warn", detail: null };
     case "missing_email":
       return { text: "Sin correo, falta pedírselo", tone: "warn", detail: a.error };
+    case "no_tiendup":
+      return { text: SIN_TIENDUP_LABEL, tone: "idle", detail: null };
     case "closed":
       return { text: "El curso ya cerró", tone: "idle", detail: null };
     case "waiting_payment":
