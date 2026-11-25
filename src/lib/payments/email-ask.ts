@@ -244,3 +244,22 @@ export function pendingIncompleteEmail(args: {
   }
   return null;
 }
+
+/**
+ * Línea para el agente cuando el último comprobante es de un CUPO ADICIONAL
+ * (sin alta en Tiendup). Reemplaza al pedido de correo de siempre ("el correo
+ * con el que te inscribiste en la web"), que acá no aplica: el correo llega
+ * junto al comprobante, con el nombre y apellido y el título.
+ */
+export function extensionContextLine(args: { hasEmail: boolean; awaitingTitle: boolean }): string {
+  const faltan = [
+    !args.hasEmail && "el correo electrónico",
+    args.awaitingTitle && "el título profesional",
+  ].filter(Boolean);
+  return [
+    "Cupo adicional (sin alta en Tiendup): la inscripción necesita el comprobante + nombre y apellido + correo + título profesional, todo junto.",
+    faltan.length
+      ? `Todavía falta: ${faltan.join(" y ")}. Pedí solo eso, una sola vez y con calidez (confirmá nombre y apellido si no los dio). No hables de "el correo con el que te inscribiste en la web" ni de alta o acceso por Tiendup.`
+      : "Ya tenemos el correo y el título: no los pidas de nuevo, agradecé y decile que el equipo revisa la inscripción y la confirma. No hables de Tiendup ni del correo de la web.",
+  ].join(" ");
+}

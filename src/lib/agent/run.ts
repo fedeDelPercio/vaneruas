@@ -9,7 +9,7 @@ import { runOrchestrator } from "./orchestrator";
 import { evaluateResponse } from "./evaluator";
 import { loadActiveEventsBlock } from "./events-kb";
 import { getTimeContext } from "./business-hours";
-import { matchEventByAmount } from "@/lib/payments/event-match";
+import { esEventoSinTiendup, matchEventByAmount } from "@/lib/payments/event-match";
 import type {
   AgentRunInput,
   AgentRunResult,
@@ -29,6 +29,7 @@ import {
   emailAskOnReceiptEnabled,
   emailAskState,
   emailContextLine,
+  extensionContextLine,
   incompleteEmailContextLine,
   pendingIncompleteEmail,
 } from "@/lib/payments/email-ask";
@@ -455,6 +456,13 @@ async function loadPaymentAndEmailContext(conversationId: string, turnMessage: s
       if (incomplete && (hasPayment || !(await findContactEmailInHistory(sb, conversationId, slug)))) {
         return { text: [paymentLine, incompleteEmailContextLine(incomplete)].filter(Boolean).join("\n"), awaitingTitle };
       }
+    }
+
+    if (latest && esEventoSinTiendup(latest.event_slug)) {
+      return {
+        text: [paymentLine, extensionContextLine({ hasEmail, awaitingTitle })].filter(Boolean).join("\n"),
+        awaitingTitle,
+      };
     }
 
     const alreadyAsked =

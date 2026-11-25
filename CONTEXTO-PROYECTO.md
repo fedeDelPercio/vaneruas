@@ -714,3 +714,22 @@ Título, Comprobante, Pago y Acceso al curso. El Congreso omite el acceso.
 Las acciones usan las confirmaciones vigentes. La cola de Tiendup se muestra
 solo con un marcador de reintento activo. La ficha de WhatsApp agrega Título
 entre Comprobante y Pago, con estado neutro en el historial sin acreditación.
+
+### Cupos adicionales de Peelings (desde el 25/11/2026 23:00 ART)
+
+- **Corte 23:00** en `src/lib/agent/plazos.ts` (+ `extension-cupos.ts`, que tiene el
+  texto y los links de MP y PayPal) y en `knowledge-base.md`. La ficha del evento
+  (`events.details`) sigue diciendo 21 hs: desde el corte, la línea de Plazos
+  tiene prioridad sobre ella.
+- **Valentina** usa el texto de cupos adicionales como respuesta a quien escribe
+  (no es un envío masivo). Nunca da alias, CBU, titular ni CUIT: solo deriva con
+  `escalado_manual` cuando la persona elige transferencia o pide los datos.
+- **Evento hermano** `masterclass-peelings-cupos-adicionales` (`event-match.ts`,
+  `accesoVigente: false`, `sinTiendup: true`): lo asigna `resolveStoredEventSlug`
+  según la fecha de llegada del comprobante (>= corte). Sin auto-alta, sin cola de
+  reintentos, fuera de "Falta acceso". El stepper y la ficha muestran "Sin alta
+  Tiendup (cupo adicional)" sin botones.
+- **Mensajes**: la aprobación usa `EXTENSION_PAYMENT_APPROVED_MESSAGE`
+  (`payments/messages.ts`, una sola constante, sin plantilla de Meta: fuera de la
+  ventana de 24 h queda "No se avisó al cliente" y se avisa a mano).
+- Tests: `scripts/test-extension-cupos.ts`. Evals: `scripts/evals-extension.ts`.

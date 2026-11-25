@@ -8,7 +8,7 @@ import {
 } from "../src/lib/payments/event-match";
 import { needsCourseAccess } from "../src/lib/payments/revision-card";
 import { SIN_TIENDUP_LABEL, cardSteps } from "../src/lib/payments/card-steps";
-import { approvalMessage, receiptMessage, titleValidatedMessage, titleWithComprobanteMessage } from "../src/lib/payments/email-ask";
+import { approvalMessage, extensionContextLine, receiptMessage, titleValidatedMessage, titleWithComprobanteMessage } from "../src/lib/payments/email-ask";
 import * as messages from "../src/lib/payments/messages";
 import { decideRetry } from "../src/lib/tiendup/retry-policy";
 
@@ -114,5 +114,14 @@ for (const hasEmail of [true, false]) {
 assert.equal(approvalMessage({ hasEmail: false, alreadyAsked: false }).content, messages.PAYMENT_APPROVED_ASK_EMAIL_MESSAGE);
 assert.equal(approvalMessage({ hasEmail: true, alreadyAsked: false }).content, messages.PAYMENT_APPROVED_MESSAGE);
 assert.equal(receiptMessage({ hasEmail: false, alreadyAsked: false, askOnReceipt: true }).asksEmail, true);
+
+// --- Contexto del agente para un comprobante de cupo adicional
+const sinMail = extensionContextLine({ hasEmail: false, awaitingTitle: true });
+assert.match(sinMail, /falta: el correo electrónico y el título profesional/i);
+assert.match(sinMail, /No hables de "el correo con el que te inscribiste en la web"/);
+assert.doesNotMatch(sinMail, /Pedir correo: SÍ/);
+const completo = extensionContextLine({ hasEmail: true, awaitingTitle: false });
+assert.match(completo, /no los pidas de nuevo/);
+assert.match(completo, /el equipo revisa la inscripción/);
 
 console.log("Cupos adicionales: plazos 23:00, slug por fecha, sin Tiendup, stepper y mensajes OK");
