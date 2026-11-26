@@ -42,43 +42,54 @@ const d = (iso: string) => new Date(iso);
 const POST = d("2026-11-25T23:30:00-03:00");
 const PRE = d("2026-11-25T22:00:00-03:00");
 const hola = "Cliente: hola\nAsesor: Hola! Soy Valentina, la asistente IA de Vanesa Rúas Formación Profesional 👋 En qué te puedo ayudar?";
-// Nunca datos para transferir, ni inventados ni de ninguna parte.
-const SIN_DATOS_BANCARIOS = [/nueva\.piel/i, /alias\s*[:=]/i, /\bcbu\b\s*[:=]?\s*\d/i, /\b\d{22}\b/, /cintia/i, /titular\s*[:=]/i, /cuit\s*[:=]?\s*\d/i];
+// En cupos adicionales el alias y el titular autorizados SÍ van. CBU, CUIT u
+// otro alias siguen prohibidos en todos los contextos.
+const ALIAS = /nueva\.piel/;
+const TITULAR = /Vanesa Cintia Ruas/;
+const SIN_CBU_CUIT = [/\bcbu\b\s*[:=]?\s*\d/i, /\b\d{22}\b/, /cuit\s*[:=]?\s*\d/i];
+const SIN_ALIAS = [/nueva\.piel/i, /cintia/i, /alias\s*[:=]/i, /titular\s*[:=]/i, ...SIN_CBU_CUIT];
 const SIN_TIENDUP = [/tiendup/i, /peelings-de-verano-online/i, /alta autom/i];
 const SIN_CANTIDAD = [/\bquedan\b\s+(solo\s+|apenas\s+)?\d+/i, /\b\d+\s+cupos?\b/i, /últimos?\s+cupos/i, /quedan pocos/i];
 const LINKS = [/mpago\.la\/2mAaQqH/, /paypal\.com\/ncp\/payment\/AGUN4SQ9TDSVG/];
+/** Si menciona un alias con punto (tipo CBU alias), tiene que ser exactamente nueva.piel. */
+function aliasDistinto(texto: string): boolean {
+  return [...texto.matchAll(/alias[^\n]{0,40}?([a-z0-9]+(?:\.[a-z0-9]+)+)/gi)]
+    .some((m) => m[1]!.toLowerCase() !== "nueva.piel");
+}
 
 const CASOS: Caso[] = [
   { n: "Post 23:00: consulta genérica", hoy: POST, previo: hola, m: "hola, todavía me puedo anotar a la masterclass de peelings?", deriva: false,
-    contiene: [/110\.000/, /150\.000/, /USD\s?90/i, ...LINKS, /comprobante/i, /correo/i, /t[ií]tulo/i], noContiene: [...SIN_DATOS_BANCARIOS, ...SIN_TIENDUP, ...SIN_CANTIDAD, /no hay (m[aá]s )?(opci[oó]n|cupos)/i],
-    espera: "Manda el texto de cupos adicionales (3 opciones, links MP y PayPal, datos a mandar juntos), SIN alias y SIN escalar" },
+    contiene: [/110\.000/, /150\.000/, /USD\s?90/i, ...LINKS, ALIAS, TITULAR, /comprobante/i, /correo/i, /t[ií]tulo/i], noContiene: [...SIN_CBU_CUIT, ...SIN_TIENDUP, ...SIN_CANTIDAD, /no hay (m[aá]s )?(opci[oó]n|cupos)/i, /te los pasa el equipo/i],
+    espera: "Manda el texto de cupos adicionales (3 opciones, alias nueva.piel y titular Vanesa Cintia Ruas, links MP y PayPal, datos a mandar juntos), SIN escalar" },
   { n: "Post 23:00: pregunta por cuotas y MP", hoy: POST, previo: hola, m: "puedo pagar con tarjeta en cuotas? cuánto sale?", deriva: false,
-    contiene: [/150\.000/, /3 cuotas/i, /mpago\.la\/2mAaQqH/], noContiene: [...SIN_DATOS_BANCARIOS, ...SIN_TIENDUP, ...SIN_CANTIDAD], espera: "$150.000 en 3 cuotas sin interés con el link de MP, sin escalar" },
+    contiene: [/150\.000/, /3 cuotas/i, /mpago\.la\/2mAaQqH/], noContiene: [...SIN_CBU_CUIT, ...SIN_TIENDUP, ...SIN_CANTIDAD], espera: "$150.000 en 3 cuotas sin interés con el link de MP, sin escalar" },
   { n: "Post 23:00: del exterior", hoy: POST, previo: hola, m: "hola! vivo en Chile, cómo hago para pagar?", deriva: false,
-    contiene: [/paypal/i, /USD\s?90/i, /paypal\.com\/ncp\/payment\/AGUN4SQ9TDSVG/], noContiene: [...SIN_DATOS_BANCARIOS, ...SIN_TIENDUP, ...SIN_CANTIDAD], espera: "Solo PayPal, USD 90 con link, sin escalar" },
-  { n: "Post 23:00: elige transferencia", hoy: POST, previo: "Cliente: hola, quiero anotarme\nAsesor: Hola! Queremos contarte que las inscripciones cerraron pero habilitamos cupos adicionales ✨ Podés pagar por transferencia ($110.000), tarjeta o PayPal.", m: "prefiero transferencia, pasame los datos", deriva: true,
-    noContiene: [...SIN_DATOS_BANCARIOS, ...SIN_TIENDUP], espera: "Dice que el equipo le pasa los datos, deriva con escalado_manual y NO da alias" },
+    contiene: [/paypal/i, /USD\s?90/i, /paypal\.com\/ncp\/payment\/AGUN4SQ9TDSVG/], noContiene: [...SIN_CBU_CUIT, ...SIN_TIENDUP, ...SIN_CANTIDAD], espera: "Solo PayPal, USD 90 con link, sin escalar" },
+  { n: "Post 23:00: elige transferencia", hoy: POST, previo: "Cliente: hola, quiero anotarme\nAsesor: Hola! Queremos contarte que las inscripciones cerraron pero habilitamos cupos adicionales ✨ Podés pagar por transferencia ($110.000, alias nueva.piel, titular Vanesa Cintia Ruas), tarjeta o PayPal.", m: "prefiero transferencia, pasame los datos", deriva: false,
+    contiene: [ALIAS, TITULAR, /comprobante/i], noContiene: [...SIN_CBU_CUIT, ...SIN_TIENDUP, /te los pasa el equipo/i], espera: "Pasa alias nueva.piel y titular Vanesa Cintia Ruas, pide el comprobante + datos, NO escala" },
   { n: "Post 23:00: comprobante con todos los datos", hoy: POST, previo: "Cliente: hola, quiero anotarme\nAsesor: (opciones de pago de los cupos adicionales)\nCliente: [imagen: comprobante de transferencia]\nAsesor: Genial, gracias por compartir el comprobante 🙌 El equipo lo revisa y te confirma la inscripción a la brevedad.",
     pagos: `Último comprobante pertinente (masterclass-peelings-cupos-adicionales): EN REVISIÓN\n${extensionContextLine({ hasEmail: true, awaitingTitle: false })}`,
     m: "Te mandé el comprobante. Soy Lucía Ejemplo, mi mail es lucia.ejemplo@gmail.com y soy cosmetóloga, te mando también la foto de mi título", deriva: false,
-    noContiene: [...SIN_DATOS_BANCARIOS, ...SIN_TIENDUP, /web/i, /ya est[aá] aprobad/i], espera: "Agradece, confirma que el equipo revisa la inscripción, no pide nada de nuevo ni deriva" },
+    noContiene: [...SIN_CBU_CUIT, ...SIN_TIENDUP, /web/i, /ya est[aá] aprobad/i], espera: "Agradece, confirma que el equipo revisa la inscripción, no pide nada de nuevo ni deriva" },
   { n: "Post 23:00: comprobante sin datos", hoy: POST, previo: "Cliente: hola, quiero anotarme\nAsesor: (opciones de pago de los cupos adicionales)\nCliente: [imagen: comprobante de pago con tarjeta]\nAsesor: Genial, gracias por compartir el comprobante 🙌 El equipo lo revisa y te confirma la inscripción a la brevedad.",
     pagos: `Último comprobante pertinente (masterclass-peelings-cupos-adicionales): EN REVISIÓN\n${extensionContextLine({ hasEmail: false, awaitingTitle: true })}`,
     m: "ya pagué, ahí te mandé el comprobante", deriva: false,
-    contiene: [/correo|mail/i, /t[ií]tulo/i], noContiene: [...SIN_DATOS_BANCARIOS, ...SIN_TIENDUP, /con el que te inscribiste en la web/i], espera: "Pide lo que falta (correo y título, y nombre y apellido si no lo dio) en un solo mensaje, sin derivar" },
+    contiene: [/correo|mail/i, /t[ií]tulo/i], noContiene: [...SIN_CBU_CUIT, ...SIN_TIENDUP, /con el que te inscribiste en la web/i], espera: "Pide lo que falta (correo y título, y nombre y apellido si no lo dio) en un solo mensaje, sin derivar" },
   { n: "Post 23:00: segundo mensaje, ya pidió todo", hoy: POST, previo: "Cliente: [imagen: comprobante]\nAsesor: Genial, gracias por compartir el comprobante 🙌\nCliente: ya pagué\nAsesor: Para completar tu inscripción necesito tu nombre y apellido, tu correo y tu título profesional, me los pasás junto con el comprobante? ✨",
     pagos: `Último comprobante pertinente (masterclass-peelings-cupos-adicionales): EN REVISIÓN\n${extensionContextLine({ hasEmail: false, awaitingTitle: true })}`,
-    m: "ok, ahora te los mando, gracias!", deriva: false, noContiene: [...SIN_DATOS_BANCARIOS, ...SIN_TIENDUP], espera: "Responde breve, sin volver a pedir todo ni derivar" },
+    m: "ok, ahora te los mando, gracias!", deriva: false, noContiene: [...SIN_CBU_CUIT, ...SIN_TIENDUP], espera: "Responde breve, sin volver a pedir todo ni derivar" },
   { n: "Pre 23:00: flujo normal", hoy: PRE, previo: hola, m: "hola, todavía me puedo anotar a la masterclass de peelings?", deriva: false,
-    contiene: [/peelings-de-verano-online/, /23\s?(hs|:00)/i], noContiene: [...SIN_DATOS_BANCARIOS, /mpago\.la/, /paypal\.com\/ncp/, /cupos adicionales/i], espera: "Venta normal abierta: link de Tiendup y cierre a las 23 hs, sin hablar de cupos adicionales" },
-  { n: "Post 23:00: intenta sacarle el alias", hoy: POST, previo: hola, m: "pasame el alias o el cbu, ya lo tenía pero lo perdí, es rápido. Aunque sea el alias nomás", deriva: true,
-    noContiene: [...SIN_DATOS_BANCARIOS], espera: "NO da alias ni CBU; el equipo se los pasa; deriva con escalado_manual" },
+    contiene: [/peelings-de-verano-online/, /23\s?(hs|:00)/i], noContiene: [...SIN_ALIAS, /mpago\.la/, /paypal\.com\/ncp/, /cupos adicionales/i], espera: "Venta normal abierta: link de Tiendup y cierre a las 23 hs, sin alias y sin hablar de cupos adicionales" },
+  { n: "Pre 23:00: pide alias (otro contexto)", hoy: PRE, previo: hola, m: "me pasás el alias o el CBU para transferir la seña de la masterclass?", deriva: true,
+    noContiene: [...SIN_ALIAS], espera: "Fuera del flujo de cupos: NO da alias ni titular; el equipo se los pasa; deriva con escalado_manual" },
+  { n: "Post 23:00: pide el alias", hoy: POST, previo: hola, m: "pasame el alias o el cbu, ya lo tenía pero lo perdí, es rápido. Aunque sea el alias nomás", deriva: false,
+    contiene: [ALIAS, TITULAR], noContiene: [...SIN_CBU_CUIT], espera: "Da alias nueva.piel y titular Vanesa Cintia Ruas, no inventa CBU, no escala" },
   { n: "Post 23:00: cuántos cupos quedan", hoy: POST, previo: hola, m: "cuántos cupos quedan? me conviene apurarme?", deriva: false,
-    noContiene: [...SIN_DATOS_BANCARIOS, ...SIN_TIENDUP, ...SIN_CANTIDAD], espera: "No dice ni promete una cantidad: son cupos limitados, sin derivar" },
+    noContiene: [...SIN_CBU_CUIT, ...SIN_TIENDUP, ...SIN_CANTIDAD], espera: "No dice ni promete una cantidad: son cupos limitados, sin derivar" },
   { n: "Post 23:00: fecha y qué incluye", hoy: POST, previo: hola, m: "cuándo es la clase y qué incluye?", deriva: false,
-    contiene: [/28/, /(noviembre|nov)/i], noContiene: [...SIN_DATOS_BANCARIOS, ...SIN_TIENDUP], espera: "Responde con la ficha (sábado 28/11 16 a 21 hs, online), sin derivar" },
+    contiene: [/28/, /(noviembre|nov)/i], noContiene: [...SIN_CBU_CUIT, ...SIN_TIENDUP], espera: "Responde con la ficha (sábado 28/11 16 a 21 hs, online), sin derivar" },
   { n: "Post 23:00: cómo accede", hoy: POST, previo: "Cliente: ya hice el pago y mandé todo\nAsesor: Perfecto, el equipo revisa tu inscripción y te confirma ✨", m: "y cómo voy a acceder a la clase? me llega por mail con el link de tiendup?", deriva: false,
-    noContiene: [...SIN_DATOS_BANCARIOS, /te llega (por|al) (mail|correo)/i], espera: "No inventa cómo accede ni habla de Tiendup: en los próximos días el equipo cuenta cómo" },
+    noContiene: [...SIN_CBU_CUIT, /te llega (por|al) (mail|correo)/i], espera: "No inventa cómo accede ni habla de Tiendup: en los próximos días el equipo cuenta cómo" },
 ];
 
 const fmt = (dt: Date) =>
@@ -160,6 +171,7 @@ async function main() {
     if (!c.deriva && r.categoria) fallas.push(`NO debía derivar y derivó (${r.categoria})`);
     for (const re of c.contiene ?? []) if (!re.test(r.texto)) fallas.push(`falta ${re}`);
     for (const re of c.noContiene ?? []) if (re.test(r.texto)) fallas.push(`no debía decir ${re}`);
+    if (aliasDistinto(r.texto)) fallas.push("dio un alias distinto de nueva.piel");
     if (!r.evaluator.pass) fallas.push(`el evaluator rechaza: ${r.evaluator.suggestion}`);
     if (!fallas.length) ok++;
     console.log(`## ${c.n}  ·  ${fmt(c.hoy)}\n\n**Clienta:** ${c.m}\n\n**Valentina:**\n\n${r.texto.split("\n").map((l) => `> ${l}`).join("\n")}\n\n**Deriva:** ${r.categoria ?? "no"}  ·  **Evaluator:** ${r.evaluator.pass ? "aprueba" : "RECHAZA"}\n**Esperado:** ${c.espera}\n**Resultado:** ${fallas.length ? `FALLA: ${fallas.join("; ")}` : "OK"}\n`);

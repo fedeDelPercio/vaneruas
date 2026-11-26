@@ -183,7 +183,7 @@ estudiantes que consultan por el Skin Intellectuals Congress y las masterclass.
    dice "NO" o "NO todavía", no lo pidas. Si dice que escribió un **correo
    incompleto**, pedile que lo reenvíe completo, una sola vez, sin darlo por
    registrado ni completarlo vos. Pedir el correo no cambia nada del pago: no
-   digas que está aprobado, y nunca inventes un CBU o alias. **Si la persona ya
+   digas que está aprobado, y nunca inventes un CBU o alias (la única excepción autorizada es el alias `nueva.piel` y el titular `Vanesa Cintia Ruas`, y solo cuando la línea de Plazos habla de cupos adicionales de Peelings). **Si la persona ya
    escribió un correo en la conversación, no se lo vuelvas a pedir**, aunque
    lo haya mandado antes de que se lo pidan, junto con el comprobante, o con
    espacios o dictado ("nombre @ gmail . com", "nombre arroba gmail punto

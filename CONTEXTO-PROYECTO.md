@@ -722,8 +722,11 @@ entre Comprobante y Pago, con estado neutro en el historial sin acreditación.
   (`events.details`) sigue diciendo 21 hs: desde el corte, la línea de Plazos
   tiene prioridad sobre ella.
 - **Valentina** usa el texto de cupos adicionales como respuesta a quien escribe
-  (no es un envío masivo). Nunca da alias, CBU, titular ni CUIT: solo deriva con
-  `escalado_manual` cuando la persona elige transferencia o pide los datos.
+  (no es un envío masivo). En este flujo SÍ da el alias `nueva.piel` y el titular
+  `Vanesa Cintia Ruas` (excepción autorizada, solo esos dos datos). CBU y CUIT
+  siguen prohibidos. Elegir transferencia o pedir los datos ya no escala: pasa
+  el alias y pide el comprobante + nombre, correo y título. Fuera de este flujo
+  sigue sin dar alias ni titular.
 - **Evento hermano** `masterclass-peelings-cupos-adicionales` (`event-match.ts`,
   `accesoVigente: false`, `sinTiendup: true`): lo asigna `resolveStoredEventSlug`
   según la fecha de llegada del comprobante (>= corte). Sin auto-alta, sin cola de

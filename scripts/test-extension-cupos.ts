@@ -2,7 +2,7 @@
 // del slug por fecha de llegada, sin alta Tiendup ni cola, stepper y mensajes.
 import assert from "node:assert/strict";
 import { plazosBlock, plazosResueltos } from "../src/lib/agent/plazos";
-import { MP_LINK, PAYPAL_LINK } from "../src/lib/agent/extension-cupos";
+import { MP_LINK, PAYPAL_LINK, TRANSFER_ALIAS, TRANSFER_TITULAR } from "../src/lib/agent/extension-cupos";
 import {
   EXTENSION_EVENT_SLUG, accesoVigenteDeEvento, esEventoSinTiendup, matchEventByAmount, resolveStoredEventSlug,
 } from "../src/lib/payments/event-match";
@@ -31,12 +31,17 @@ assert.match(post, /\$150\.000, hasta en 3 cuotas sin interés/);
 assert.match(post, /USD 90/);
 assert.ok(post.includes(MP_LINK) && post.includes(PAYPAL_LINK));
 assert.match(post, /comprobante junto con tu nombre y apellido, tu correo electrónico y tu título profesional/);
-assert.match(post, /NUNCA escribas alias, CBU, titular ni CUIT/);
-assert.match(post, /ÚNICAMENTE cuando la persona elige pagar por transferencia/);
-assert.match(post, /NO derives/);
+assert.ok(post.includes(TRANSFER_ALIAS) && post.includes(TRANSFER_TITULAR));
+assert.match(post, /Alias: nueva\.piel/);
+assert.match(post, /Titular: Vanesa Cintia Ruas/);
+assert.match(post, /SÍ das el alias y el titular/);
+assert.match(post, /NO derives por eso/);
+assert.match(post, /CBU y CUIT: seguís SIN darlos/);
 assert.match(post, /no se activa por Tiendup|NO se activa por Tiendup/);
-// Camino A: el alias y el titular NO están en ningún texto de la extensión.
-for (const text of [pre, post]) assert.doesNotMatch(text, /nueva\.piel|Cintia/i);
+// Antes del corte el alias NO aparece: la excepción es solo desde las 23:00.
+assert.doesNotMatch(pre, /nueva\.piel|Cintia/i);
+assert.equal(TRANSFER_ALIAS, "nueva.piel");
+assert.equal(TRANSFER_TITULAR, "Vanesa Cintia Ruas");
 // A las 21:00 ya no cierra: sigue abierta.
 assert.match(plazosBlock(at("2026-11-25T21:30:00-03:00")), /ABIERTAS/);
 assert.doesNotMatch(plazosBlock(at("2026-11-25T21:30:00-03:00")), /CUPOS ADICIONALES/);
