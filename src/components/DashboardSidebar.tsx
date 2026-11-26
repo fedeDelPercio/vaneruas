@@ -1,5 +1,6 @@
 "use client";
 
+import toast from "react-hot-toast";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -12,6 +13,7 @@ import {
   Flag,
   Inbox,
   LogOut,
+  Users,
   Menu,
   MessageCircle,
   MessagesSquare,
@@ -104,6 +106,21 @@ function CountBadge({ count, compact }: { count: number; compact: boolean }) {
 
 export function DashboardSidebar() {
   const { profile, changeProfile } = useProfile();
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  async function logout() {
+    setLoggingOut(true);
+    try {
+      const response = await fetch("/api/auth/logout", { method: "POST" });
+      if (!response.ok) throw new Error("No se pudo cerrar la sesión");
+      changeProfile();
+      window.location.replace("/login");
+    } catch {
+      toast.error("No se pudo cerrar la sesión");
+      setLoggingOut(false);
+    }
+  }
+
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -388,7 +405,10 @@ export function DashboardSidebar() {
                 )}
               </button>
             )}
-            <button type="button" onClick={changeProfile} aria-label="Cerrar sesión" title="Cerrar sesión (cambiar de perfil)" className={iconButton}>
+            <button type="button" onClick={changeProfile} aria-label="Cambiar de perfil" title="Cambiar de perfil" className={iconButton}>
+              <Users className="h-4 w-4" strokeWidth={1.75} />
+            </button>
+            <button type="button" onClick={() => void logout()} disabled={loggingOut} aria-label="Cerrar sesión" title="Cerrar sesión" className={iconButton}>
               <LogOut className="h-4 w-4" strokeWidth={1.75} />
             </button>
           </div>

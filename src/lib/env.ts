@@ -20,13 +20,6 @@ const clientSchema = z.object({
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z
     .string()
     .min(1, "NEXT_PUBLIC_SUPABASE_ANON_KEY es obligatoria"),
-  // JWT firmado con el JWT secret del proyecto, con claim client_slug. Se
-  // envia como Authorization: Bearer para que PostgREST lo lea via
-  // auth.jwt() en las policies de RLS. NO reemplaza al anon key — ese sigue
-  // siendo el "apikey" que el gateway de Supabase exige.
-  NEXT_PUBLIC_SUPABASE_CLIENT_JWT: z
-    .string()
-    .min(1, "NEXT_PUBLIC_SUPABASE_CLIENT_JWT es obligatoria"),
   NEXT_PUBLIC_APP_URL: z
     .string()
     .url("NEXT_PUBLIC_APP_URL invalida")
@@ -51,7 +44,6 @@ function parseClientEnv() {
   const parsed = clientSchema.safeParse({
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
     NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    NEXT_PUBLIC_SUPABASE_CLIENT_JWT: process.env.NEXT_PUBLIC_SUPABASE_CLIENT_JWT,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_CLIENT_SLUG: process.env.NEXT_PUBLIC_CLIENT_SLUG,
     NEXT_PUBLIC_GHL_LOCATION_ID: process.env.NEXT_PUBLIC_GHL_LOCATION_ID,
@@ -69,6 +61,10 @@ export const clientEnv = parseClientEnv();
 
 // --- Variables server-only -------------------------------------------------
 const serverSchema = z.object({
+  PANEL_USERS: z.string().optional(),
+  AUTH_SECRET: z.string().optional(),
+  SUPABASE_JWT_SECRET: z.string().optional(),
+  SUPABASE_CLIENT_JWT: z.string().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z
     .string()
     .min(1, "SUPABASE_SERVICE_ROLE_KEY es obligatoria"),
@@ -167,6 +163,10 @@ export function serverEnv(): ServerEnv {
   if (cachedServerEnv) return cachedServerEnv;
 
   const parsed = serverSchema.safeParse({
+    PANEL_USERS: process.env.PANEL_USERS,
+    AUTH_SECRET: process.env.AUTH_SECRET,
+    SUPABASE_JWT_SECRET: process.env.SUPABASE_JWT_SECRET,
+    SUPABASE_CLIENT_JWT: process.env.SUPABASE_CLIENT_JWT,
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
     ANTHROPIC_MODEL_ORCHESTRATOR: process.env.ANTHROPIC_MODEL_ORCHESTRATOR,

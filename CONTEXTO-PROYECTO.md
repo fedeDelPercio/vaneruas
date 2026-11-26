@@ -314,6 +314,20 @@ Roles y rutas del panel: `ROLE_ACCESS` en `src/lib/profile.ts`.
 
 ## 7. Módulos del panel
 
+**Acceso al panel.** Generá el hash con `npx tsx scripts/panel-hash-password.ts`
+(la contraseña se lee sin eco), o usá `--generar usuario` para crear una
+contraseña y su entrada. En Vercel agregá la entrada `usuario:hash` a
+`PANEL_USERS`, separada por coma de las demás. Aplicá el cambio al entorno
+del panel para dar de alta o revocar el acceso. Después de ingresar, cada
+persona sigue eligiendo su perfil habitual. Si no hay cuentas válidas, el
+panel queda cerrado.
+
+Configurá `AUTH_SECRET` para firmar las sesiones y `SUPABASE_JWT_SECRET`
+para emitir JWT de una hora. Si solo tenés un JWT de tenant existente,
+guardalo en `SUPABASE_CLIENT_JWT`. Los JWT que ya salieron en bundles
+públicos conservan su vigencia hasta que venzan o se invaliden en Supabase.
+El freno de intentos de login funciona por IP y por instancia del servidor.
+
 **Navegación** (`src/components/DashboardSidebar.tsx`, portado de Hábitat):
 menú lateral a la izquierda, contraíble a íconos (preferencia por perfil en
 localStorage). En celular y tablet (<1024 px) es una barra superior con

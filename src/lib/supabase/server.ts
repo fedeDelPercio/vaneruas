@@ -2,6 +2,7 @@ import "server-only";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { clientEnv, serverEnv } from "@/lib/env";
+import { getSupabasePanelToken } from "@/lib/auth/supabase-token";
 import type { Database } from "./types";
 
 // ===========================================================================
@@ -21,14 +22,7 @@ export function getSupabaseServerClient(): SupabaseClient<Database> {
   scopedClient = createClient<Database>(
     clientEnv.NEXT_PUBLIC_SUPABASE_URL,
     clientEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    {
-      auth: { persistSession: false, autoRefreshToken: false },
-      global: {
-        headers: {
-          Authorization: `Bearer ${clientEnv.NEXT_PUBLIC_SUPABASE_CLIENT_JWT}`,
-        },
-      },
-    },
+    { accessToken: async () => getSupabasePanelToken().token },
   );
   return scopedClient;
 }
